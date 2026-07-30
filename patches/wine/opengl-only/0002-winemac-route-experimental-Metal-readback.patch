@@ -1,0 +1,34 @@
+From f0a1f2bb0dbb9d19c2b4592d8b609614012e9fe3 Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Tue, 28 Jul 2026 16:24:30 -0600
+Subject: [PATCH 2/2] winemac: route experimental Metal readback
+
+---
+ dlls/winemac.drv/opengl.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+index e2048aa..de0d635 100644
+--- a/dlls/winemac.drv/opengl.c
++++ b/dlls/winemac.drv/opengl.c
+@@ -2762,6 +2762,17 @@ static void *macdrv_get_proc_address(const char *name)
+ {
+     void *proc;
+ 
++    /*
++     * An experimental Metal draw owns its offscreen render target, so its
++     * glReadPixels implementation must read that same target.  The normal
++     * macdrv wrapper below reads Wine's legacy OpenGL drawable instead.
++     */
++    if (!strcmp(name, "glReadPixels") && metalsharp_opengl_handle &&
++        getenv("VKMT_OPENGL_METAL_EXPERIMENTAL") &&
++        !strcmp(getenv("VKMT_OPENGL_METAL_EXPERIMENTAL"), "1") &&
++        (proc = dlsym(metalsharp_opengl_handle, name)))
++        return proc;
++
+     /* redirect some standard OpenGL functions */
+     if (!strcmp(name, "glCopyPixels")) return macdrv_glCopyPixels;
+     if (!strcmp(name, "glGetString")) return macdrv_glGetString;
+-- 
+2.54.0 (Apple Git-157)
+

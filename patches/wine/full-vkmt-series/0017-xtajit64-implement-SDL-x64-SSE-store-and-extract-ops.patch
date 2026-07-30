@@ -1,0 +1,56 @@
+From 0805c29a251a9d47e6bc2edfc446f2847451090e Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Tue, 28 Jul 2026 11:38:49 -0600
+Subject: [PATCH 17/19] xtajit64: implement SDL x64 SSE store and extract ops
+
+---
+ dlls/xtajit64/vkmt/interp.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/dlls/xtajit64/vkmt/interp.c b/dlls/xtajit64/vkmt/interp.c
+index ce14482..77f0c8e 100644
+--- a/dlls/xtajit64/vkmt/interp.c
++++ b/dlls/xtajit64/vkmt/interp.c
+@@ -1564,6 +1564,39 @@ static BOOL exec_0f( struct vkmt_x64_context *ctx, const struct vkmt_insn *insn
+         else { xmm_get( ctx, insn->reg, buf ); set_rm128( ctx, insn, buf ); }
+         break;
+     }
++    case 0x2b:  /* movntps/movntpd xmm -> m128 */
++    case 0xe7:  /* movntdq xmm -> m128 */
++    {
++        BYTE buf[16];
++        if (insn->rm_is_reg || (op == 0xe7 && !(insn->pref & P_66)))
++        {
++            giveup_dump( ctx, insn->opcode, "unsupported non-temporal store form" );
++            return FALSE;
++        }
++        /*
++         * The interpreter has no separate cache-ordering model.  Perform the
++         * architecturally visible 128-bit store now; the existing sfence
++         * handling provides the required program-order boundary.
++         */
++        xmm_get( ctx, insn->reg, buf );
++        memcpy( (void *)(ULONG_PTR)insn->ea, buf, sizeof(buf) );
++        break;
++    }
++    case 0xc5:  /* pextrw r32, xmm, imm8 */
++    {
++        BYTE buf[16];
++        USHORT word;
++
++        if (!(insn->pref & P_66) || !insn->rm_is_reg)
++        {
++            giveup_dump( ctx, insn->opcode, "unsupported pextrw MMX/memory form" );
++            return FALSE;
++        }
++        xmm_get( ctx, insn->rm, buf );
++        memcpy( &word, buf + 2 * (insn->imm & 7), sizeof(USHORT) );
++        set_reg( ctx, insn->reg, 4, TRUE, word );
++        break;
++    }
+     case 0x2a:  /* cvtsi2ss/cvtsi2sd */
+     {
+         BYTE dst[16];
+-- 
+2.54.0 (Apple Git-157)
+

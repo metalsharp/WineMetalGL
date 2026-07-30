@@ -1,0 +1,164 @@
+From 683e0050cc9c20ec1924a8f4e6548b83059e600c Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Sun, 26 Jul 2026 23:55:11 -0600
+Subject: [PATCH 01/19] ntdll: route ARM64EC builtins through native ARM64
+ stage
+
+---
+ dlls/ntdll/loader.c      | 57 +++++++++++++++++++++++++++++++---------
+ dlls/ntdll/unix/loader.c |  3 +++
+ 2 files changed, 47 insertions(+), 13 deletions(-)
+
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 443b984..8bf5fae 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -43,6 +43,11 @@ WINE_DECLARE_DEBUG_CHANNEL(snoop);
+ WINE_DECLARE_DEBUG_CHANNEL(loaddll);
+ WINE_DECLARE_DEBUG_CHANNEL(imports);
+ 
++/* The AMD64 emulator provider is ARM64EC.  It is the sole non-ARM64X PE
++ * accepted while the ARM64X loader bootstraps an AMD64 main executable. */
++static BOOL loading_arm64ec_provider;
++static BOOL is_amd64_guest_process;
++
+ #ifdef _WIN64
+ #define DEFAULT_SECURITY_COOKIE_64  (((ULONGLONG)0x00002b99 << 32) | 0x2ddfa232)
+ #endif
+@@ -2516,8 +2521,12 @@ static BOOL is_valid_binary( HANDLE file, const SECTION_IMAGE_INFORMATION *info
+ {
+     if (info->Machine == current_machine) return TRUE;
+     if (NtCurrentTeb()->WowTebOffset) return TRUE;
+-    /* support ARM64EC binaries on x86-64 */
+-    if (current_machine == IMAGE_FILE_MACHINE_AMD64 && has_chpe_metadata( file, info )) return TRUE;
++    if (loading_arm64ec_provider && info->Machine == IMAGE_FILE_MACHINE_ARM64EC)
++        return TRUE;
++    /* ARM64X images report ARM64EC plus CHPE metadata.  They contain a native
++     * ARM64 slice as well, so accept them for both native ARM64 and x86-64. */
++    if ((current_machine == IMAGE_FILE_MACHINE_AMD64 || current_machine == IMAGE_FILE_MACHINE_ARM64) &&
++        has_chpe_metadata( file, info )) return TRUE;
+     /* support 32-bit IL-only images on 64-bit */
+     if (!info->ImageContainsCode) return TRUE;
+     if (info->ComPlusNativeReady) return TRUE;
+@@ -3148,6 +3157,7 @@ static NTSTATUS find_builtin_without_file( const WCHAR *name, UNICODE_STRING *ne
+                                            SECTION_IMAGE_INFORMATION *image_info, struct file_id *id )
+ {
+     const WCHAR *ext;
++    const WCHAR *builtin_pe_dir = pe_dir;
+     WCHAR dllpath[32];
+     DWORD i, len;
+     NTSTATUS status = STATUS_DLL_NOT_FOUND;
+@@ -3161,22 +3171,30 @@ static NTSTATUS find_builtin_without_file( const WCHAR *name, UNICODE_STRING *ne
+         if (!name[1] || wcscmp( name + wcslen(name) - 2, L"16" )) return status;
+     }
+ 
+-    if (!get_env_var( L"WINEBUILDDIR", 20 + 2 * wcslen(name) + wcslen(pe_dir), new_name ))
++    /* The build's runtime PE directory follows the AMD64 main image, but
++     * Wine's core DLLs for that guest must be ARM64X: their import targets
++     * enter native ARM64EC code.  xtajit64 itself is the separately staged
++     * ARM64EC provider. */
++    if (is_amd64_guest_process && wcscmp( name, L"xtajit64.dll" ))
++        builtin_pe_dir = L"\\aarch64-windows";
++
++    if (!get_env_var( L"WINEBUILDDIR", 20 + 2 * wcslen(name) + wcslen(builtin_pe_dir), new_name ))
+     {
+         len = new_name->Length;
+         RtlAppendUnicodeToString( new_name, L"\\dlls\\" );
+         RtlAppendUnicodeToString( new_name, name );
+         if ((ext = wcsrchr( name, '.' )) && !wcscmp( ext, L".dll" )) new_name->Length -= 4 * sizeof(WCHAR);
+-        RtlAppendUnicodeToString( new_name, pe_dir );
++        RtlAppendUnicodeToString( new_name, builtin_pe_dir );
+         RtlAppendUnicodeToString( new_name, L"\\" );
+         RtlAppendUnicodeToString( new_name, name );
+         status = open_dll_file( new_name, pwm, mapping, image_info, id );
++
+         if (status != STATUS_DLL_NOT_FOUND) goto done;
+ 
+         new_name->Length = len;
+         RtlAppendUnicodeToString( new_name, L"\\programs\\" );
+         RtlAppendUnicodeToString( new_name, name );
+-        RtlAppendUnicodeToString( new_name, pe_dir );
++        RtlAppendUnicodeToString( new_name, builtin_pe_dir );
+         RtlAppendUnicodeToString( new_name, L"\\" );
+         RtlAppendUnicodeToString( new_name, name );
+         status = open_dll_file( new_name, pwm, mapping, image_info, id );
+@@ -3187,9 +3205,9 @@ static NTSTATUS find_builtin_without_file( const WCHAR *name, UNICODE_STRING *ne
+     for (i = 0; ; i++)
+     {
+         swprintf( dllpath, ARRAY_SIZE(dllpath), L"WINEDLLDIR%u", i );
+-        if (get_env_var( dllpath, wcslen(pe_dir) + wcslen(name) + 1, new_name )) break;
++        if (get_env_var( dllpath, wcslen(builtin_pe_dir) + wcslen(name) + 1, new_name )) break;
+         len = new_name->Length;
+-        RtlAppendUnicodeToString( new_name, pe_dir );
++        RtlAppendUnicodeToString( new_name, builtin_pe_dir );
+         RtlAppendUnicodeToString( new_name, L"\\" );
+         RtlAppendUnicodeToString( new_name, name );
+         status = open_dll_file( new_name, pwm, mapping, image_info, id );
+@@ -4273,31 +4291,44 @@ static void open_known_dll_ntdir(void)
+ static void load_arm64ec_module(void)
+ {
+     ULONG buffer[16];
++    SECTION_IMAGE_INFORMATION image_info;
+     KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
+     UNICODE_STRING nameW = RTL_CONSTANT_STRING( L"\\Registry\\Machine\\Software\\Microsoft\\Wow64\\amd64" );
+-    WCHAR module[64] = L"C:\\windows\\system32\\xtajit64.dll";
++    WCHAR module[64] = L"xtajit64.dll";
+     OBJECT_ATTRIBUTES attr;
+     WINE_MODREF *wm;
+     NTSTATUS status;
+     HANDLE key;
+ 
++    /* An ARM64X ntdll also services native ARM64/ARM64EC processes.  Only an
++     * AMD64 main image requires the ARM64EC emulator provider. */
++    NtQueryInformationProcess( GetCurrentProcess(), ProcessImageInformation,
++                               &image_info, sizeof(image_info), NULL );
++    if (image_info.Machine != IMAGE_FILE_MACHINE_AMD64) return;
++    is_amd64_guest_process = TRUE;
++
+     InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, 0, NULL );
+     if (!NtOpenKey( &key, KEY_READ | KEY_WOW64_64KEY, &attr ))
+     {
+         UNICODE_STRING valueW = RTL_CONSTANT_STRING( L"" );
+-        ULONG dirlen = wcslen( L"C:\\windows\\system32\\" );
+         ULONG size = sizeof(buffer);
+ 
+         if (!NtQueryValueKey( key, &valueW, KeyValuePartialInformation, buffer, size, &size ) && info->Type == REG_SZ)
+         {
+-            size = sizeof(module) - (dirlen + 1) * sizeof(WCHAR);
+-            memcpy( module + dirlen, info->Data, min( info->DataLength, size ));
++            size = sizeof(module) - sizeof(WCHAR);
++            memcpy( module, info->Data, min( info->DataLength, size ));
++            module[ARRAY_SIZE(module) - 1] = 0;
+         }
+         NtClose( key );
+     }
+ 
+-    if ((status = load_dll( NULL, module, 0, &wm, FALSE )) ||
+-        (status = arm64ec_process_init( wm->ldr.DllBase )))
++    /* Use a DLL name rather than an absolute system32 path.  That keeps the
++     * normal installed-prefix lookup intact and permits the build-tree
++     * builtin resolver to find the ARM64EC provider before system32 exists. */
++    loading_arm64ec_provider = TRUE;
++    status = load_dll( NULL, module, 0, &wm, FALSE );
++    loading_arm64ec_provider = FALSE;
++    if (status || (status = arm64ec_process_init( wm->ldr.DllBase )))
+     {
+         ERR( "could not load %s, status %lx\n", debugstr_w(module), status );
+         NtTerminateProcess( GetCurrentProcess(), status );
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index c1321ce..e7573d1 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -275,6 +275,9 @@ static const char *get_pe_dir( WORD machine )
+     case IMAGE_FILE_MACHINE_AMD64: return "/x86_64-windows";
+     case IMAGE_FILE_MACHINE_ARMNT: return "/arm-windows";
+     case IMAGE_FILE_MACHINE_ARM64: return "/aarch64-windows";
++    /* ARM64EC PE modules use the native ARM64 Wine Unix side.  The PE
++     * artifacts are staged with the ARM64 set, not in a separate EC tree. */
++    case IMAGE_FILE_MACHINE_ARM64EC: return "/aarch64-windows";
+     default: return "";
+     }
+ }
+-- 
+2.54.0 (Apple Git-157)
+

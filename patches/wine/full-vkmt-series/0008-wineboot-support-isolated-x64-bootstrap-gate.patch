@@ -1,0 +1,53 @@
+From 3e4c606c3311e89b9439279d1012301ba0d9023c Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Mon, 27 Jul 2026 09:47:02 -0600
+Subject: [PATCH 08/19] wineboot: support isolated x64 bootstrap gate
+
+---
+ programs/wineboot/wineboot.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/programs/wineboot/wineboot.c b/programs/wineboot/wineboot.c
+index aa91d01..5bc9764 100644
+--- a/programs/wineboot/wineboot.c
++++ b/programs/wineboot/wineboot.c
+@@ -1697,6 +1697,13 @@ static void update_wineprefix( BOOL force )
+                     CloseHandle( process );
+                 }
+                 if (!machines[count].Machine) break;
++                if (machines[count].Machine == IMAGE_FILE_MACHINE_I386 &&
++                    getenv( "WINE_SKIP_I386_WOW64_INSTALL" ))
++                {
++                    TRACE( "skipping deferred i386 WoW64 installation\n" );
++                    count++;
++                    continue;
++                }
+                 if (machines[count].Native)
+                     process = start_rundll32( inf_path, L"DefaultInstall", IMAGE_FILE_MACHINE_TARGET_HOST );
+                 else
+@@ -1705,7 +1712,7 @@ static void update_wineprefix( BOOL force )
+             }
+             DestroyWindow( hwnd );
+         }
+-        install_root_pnp_devices();
++        if (!getenv( "WINE_BOOTSTRAP_MINIMAL" )) install_root_pnp_devices();
+         update_user_profile();
+ 
+         TRACE( "wine: configuration in %s has been updated.\n", debugstr_w(prettyprint_configdir()) );
+@@ -1916,8 +1923,11 @@ int __cdecl main( int argc, char *argv[] )
+ 
+     if (init || (kill && !restart))
+     {
+-        ProcessRunKeys( HKEY_LOCAL_MACHINE, L"RunServices", FALSE, FALSE );
+-        start_services_process();
++        if (!getenv( "WINE_BOOTSTRAP_MINIMAL" ))
++        {
++            ProcessRunKeys( HKEY_LOCAL_MACHINE, L"RunServices", FALSE, FALSE );
++            start_services_process();
++        }
+     }
+     if (init || update) update_wineprefix( update );
+ 
+-- 
+2.54.0 (Apple Git-157)
+

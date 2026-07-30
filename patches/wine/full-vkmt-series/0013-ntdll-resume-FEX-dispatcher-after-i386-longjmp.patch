@@ -1,0 +1,113 @@
+From 455e79ed3756e21dc3b03f1e60b310232d7cf84d Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Tue, 28 Jul 2026 02:15:48 -0600
+Subject: [PATCH 13/19] ntdll: resume FEX dispatcher after i386 longjmp
+
+---
+ dlls/ntdll/signal_arm64.c | 85 ++++++++++++++++++++++++++++++---------
+ 1 file changed, 67 insertions(+), 18 deletions(-)
+
+diff --git a/dlls/ntdll/signal_arm64.c b/dlls/ntdll/signal_arm64.c
+index 1245b1a..afde457 100644
+--- a/dlls/ntdll/signal_arm64.c
++++ b/dlls/ntdll/signal_arm64.c
+@@ -421,29 +421,78 @@ void CDECL RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
+ {
+     EXCEPTION_REGISTRATION_RECORD *teb_frame = NtCurrentTeb()->Tib.ExceptionList;
+ 
++    struct fex_recovery_state
++    {
++        ULONGLONG magic, armed, dispatcher_pc, guest_page_table, current_frame, callret_sp, returning_sp;
++        ULONGLONG unix_state_dst, unix_state_src, unix_state_size, unix_state_armed;
++    } *fex_recovery;
++    BOOL fex_resume = FALSE;
++
+     if (rec && rec->ExceptionCode == STATUS_LONGJUMP && rec->NumberParameters >= 1)
+     {
+         struct _JUMP_BUFFER *jmp = (struct _JUMP_BUFFER *)rec->ExceptionInformation[0];
+         int i;
+ 
+-        context->X19  = jmp->X19;
+-        context->X20  = jmp->X20;
+-        context->X21  = jmp->X21;
+-        context->X22  = jmp->X22;
+-        context->X23  = jmp->X23;
+-        context->X24  = jmp->X24;
+-        context->X25  = jmp->X25;
+-        context->X26  = jmp->X26;
+-        context->X27  = jmp->X27;
+-        context->X28  = jmp->X28;
+-        context->Fp   = jmp->Fp;
+-        context->Pc   = jmp->Lr;
+-        context->Sp   = jmp->Sp;
+-        context->Fpcr = jmp->Fpcr;
+-        context->Fpsr = jmp->Fpsr;
+-
+-        for (i = 0; i < 8; i++)
+-            context->V[8+i].D[0] = jmp->D[i];
++        TRACE( "FEX longjmp buffer=%p frame=%p lr=%p x19=%#lx x23=%#lx x24=%#lx\n", jmp,
++               (void *)jmp->Frame, (void *)jmp->Lr, (DWORD64)jmp->X19,
++               (DWORD64)jmp->X23, (DWORD64)jmp->X24 );
++
++        /* A native Wine Unix call may escape through a longjmp before the
++         * ARM64 i386 provider regains control.  Restore its saved outer CPU
++         * state before returning to wow64's cpu_simulate loop; the provider
++         * will then reload its private registers from this authoritative
++         * frame instead of resuming a nested callback's terminal state. */
++        fex_recovery = NtCurrentTeb()->TlsSlots[WOW64_TLS_FEX_RECOVER];
++        if (fex_recovery && fex_recovery->magic == 0x465845574f573634ULL &&
++            fex_recovery->armed && fex_recovery->dispatcher_pc && fex_recovery->current_frame &&
++            fex_recovery->guest_page_table && fex_recovery->returning_sp &&
++            (!fex_recovery->unix_state_armed ||
++             (fex_recovery->unix_state_dst && fex_recovery->unix_state_src &&
++              fex_recovery->unix_state_size <= 0x2000)))
++        {
++            if (fex_recovery->unix_state_armed)
++            {
++                memcpy( (void *)(ULONG_PTR)fex_recovery->unix_state_dst,
++                        (const void *)(ULONG_PTR)fex_recovery->unix_state_src,
++                        (SIZE_T)fex_recovery->unix_state_size );
++                fex_recovery->unix_state_armed = 0;
++            }
++
++            /* The longjmp saved native Wine registers, not the FEX JIT ABI.
++             * Resume at FEX's FillSRA dispatcher with its authoritative frame
++             * and pinned registers, so it reloads the completed i386 state
++             * instead of re-entering the Unix-call BOP or exception path. */
++            context->X19 = fex_recovery->guest_page_table;
++            context->X23 = fex_recovery->current_frame;
++            context->X25 = fex_recovery->callret_sp;
++            context->X1  = 0;
++            context->Pc  = fex_recovery->dispatcher_pc;
++            context->Sp  = fex_recovery->returning_sp;
++            fex_recovery->armed = 0;
++            fex_resume = TRUE;
++        }
++
++        if (!fex_resume)
++        {
++            context->X19  = jmp->X19;
++            context->X20  = jmp->X20;
++            context->X21  = jmp->X21;
++            context->X22  = jmp->X22;
++            context->X23  = jmp->X23;
++            context->X24  = jmp->X24;
++            context->X25  = jmp->X25;
++            context->X26  = jmp->X26;
++            context->X27  = jmp->X27;
++            context->X28  = jmp->X28;
++            context->Fp   = jmp->Fp;
++            context->Pc   = jmp->Lr;
++            context->Sp   = jmp->Sp;
++            context->Fpcr = jmp->Fpcr;
++            context->Fpsr = jmp->Fpsr;
++
++            for (i = 0; i < 8; i++)
++                context->V[8+i].D[0] = jmp->D[i];
++        }
+     }
+     else if (rec && rec->ExceptionCode == STATUS_UNWIND_CONSOLIDATE && rec->NumberParameters >= 1)
+     {
+-- 
+2.54.0 (Apple Git-157)
+

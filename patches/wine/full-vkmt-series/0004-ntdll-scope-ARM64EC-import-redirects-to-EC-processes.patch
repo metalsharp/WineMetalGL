@@ -1,0 +1,25 @@
+From e342ff5b1886a78b51d867064c55e8927aacafa8 Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Mon, 27 Jul 2026 01:38:03 -0600
+Subject: [PATCH 04/19] ntdll: scope ARM64EC import redirects to EC processes
+
+---
+ dlls/ntdll/loader.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 0817b7c..afe2a90 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1154,7 +1154,7 @@ static FARPROC redirect_arm64ec_import( HMODULE importer, HMODULE imported, FARP
+     ULONG_PTR rva;
+     int min, max;
+ 
+-    if (!proc) return NULL;
++    if (!proc || is_amd64_guest_process) return proc;
+     importer_cfg = RtlImageDirectoryEntryToData( importer, TRUE, IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                                   &importer_size );
+     imported_cfg = RtlImageDirectoryEntryToData( imported, TRUE, IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,45 @@
+From 07e6a94e02ace0fb2f0da76c2c60a170e1a64164 Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@Averys-MacBook-Air.local>
+Date: Mon, 27 Jul 2026 02:51:37 -0600
+Subject: [PATCH 06/19] win32u: make direct GDI and font fallback safe
+
+---
+ dlls/win32u/freetype.c | 4 ++++
+ dlls/win32u/gdiobj.c   | 6 ++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/dlls/win32u/freetype.c b/dlls/win32u/freetype.c
+index 832043a..ad6a589 100644
+--- a/dlls/win32u/freetype.c
++++ b/dlls/win32u/freetype.c
+@@ -2014,6 +2014,10 @@ static BOOL fontconfig_enum_family_fallbacks( UINT pitch_and_family, int index,
+     char *str;
+     DWORD len;
+ 
++    /* Fontconfig is optional at runtime.  If dlopen() failed, none of its
++     * function pointers are valid; use Wine's builtin fallback families. */
++    if (!fontconfig_enabled) return FALSE;
++
+     if ((pitch_and_family & FIXED_PITCH) || (pitch_and_family & 0xf0) == FF_MODERN) pat = create_family_pattern( "monospace", &pattern_fixed );
+     else if ((pitch_and_family & 0xf0) == FF_ROMAN) pat = create_family_pattern( "serif", &pattern_serif );
+     else pat = create_family_pattern( "sans", &pattern_sans );
+diff --git a/dlls/win32u/gdiobj.c b/dlls/win32u/gdiobj.c
+index e861dee..ebd699b 100644
+--- a/dlls/win32u/gdiobj.c
++++ b/dlls/win32u/gdiobj.c
+@@ -59,6 +59,12 @@ static inline GDI_HANDLE_ENTRY *handle_entry( HGDIOBJ handle )
+ {
+     unsigned int idx = LOWORD(handle);
+ 
++    /* Direct DXGI/D3D clients can reach a GDI syscall before user32 has
++     * initialized the client arrays.  At this point the Wine process is
++     * fully set up, so lazily create the shared table on first use. */
++    if (!gdi_shared) gdi_init();
++    if (!gdi_shared) return NULL;
++
+     if (idx < GDI_MAX_HANDLE_COUNT && gdi_shared->Handles[idx].Type)
+     {
+         if (!HIWORD( handle ) || HIWORD( handle ) == gdi_shared->Handles[idx].Unique)
+-- 
+2.54.0 (Apple Git-157)
+
