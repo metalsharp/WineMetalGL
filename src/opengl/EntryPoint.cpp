@@ -508,7 +508,7 @@ extern "C" void glCompileShader(uint32_t shader) {
 // Shader program objects (GL 2.0)
 // ---------------------------------------------------------------------------
 extern "C" uint32_t glCreateProgram() {
-    const char* experimental = std::getenv("VKMT_OPENGL_METAL_EXPERIMENTAL");
+    const char* experimental = std::getenv("WINEMETALGL_EXPERIMENTAL");
     if (experimental && std::strcmp(experimental, "1") == 0) {
         const uint32_t program = metalsharp::GLShaderTracker::instance().createProgram();
         if (program) {

@@ -15605,7 +15605,7 @@ index 01b4b03..e2048aa 100644
 +     * Keeping this as a dynamically loaded sidecar also gives us a precise
 +     * fallback when the staged runtime is incomplete or explicitly disabled.
 +     */
-+    metalsharp = getenv("VKMT_OPENGL_METAL");
++    metalsharp = getenv("WINEMETALGL");
 +    if (!metalsharp || strcmp(metalsharp, "0"))
 +    {
 +        metalsharp_opengl_handle = dlopen("@loader_path/metalsharp-opengl.dylib", RTLD_NOW | RTLD_LOCAL);
@@ -15614,7 +15614,7 @@ index 01b4b03..e2048aa 100644
 +        else
 +            WARN("MetalSharp OpenGL sidecar unavailable, using system OpenGL: %s\n", dlerror());
 +    }
-+    else TRACE("MetalSharp OpenGL sidecar disabled by VKMT_OPENGL_METAL=0\n");
++    else TRACE("WineMetalGL sidecar disabled by WINEMETALGL=0\n");
 +
      *driver_funcs = &macdrv_driver_funcs;
      return STATUS_SUCCESS;
@@ -15651,8 +15651,8 @@ index 01b4b03..e2048aa 100644
 +     */
 +    if (metalsharp_opengl_handle &&
 +        (strcmp(name, "glCreateShader") ||
-+         (getenv("VKMT_OPENGL_METAL_EXPERIMENTAL") &&
-+          !strcmp(getenv("VKMT_OPENGL_METAL_EXPERIMENTAL"), "1"))) &&
++         (getenv("WINEMETALGL_EXPERIMENTAL") &&
++          !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1"))) &&
 +        (proc = dlsym(metalsharp_opengl_handle, name)))
 +        return proc;
 +
@@ -15947,4 +15947,3 @@ index 0ade9e3..3ce6a2a 100644
              ci.cbSize      = ci32->cbSize;
 -- 
 2.54.0 (Apple Git-157)
-

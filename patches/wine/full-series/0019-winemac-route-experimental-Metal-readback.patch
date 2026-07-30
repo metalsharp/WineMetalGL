@@ -21,8 +21,8 @@ index e2048aa..de0d635 100644
 +     * macdrv wrapper below reads Wine's legacy OpenGL drawable instead.
 +     */
 +    if (!strcmp(name, "glReadPixels") && metalsharp_opengl_handle &&
-+        getenv("VKMT_OPENGL_METAL_EXPERIMENTAL") &&
-+        !strcmp(getenv("VKMT_OPENGL_METAL_EXPERIMENTAL"), "1") &&
++        getenv("WINEMETALGL_EXPERIMENTAL") &&
++        !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1") &&
 +        (proc = dlsym(metalsharp_opengl_handle, name)))
 +        return proc;
 +
@@ -31,4 +31,3 @@ index e2048aa..de0d635 100644
      if (!strcmp(name, "glGetString")) return macdrv_glGetString;
 -- 
 2.54.0 (Apple Git-157)
-
