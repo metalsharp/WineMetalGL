@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.6.0",
+  "release": "1.7.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",

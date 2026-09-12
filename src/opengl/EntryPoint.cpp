@@ -1751,7 +1751,7 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
         size_t bytes = static_cast<size_t>(width) * height * depth * 4u;
         std::vector<uint8_t> rgba(bytes, 0);
         if (data) std::memcpy(rgba.data(), data, bytes);
-        uint64_t handle = target == 0x806F ? g_metalRenderer.createTexture3D(width, height, depth, rgba.data()) : g_metalRenderer.createTexture(width * depth, height, rgba.data());
+        uint64_t handle = target == 0x806F ? g_metalRenderer.createTexture3D(width, height, depth, rgba.data()) : g_metalRenderer.createTexture2DArray(width, height, depth, rgba.data());
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.pixels = std::move(rgba);

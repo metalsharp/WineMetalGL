@@ -1,4 +1,4 @@
-# WineMetalGL 1.6.0 validation
+# WineMetalGL 1.7.0 validation
 
 Validation date: 2026-09-12
 
@@ -32,7 +32,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 4.50 Metal compile/link/draw/readback.
 - Program uniform/attribute interface reflection for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.
-- 2D and 3D texture upload, sampler state, and GLSL texture sampling.
+- 2D, 3D, and 2D-array texture upload, sampler state, and GLSL texture sampling.
 - Color-texture and renderbuffer FBO attachment, completeness, readback, and blit.
 - Multisample texture/renderbuffer fallback and readback.
 - Instanced drawing with a Metal depth attachment.
@@ -65,6 +65,7 @@ WINEMETALGL_MULTISAMPLE_OK
 WINEMETALGL_SYNC_OK
 WINEMETALGL_UBO_OK
 WINEMETALGL_TEXTURE3D_OK
+WINEMETALGL_TEXTURE_ARRAY_OK
 WINEMETALGL_CLEAR_OK
 WINEMETALGL_INSTANCED_OK
 WINEMETALGL_COMPUTE_OK

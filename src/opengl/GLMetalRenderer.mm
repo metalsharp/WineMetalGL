@@ -894,6 +894,27 @@ uint64_t GLMetalRenderer::createTexture3D(uint32_t width, uint32_t height, uint3
     return handle;
 }
 
+uint64_t GLMetalRenderer::createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data) {
+    if (!m_device || !width || !height || !layers) return 0;
+    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
+    descriptor.textureType = MTLTextureType2DArray;
+    descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    descriptor.width = width; descriptor.height = height; descriptor.depth = 1; descriptor.arrayLength = layers;
+    descriptor.mipmapLevelCount = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
+    if (!texture) return 0;
+    if (data) {
+        MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+        [texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:data bytesPerRow:width * 4 bytesPerImage:width * height * 4];
+        for (uint32_t layer = 1; layer < layers; ++layer)
+            [texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:static_cast<const uint8_t*>(data) + static_cast<size_t>(layer) * width * height * 4 bytesPerRow:width * 4 bytesPerImage:width * height * 4];
+    }
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    uint64_t handle = m_impl->nextTextureHandle++;
+    m_impl->textures[handle] = texture;
+    return handle;
+}
+
 void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     auto it = m_impl->textures.find(textureHandle);
