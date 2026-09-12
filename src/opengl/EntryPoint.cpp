@@ -104,6 +104,8 @@ struct ExperimentalSampler { uint32_t minFilter = 0x2601, magFilter = 0x2601, wr
 std::unordered_map<uint32_t, ExperimentalSampler> g_samplers;
 std::array<uint32_t, metalsharp::kMaxTextureUnits> g_samplerUnits{};
 uint32_t g_boundStorageBuffer = 0;
+uint32_t g_boundUniformBuffer = 0;
+std::array<uint32_t, 16> g_uniformBufferUnits{};
 uint32_t g_boundIndirectBuffer = 0;
 uint32_t g_currentVertexArray = 0;
 uint32_t g_activeTextureUnit = 0;
@@ -254,6 +256,11 @@ bool beginExperimentalDraw(uint32_t program) {
     g_metalRenderer.setClearDepth(g_glBridge.state().clearDepth);
     g_metalRenderer.beginRenderPassToTexture(colorTexture, passWidth, passHeight, true);
     g_metalRenderer.setViewport(0, 0, passWidth, passHeight);
+    for (uint32_t unit = 0; unit < g_uniformBufferUnits.size(); ++unit) {
+        std::lock_guard<std::mutex> resourceLock(g_bufferMutex);
+        auto buffer = g_buffers.find(g_uniformBufferUnits[unit]);
+        if (buffer != g_buffers.end()) g_metalRenderer.bindUniformBuffer(buffer->second.metalHandle, unit);
+    }
     for (uint32_t unit = 0; unit < g_textureUnits.size(); ++unit) {
         std::lock_guard<std::mutex> resourceLock(g_resourceMutex);
         auto texture = g_textures.find(g_textureUnits[unit]);
@@ -445,12 +452,14 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893;
     constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
+    constexpr uint32_t kGL_UNIFORM_BUFFER = 0x8A11;
     constexpr uint32_t kGL_DRAW_INDIRECT_BUFFER = 0x8F3F;
     const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
                               std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
     const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
                           target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer :
                           target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer :
+                          target == kGL_UNIFORM_BUFFER ? g_boundUniformBuffer :
                           target == kGL_DRAW_INDIRECT_BUFFER ? g_boundIndirectBuffer : 0;
     if (experimental && name && size > 0 && ensureMetalInit()) {
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
@@ -468,6 +477,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
 extern "C" void glBindBufferBase(uint32_t target, uint32_t index, uint32_t buffer) {
     glDispatch<void, uint32_t, uint32_t, uint32_t>("glBindBufferBase", target, index, buffer);
     if (target == 0x90D2 && index == 0) g_boundStorageBuffer = buffer;
+    if (target == 0x8A11 && index < g_uniformBufferUnits.size()) g_uniformBufferUnits[index] = buffer;
 }
 
 extern "C" void glGetBufferSubData(uint32_t target, int64_t offset, int64_t size, void* data) {
@@ -526,6 +536,7 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;         // GL_ARRAY_BUFFER
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893; // GL_ELEMENT_ARRAY_BUFFER
     constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
+    constexpr uint32_t kGL_UNIFORM_BUFFER = 0x8A11;
     constexpr uint32_t kGL_DRAW_INDIRECT_BUFFER = 0x8F3F;
     if (target == kGL_ARRAY_BUFFER) {
         g_glBridge.state().boundArrayBuffer = buffer;
@@ -533,6 +544,8 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
         g_glBridge.state().boundElementArrayBuffer = buffer;
     } else if (target == kGL_SHADER_STORAGE_BUFFER) {
         g_boundStorageBuffer = buffer;
+    } else if (target == kGL_UNIFORM_BUFFER) {
+        g_boundUniformBuffer = buffer;
     } else if (target == kGL_DRAW_INDIRECT_BUFFER) {
         g_boundIndirectBuffer = buffer;
     }

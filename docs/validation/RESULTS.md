@@ -1,4 +1,4 @@
-# WineMetalGL 0.9.0 validation
+# WineMetalGL 1.0.0 validation
 
 Validation date: 2026-09-12
 
@@ -36,6 +36,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Color-texture and renderbuffer FBO attachment, completeness, and readback.
 - Instanced drawing with a Metal depth attachment.
 - Compute shader dispatch with SSBO writeback on both guests.
+- Uniform-buffer object binding and reflection.
 - Compute `imageStore` to a 2D RGBA8 texture with FBO readback.
 - Arrays/elements indirect draw commands.
 - Basic fixed-function immediate-mode triangle rendering.
@@ -59,6 +60,7 @@ WINEMETALGL_GL33_TEXTURE_OK
 WINEMETALGL_FBO_OK
 WINEMETALGL_RENDERBUFFER_OK
 WINEMETALGL_SYNC_OK
+WINEMETALGL_UBO_OK
 WINEMETALGL_CLEAR_OK
 WINEMETALGL_INSTANCED_OK
 WINEMETALGL_COMPUTE_OK

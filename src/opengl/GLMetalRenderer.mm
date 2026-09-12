@@ -618,6 +618,14 @@ void GLMetalRenderer::bindComputeBuffer(uint64_t bufferHandle, uint32_t index) {
     if (it != m_impl->buffers.end()) [m_impl->currentComputeEncoder setBuffer:it->second offset:0 atIndex:index];
 }
 
+void GLMetalRenderer::bindUniformBuffer(uint64_t bufferHandle, uint32_t index) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->buffers.find(bufferHandle);
+    if (it == m_impl->buffers.end() || !m_impl->currentEncoder) return;
+    [m_impl->currentEncoder setVertexBuffer:it->second offset:0 atIndex:index];
+    [m_impl->currentEncoder setFragmentBuffer:it->second offset:0 atIndex:index];
+}
+
 void GLMetalRenderer::bindComputeTexture(uint64_t textureHandle, uint32_t index) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentComputeEncoder) return;

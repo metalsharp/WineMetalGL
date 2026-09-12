@@ -126,6 +126,7 @@ class GLMetalRenderer {
     /// Begin/dispatch a compute workload for a compute-only OpenGL program.
     void beginComputePass();
     void bindComputeBuffer(uint64_t bufferHandle, uint32_t index);
+    void bindUniformBuffer(uint64_t bufferHandle, uint32_t index);
     void bindComputeTexture(uint64_t textureHandle, uint32_t index);
     void dispatchCompute(uint32_t x, uint32_t y, uint32_t z);
     bool readBuffer(uint64_t bufferHandle, size_t offset, size_t size, void* data);
