@@ -18,6 +18,7 @@
 #include <array>
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
 #include <metalsharp/GLErrorTracker.h>
 #include <metalsharp/GLMetalRenderer.h>
 #include <metalsharp/GLShaderCache.h>
@@ -95,6 +96,15 @@ uint32_t g_boundStorageBuffer = 0;
 uint32_t g_boundIndirectBuffer = 0;
 uint32_t g_currentVertexArray = 0;
 uint32_t g_activeTextureUnit = 0;
+bool g_fixedRecording = false;
+uint32_t g_fixedPrimitive = 0;
+std::vector<float> g_fixedVertices;
+float g_fixedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+float g_fixedModelview[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+float g_fixedProjection[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+std::vector<std::array<float, 16>> g_fixedModelviewStack;
+std::vector<std::array<float, 16>> g_fixedProjectionStack;
+uint32_t g_fixedMatrixMode = 0x1700;
 
 bool metalModeEnabled() {
     const char* value = std::getenv("WINEMETALGL_EXPERIMENTAL");
@@ -311,8 +321,21 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 // ---------------------------------------------------------------------------
 // Vertex / immediate-mode pipeline (GL 1.0/1.1)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(void, glBegin, uint32_t, mode)
-GL_PASSTHROUGH0(void, glEnd)
+extern "C" void glBegin(uint32_t mode) {
+    if (metalModeEnabled()) { g_fixedRecording = true; g_fixedPrimitive = mode; g_fixedVertices.clear(); return; }
+    glDispatch<void, uint32_t>("glBegin", mode);
+}
+extern "C" void glEnd(void) {
+    if (g_fixedRecording) {
+        g_fixedRecording = false;
+        const uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
+        const uint32_t height = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
+        g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
+        g_metalRenderer.drawFixedFunction(g_fixedVertices.data(), g_fixedVertices.size() / 7, g_fixedPrimitive, width, height);
+        return;
+    }
+    glDispatch<void>("glEnd");
+}
 
 // ---------------------------------------------------------------------------
 // Buffers / state
@@ -1431,16 +1454,37 @@ GL_PASSTHROUGH1(unsigned char, glIsList, uint32_t, list)
 // ---------------------------------------------------------------------------
 // Immediate-mode vertex data (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(void, glVertex2f, float, x, float, y)
-GL_PASSTHROUGH3(void, glVertex3f, float, x, float, y, float, z)
-GL_PASSTHROUGH4(void, glVertex4f, float, x, float, y, float, z, float, w)
+static float* fixedCurrentMatrix() { return g_fixedMatrixMode == 0x1701 ? g_fixedProjection : g_fixedModelview; }
+static void fixedMultiply(float* out, const float* a, const float* b) {
+    float result[16] = {};
+    for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r)
+        for (int k = 0; k < 4; ++k) result[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+    std::memcpy(out, result, sizeof(result));
+}
+static void fixedVertex(float x, float y, float z, float w) {
+    if (g_fixedRecording) {
+        float mvp[16], input[4] = {x, y, z, w}, output[4] = {};
+        fixedMultiply(mvp, g_fixedProjection, g_fixedModelview);
+        for (int r = 0; r < 4; ++r) for (int k = 0; k < 4; ++k) output[r] += mvp[k * 4 + r] * input[k];
+        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], g_fixedColor[0], g_fixedColor[1], g_fixedColor[2], g_fixedColor[3]});
+    }
+}
+extern "C" void glVertex2f(float x, float y) { if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
+extern "C" void glVertex3f(float x, float y, float z) { if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
+extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
 GL_PASSTHROUGH3(void, glNormal3f, float, nx, float, ny, float, nz)
 GL_PASSTHROUGH1(void, glTexCoord1f, float, s)
 GL_PASSTHROUGH2(void, glTexCoord2f, float, s, float, t)
 GL_PASSTHROUGH3(void, glTexCoord3f, float, s, float, t, float, r)
 GL_PASSTHROUGH4(void, glTexCoord4f, float, s, float, t, float, r, float, q)
-GL_PASSTHROUGH3(void, glColor3ub, unsigned char, r, unsigned char, g, unsigned char, b)
-GL_PASSTHROUGH4(void, glColor4ub, unsigned char, r, unsigned char, g, unsigned char, b, unsigned char, a)
+extern "C" void glColor3ub(unsigned char r, unsigned char g, unsigned char b) {
+    if (g_fixedRecording) { g_fixedColor[0]=r/255.0f; g_fixedColor[1]=g/255.0f; g_fixedColor[2]=b/255.0f; g_fixedColor[3]=1.0f; return; }
+    glDispatch<void, unsigned char, unsigned char, unsigned char>("glColor3ub", r, g, b);
+}
+extern "C" void glColor4ub(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+    if (g_fixedRecording) { g_fixedColor[0]=r/255.0f; g_fixedColor[1]=g/255.0f; g_fixedColor[2]=b/255.0f; g_fixedColor[3]=a/255.0f; return; }
+    glDispatch<void, unsigned char, unsigned char, unsigned char, unsigned char>("glColor4ub", r, g, b, a);
+}
 GL_PASSTHROUGH2(void, glColorMaterial, uint32_t, face, uint32_t, mode)
 
 // ---------------------------------------------------------------------------
@@ -1470,21 +1514,27 @@ GL_PASSTHROUGH2(void, glClipPlane, uint32_t, plane, const double*, equation)
 // ---------------------------------------------------------------------------
 // Matrix stack (fixed pipeline, GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(void, glMatrixMode, uint32_t, mode)
-GL_PASSTHROUGH0(void, glLoadIdentity)
-GL_PASSTHROUGH6(void, glOrtho, double, l, double, r, double, b, double, t, double, n, double, f)
+extern "C" void glMatrixMode(uint32_t mode) { if (metalModeEnabled() && (mode == 0x1700 || mode == 0x1701)) g_fixedMatrixMode = mode; else glDispatch<void, uint32_t>("glMatrixMode", mode); }
+extern "C" void glLoadIdentity(void) { if (metalModeEnabled()) { float* m=fixedCurrentMatrix(); std::fill(m,m+16,0); m[0]=m[5]=m[10]=m[15]=1; } else glDispatch<void>("glLoadIdentity"); }
+extern "C" void glPushMatrix(void) { if (metalModeEnabled()) { auto& stack=g_fixedMatrixMode==0x1701?g_fixedProjectionStack:g_fixedModelviewStack; auto* m=fixedCurrentMatrix(); stack.emplace_back(); std::memcpy(stack.back().data(),m,sizeof(float)*16); } else glDispatch<void>("glPushMatrix"); }
+extern "C" void glPopMatrix(void) { if (metalModeEnabled()) { auto& stack=g_fixedMatrixMode==0x1701?g_fixedProjectionStack:g_fixedModelviewStack; if(!stack.empty()){std::memcpy(fixedCurrentMatrix(),stack.back().data(),sizeof(float)*16);stack.pop_back();} } else glDispatch<void>("glPopMatrix"); }
+extern "C" void glTranslatef(float x,float y,float z) { if (metalModeEnabled()){float t[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};float r[16];fixedMultiply(r,fixedCurrentMatrix(),t);std::memcpy(fixedCurrentMatrix(),r,sizeof(r));} else glDispatch<void,float,float,float>("glTranslatef",x,y,z); }
+extern "C" void glScalef(float x,float y,float z) { if (metalModeEnabled()){float t[16]={x,0,0,0,0,y,0,0,0,0,z,0,0,0,0,1};float r[16];fixedMultiply(r,fixedCurrentMatrix(),t);std::memcpy(fixedCurrentMatrix(),r,sizeof(r));} else glDispatch<void,float,float,float>("glScalef",x,y,z); }
+extern "C" void glRotatef(float angle,float x,float y,float z) { if (metalModeEnabled()){float rad=angle*0.0174532925199433f,c=std::cos(rad),s=std::sin(rad),len=std::sqrt(x*x+y*y+z*z);if(len){x/=len;y/=len;z/=len;}float t[16]={x*x*(1-c)+c,x*y*(1-c)+z*s,x*z*(1-c)-y*s,0,x*y*(1-c)-z*s,y*y*(1-c)+c,y*z*(1-c)+x*s,0,x*z*(1-c)+y*s,y*z*(1-c)-x*s,z*z*(1-c)+c,0,0,0,0,1};float r[16];fixedMultiply(r,fixedCurrentMatrix(),t);std::memcpy(fixedCurrentMatrix(),r,sizeof(r));} else glDispatch<void,float,float,float,float>("glRotatef",angle,x,y,z); }
+extern "C" void glOrtho(double l,double r,double b,double t,double n,double f) { if (metalModeEnabled()){float m[16]={float(2/(r-l)),0,0,0,0,float(2/(t-b)),0,0,0,0,float(-2/(f-n)),0,float(-(r+l)/(r-l)),float(-(t+b)/(t-b)),float(-(f+n)/(f-n)),1};float out[16];fixedMultiply(out,fixedCurrentMatrix(),m);std::memcpy(fixedCurrentMatrix(),out,sizeof(out));} else glDispatch<void,double,double,double,double,double,double>("glOrtho",l,r,b,t,n,f); }
 GL_PASSTHROUGH6(void, glFrustum, double, l, double, r, double, b, double, t, double, n, double, f)
-GL_PASSTHROUGH0(void, glPushMatrix)
-GL_PASSTHROUGH0(void, glPopMatrix)
-GL_PASSTHROUGH3(void, glTranslatef, float, x, float, y, float, z)
-GL_PASSTHROUGH4(void, glRotatef, float, angle, float, x, float, y, float, z)
-GL_PASSTHROUGH3(void, glScalef, float, x, float, y, float, z)
 
 // ---------------------------------------------------------------------------
 // Color (legacy)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH3(void, glColor3f, float, r, float, g, float, b)
-GL_PASSTHROUGH4(void, glColor4f, float, r, float, g, float, b, float, a)
+extern "C" void glColor3f(float r, float g, float b) {
+    if (g_fixedRecording) { g_fixedColor[0] = r; g_fixedColor[1] = g; g_fixedColor[2] = b; g_fixedColor[3] = 1.0f; return; }
+    glDispatch<void, float, float, float>("glColor3f", r, g, b);
+}
+extern "C" void glColor4f(float r, float g, float b, float a) {
+    if (g_fixedRecording) { g_fixedColor[0] = r; g_fixedColor[1] = g; g_fixedColor[2] = b; g_fixedColor[3] = a; return; }
+    glDispatch<void, float, float, float, float>("glColor4f", r, g, b, a);
+}
 
 // ---------------------------------------------------------------------------
 // Texture upload / readback

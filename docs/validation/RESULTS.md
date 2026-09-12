@@ -1,4 +1,4 @@
-# WineMetalGL 0.4.0 validation
+# WineMetalGL 0.5.0 validation
 
 Validation date: 2026-09-12
 
@@ -37,6 +37,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Compute shader dispatch with SSBO writeback on both guests.
 - Compute `imageStore` to a 2D RGBA8 texture with FBO readback.
 - Arrays/elements indirect draw commands.
+- Basic fixed-function immediate-mode triangle rendering.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
 
 Observed markers:
@@ -59,6 +60,7 @@ WINEMETALGL_INSTANCED_OK
 WINEMETALGL_COMPUTE_OK
 WINEMETALGL_IMAGE_OK
 WINEMETALGL_INDIRECT_OK
+WINEMETALGL_FIXED_OK
 ```
 
 The Wine log also reports:
@@ -73,6 +75,7 @@ which distinguishes the presented drawable from the legacy CGL fallback.
 
 This release does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
-tessellation, transform feedback, image formats beyond the validated 2D
-RGBA8 path, multi-draw indirect variants, the full
+tessellation, transform feedback, fixed-function lighting/matrices/display
+lists, image formats beyond the validated 2D RGBA8 path, multi-draw indirect
+variants, the full
 texture/sampler/FBO format matrix, and EGL/GLES remain explicitly unadvertised.

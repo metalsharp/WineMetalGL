@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "0.4.0",
+  "release": "0.5.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -56,7 +56,7 @@
     "compute shader dispatch with SSBO writeback",
     "compute imageStore with 2D rgba8 writeback",
     "arrays and elements indirect draw",
-    "sync/fence completion",
+    "basic fixed-function immediate-mode triangle path",
     "sampler object state",
     "real CAMetalLayer default-surface presentation",
     "x86_64 guest in WoW64",
@@ -65,7 +65,7 @@
   "not_advertised": [
     "complete Khronos OpenGL 4.6 conformance",
     "geometry/tessellation/transform-feedback emulation",
-    "image formats beyond 2D rgba8, multi-draw indirect variants",
+    "fixed-function lighting/matrix/display-list emulation, image formats beyond 2D rgba8, multi-draw indirect variants",
     "complete texture/sampler/FBO format matrix",
     "EGL/GLES entry points"
   ]

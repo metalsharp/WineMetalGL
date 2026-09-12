@@ -21,7 +21,8 @@ prefix; no ARM or universal artifacts are produced.
   float/normalized attributes, sampler texture upload/sub-upload, color
   texture FBOs, uniform slot storage, compute dispatch with SSBO/image
   writeback, deterministic clear/readback, and synchronized flush/finish.
-- Legacy GLSL 1.20 and fixed-function calls retain Wine's compatibility path.
+- Legacy GLSL 1.20 remains on Wine compatibility paths; experimental mode
+  provides a Metal-backed immediate-mode triangle path.
 
 The generated support manifest is `docs/api-coverage.json`. It deliberately
 separates exported/forwarded entry points from operations owned by Metal and

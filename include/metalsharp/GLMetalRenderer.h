@@ -97,6 +97,8 @@ class GLMetalRenderer {
     void drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances);
     void drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
                                size_t offset, uint32_t instances);
+    void drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
+                           uint32_t width, uint32_t height);
 
     /// Begin a render pass on the default framebuffer (FBO 0).
     /// If setMetalLayer() was called, the pass targets the current
