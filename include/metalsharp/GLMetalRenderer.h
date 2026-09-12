@@ -83,6 +83,8 @@ class GLMetalRenderer {
     /// Create a Metal buffer from raw vertex data.
     /// @return buffer handle (non-zero on success)
     uint64_t createBuffer(const void* data, size_t size);
+    bool updateBuffer(uint64_t bufferHandle, size_t offset, const void* data, size_t size);
+    void* bufferContents(uint64_t bufferHandle);
 
     /// Bind a vertex buffer at the given index.
     void bindVertexBuffer(uint64_t bufferHandle, size_t offset, uint32_t index);

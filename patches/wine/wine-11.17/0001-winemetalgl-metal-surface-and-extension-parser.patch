@@ -31,7 +31,7 @@ index 6ab3a03..5679212 100644
  }
 
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
-index 696734f..76ac59e 100644
+index 696734f..c7f11d2 100644
 --- a/dlls/winemac.drv/opengl.c
 +++ b/dlls/winemac.drv/opengl.c
 @@ -69,6 +69,10 @@ struct macdrv_context
@@ -148,7 +148,7 @@ index 696734f..76ac59e 100644
      TRACE("()\n");
 
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2616,130 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2616,135 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
 
  #undef LOAD_FUNCPTR
 
@@ -192,6 +192,11 @@ index 696734f..76ac59e 100644
 +            WINEMETALGL_BIND(glViewport);
 +            WINEMETALGL_BIND(glBindBuffer);
 +            WINEMETALGL_BIND(glBufferData);
++            WINEMETALGL_BIND(glBufferSubData);
++            WINEMETALGL_BIND(glMapBuffer);
++            WINEMETALGL_BIND(glUnmapBuffer);
++            WINEMETALGL_BIND(glMapBufferRange);
++            WINEMETALGL_BIND(glFlushMappedBufferRange);
 +            WINEMETALGL_BIND(glDrawArrays);
 +            WINEMETALGL_BIND(glDrawElements);
 +            WINEMETALGL_BIND(glDrawArraysInstanced);
@@ -279,7 +284,7 @@ index 696734f..76ac59e 100644
      dlclose(opengl_handle);
      opengl_handle = NULL;
      return STATUS_NOT_SUPPORTED;
-@@ -2662,6 +2841,8 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2662,6 +2846,8 @@ static BOOL macdrv_context_destroy(void *private)
 
      TRACE("deleting context %p/%p/%p\n", context, context->context, context->cglcontext);
 
@@ -288,7 +293,7 @@ index 696734f..76ac59e 100644
      macdrv_dispose_opengl_context(context->context);
      free(context);
      return TRUE;
-@@ -2669,13 +2850,31 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2669,13 +2855,31 @@ static BOOL macdrv_context_destroy(void *private)
 
  static void *macdrv_get_proc_address(const char *name)
  {
@@ -320,7 +325,7 @@ index 696734f..76ac59e 100644
      return dlsym(opengl_handle, name);
  }
 
-@@ -2686,6 +2885,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
+@@ -2686,6 +2890,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
      TRACE("%s context %p/%p/%p\n", debugstr_opengl_drawable(base), context, (context ? context->context : NULL),
            (context ? context->cglcontext : NULL));
 

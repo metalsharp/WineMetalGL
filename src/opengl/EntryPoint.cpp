@@ -471,9 +471,35 @@ extern "C" void glGetBufferSubData(uint32_t target, int64_t offset, int64_t size
     glDispatch<void, uint32_t, int64_t, int64_t, void*>("glGetBufferSubData", target, offset, size, data);
 }
 
-GL_PASSTHROUGH4(void, glBufferSubData, uint32_t, target, int64_t, offset, int64_t, size, const void*, data)
-GL_PASSTHROUGH2(void*, glMapBuffer, uint32_t, target, uint32_t, access)
-GL_PASSTHROUGH1(unsigned char, glUnmapBuffer, uint32_t, target)
+extern "C" void glBufferSubData(uint32_t target, int64_t offset, int64_t size, const void* data) {
+    uint32_t name = target == 0x8892 ? g_glBridge.state().boundArrayBuffer :
+                    target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer :
+                    target == 0x90D2 ? g_boundStorageBuffer :
+                    target == 0x8F3F ? g_boundIndirectBuffer : 0;
+    if (metalModeEnabled() && name && offset >= 0 && size >= 0) {
+        uint64_t handle = 0;
+        { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(name); if (it != g_buffers.end()) handle = it->second.metalHandle; }
+        if (handle && g_metalRenderer.updateBuffer(handle, static_cast<size_t>(offset), data, static_cast<size_t>(size))) return;
+    }
+    glDispatch<void, uint32_t, int64_t, int64_t, const void*>("glBufferSubData", target, offset, size, data);
+}
+extern "C" void* glMapBuffer(uint32_t target, uint32_t access) {
+    if (metalModeEnabled()) {
+        uint32_t name = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : 0;
+        uint64_t handle = 0; { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(name); if(it!=g_buffers.end()) handle=it->second.metalHandle; }
+        if (handle) return g_metalRenderer.bufferContents(handle);
+    }
+    return glDispatch<void*, uint32_t, uint32_t>("glMapBuffer", target, access);
+}
+extern "C" unsigned char glUnmapBuffer(uint32_t target) {
+    if (metalModeEnabled()) return 1;
+    return glDispatch<unsigned char, uint32_t>("glUnmapBuffer", target);
+}
+extern "C" void* glMapBufferRange(uint32_t target, int64_t offset, int64_t length, uint32_t access) {
+    void* base = glMapBuffer(target, access);
+    return base ? static_cast<uint8_t*>(base) + offset : nullptr;
+}
+GL_PASSTHROUGH3(void, glFlushMappedBufferRange, uint32_t, target, int64_t, offset, int64_t, length)
 GL_PASSTHROUGH1(unsigned char, glIsBuffer, uint32_t, buffer)
 
 // glBindBuffer is hand-written because it must mirror the binding into

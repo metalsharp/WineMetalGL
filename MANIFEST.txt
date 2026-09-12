@@ -58,6 +58,7 @@ tests/wine/opengl_load_probe.c
 tests/wine/opengl_renderbuffer.c
 tests/wine/opengl_runtime.c
 tests/wine/opengl_runtime_probe.c
+tests/wine/opengl_sync.c
 tests/wine/probe-opengl-wow64.sh
 vendor/SPIRV-Cross/.clang-format
 vendor/SPIRV-Cross/.github/workflows/main.yml

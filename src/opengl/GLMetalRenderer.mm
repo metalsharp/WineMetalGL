@@ -291,6 +291,21 @@ uint64_t GLMetalRenderer::createBuffer(const void* data, size_t size) {
     return handle;
 }
 
+bool GLMetalRenderer::updateBuffer(uint64_t bufferHandle, size_t offset, const void* data, size_t size) {
+    if (!data) return false;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->buffers.find(bufferHandle);
+    if (it == m_impl->buffers.end() || offset + size > it->second.length) return false;
+    std::memcpy(static_cast<uint8_t*>(it->second.contents) + offset, data, size);
+    return true;
+}
+
+void* GLMetalRenderer::bufferContents(uint64_t bufferHandle) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->buffers.find(bufferHandle);
+    return it == m_impl->buffers.end() ? nullptr : it->second.contents;
+}
+
 void GLMetalRenderer::bindVertexBuffer(uint64_t bufferHandle, size_t offset, uint32_t index) {
     if (!m_impl->currentEncoder)
         return;

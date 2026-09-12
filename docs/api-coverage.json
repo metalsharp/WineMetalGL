@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "0.7.0",
+  "release": "0.8.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -25,7 +25,7 @@
     },
     "gl_resources": {
       "metal_owned": [
-        "glGenBuffers", "glBindBuffer", "glBufferData", "glVertexAttribPointer",
+        "glGenBuffers", "glBindBuffer", "glBufferData", "glBufferSubData", "glMapBuffer", "glVertexAttribPointer",
         "glEnableVertexAttribArray", "glDrawArrays", "glDrawElements",
         "glUniform1f", "glUniform2f", "glUniform3f", "glUniform4f",
         "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i",
