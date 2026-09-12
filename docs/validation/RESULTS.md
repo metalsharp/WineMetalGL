@@ -1,4 +1,4 @@
-# WineMetalGL 0.8.0 validation
+# WineMetalGL 0.9.0 validation
 
 Validation date: 2026-09-12
 
@@ -30,6 +30,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 1.20 compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback.
+- Program uniform/attribute interface reflection for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.
 - Texture upload, sampler state, and GLSL texture sampling.
 - Color-texture and renderbuffer FBO attachment, completeness, and readback.

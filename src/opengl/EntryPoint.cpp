@@ -53,7 +53,11 @@ struct ExperimentalProgram {
     bool linkSuccess = false;
     std::string infoLog;
     std::unordered_map<std::string, int32_t> uniformLocations;
+    std::unordered_map<std::string, uint32_t> uniformTypes;
+    std::vector<std::string> uniformOrder;
     std::unordered_map<std::string, int32_t> attributeLocations;
+    std::unordered_map<std::string, uint32_t> attributeTypes;
+    std::vector<std::string> attributeOrder;
     std::unordered_map<int32_t, std::vector<uint8_t>> uniformValues;
 };
 
@@ -153,8 +157,11 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
                 if (terminator != std::string::npos) name.resize(terminator);
                 const size_t array = name.find('[');
                 if (array != std::string::npos) name.resize(array);
-                if (!name.empty() && !program.uniformLocations.count(name))
+                if (!name.empty() && !program.uniformLocations.count(name)) {
                     program.uniformLocations[name] = static_cast<int32_t>(program.uniformLocations.size());
+                    uint32_t glType = type == "sampler2D" ? 0x8B5E : type == "int" ? 0x1404 : type == "vec2" ? 0x8B50 : type == "vec3" ? 0x8B51 : type == "vec4" ? 0x8B52 : 0x1406;
+                    program.uniformTypes[name] = glType; program.uniformOrder.push_back(name);
+                }
             }
         }
         if (!vertexStage) continue;
@@ -173,7 +180,8 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
             const size_t equals = line.find('=', layout);
             if (equals != std::string::npos) location = std::strtol(line.c_str() + equals + 1, nullptr, 10);
         }
-        program.attributeLocations[name] = location;
+        uint32_t glType = type == "vec2" ? 0x8B50 : type == "vec3" ? 0x8B51 : type == "vec4" ? 0x8B52 : 0x1406;
+        program.attributeLocations[name] = location; program.attributeTypes[name] = glType; program.attributeOrder.push_back(name);
     }
 }
 
@@ -1327,10 +1335,18 @@ extern "C" void glUniformMatrix3fv(int32_t location, int32_t count, unsigned cha
 extern "C" void glUniformMatrix4fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
     if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 16 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix4fv", location, count, transpose, value);
 }
-GL_PASSTHROUGH3(void, glGetUniformfv, uint32_t, program, int32_t, location, float*, params)
-GL_PASSTHROUGH3(void, glGetUniformiv, uint32_t, program, int32_t, location, int32_t*, params)
-GL_PASSTHROUGH7(void, glGetActiveUniform, uint32_t, program, uint32_t, index, int32_t, bufSize, int32_t*, length,
-                int32_t*, size, uint32_t*, type, char*, name)
+extern "C" void glGetUniformfv(uint32_t program, int32_t location, float* params) {
+    if (isExperimentalProgram(program)) { std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it!=g_programs.end()){auto v=it->second.uniformValues.find(location);if(v!=it->second.uniformValues.end()&&params)std::memcpy(params,v->second.data(),v->second.size());} return; }
+    glDispatch<void,uint32_t,int32_t,float*>("glGetUniformfv",program,location,params);
+}
+extern "C" void glGetUniformiv(uint32_t program, int32_t location, int32_t* params) {
+    if (isExperimentalProgram(program)) { std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it!=g_programs.end()){auto v=it->second.uniformValues.find(location);if(v!=it->second.uniformValues.end()&&params)std::memcpy(params,v->second.data(),v->second.size());} return; }
+    glDispatch<void,uint32_t,int32_t,int32_t*>("glGetUniformiv",program,location,params);
+}
+extern "C" void glGetActiveUniform(uint32_t program, uint32_t index, int32_t bufSize, int32_t* length, int32_t* size, uint32_t* type, char* name) {
+    if (!isExperimentalProgram(program)) { glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,int32_t*,uint32_t*,char*>("glGetActiveUniform",program,index,bufSize,length,size,type,name); return; }
+    std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it==g_programs.end()||index>=it->second.uniformOrder.size()){if(length)*length=0;return;} const auto& n=it->second.uniformOrder[index]; int32_t copied=bufSize>0?std::min<int32_t>(bufSize-1,n.size()):0; if(name&&bufSize>0){std::memcpy(name,n.data(),copied);name[copied]=0;} if(length)*length=copied;if(size)*size=1;if(type)*type=it->second.uniformTypes[n];
+}
 
 // ---------------------------------------------------------------------------
 // Vertex attribute location queries (GL 2.0)
@@ -1354,8 +1370,10 @@ extern "C" void glBindAttribLocation(uint32_t program, uint32_t index, const cha
     std::lock_guard<std::mutex> lock(g_programMutex);
     g_programs[program].attributeLocations[name] = static_cast<int32_t>(index);
 }
-GL_PASSTHROUGH7(void, glGetActiveAttrib, uint32_t, program, uint32_t, index, int32_t, bufSize, int32_t*, length,
-                int32_t*, size, uint32_t*, type, char*, name)
+extern "C" void glGetActiveAttrib(uint32_t program, uint32_t index, int32_t bufSize, int32_t* length, int32_t* size, uint32_t* type, char* name) {
+    if (!isExperimentalProgram(program)) { glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,int32_t*,uint32_t*,char*>("glGetActiveAttrib",program,index,bufSize,length,size,type,name); return; }
+    std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it==g_programs.end()||index>=it->second.attributeOrder.size()){if(length)*length=0;return;} const auto& n=it->second.attributeOrder[index]; int32_t copied=bufSize>0?std::min<int32_t>(bufSize-1,n.size()):0; if(name&&bufSize>0){std::memcpy(name,n.data(),copied);name[copied]=0;} if(length)*length=copied;if(size)*size=1;if(type)*type=it->second.attributeTypes[n];
+}
 
 // ---------------------------------------------------------------------------
 // Rasterization state (GL 1.0)
