@@ -117,6 +117,13 @@ bool g_fixedLighting = false;
 bool g_fixedLight0 = false;
 bool g_fixedTextureEnabled = false;
 float g_fixedTexcoord[2] = {0.0f, 0.0f};
+enum class FixedCommandKind { Begin, End, Vertex, Color, TexCoord, Normal, MatrixMode, LoadIdentity, PushMatrix, PopMatrix, Translate, Rotate, Scale };
+struct FixedCommand { FixedCommandKind kind; uint32_t mode = 0; float values[4] = {}; };
+std::unordered_map<uint32_t, std::vector<FixedCommand>> g_fixedLists;
+bool g_listCompiling = false;
+bool g_listExecute = false;
+uint32_t g_listId = 0;
+uint32_t g_nextFixedList = 1;
 float g_fixedNormal[3] = {0.0f, 0.0f, 1.0f};
 float g_fixedLightPosition[4] = {0.0f, 0.0f, 1.0f, 0.0f};
 float g_fixedLightAmbient[4] = {0.2f, 0.2f, 0.2f, 1.0f};
@@ -356,14 +363,40 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 
 } // namespace
 
+extern "C" void glBegin(uint32_t);
+extern "C" void glEnd(void);
+extern "C" void glVertex2f(float, float);
+extern "C" void glVertex3f(float, float, float);
+extern "C" void glVertex4f(float, float, float, float);
+extern "C" void glColor3f(float, float, float);
+extern "C" void glColor4f(float, float, float, float);
+extern "C" void glTexCoord2f(float, float);
+extern "C" void glNormal3f(float, float, float);
+extern "C" void glMatrixMode(uint32_t);
+extern "C" void glLoadIdentity(void);
+extern "C" void glPushMatrix(void);
+extern "C" void glPopMatrix(void);
+extern "C" void glTranslatef(float, float, float);
+extern "C" void glRotatef(float, float, float, float);
+extern "C" void glScalef(float, float, float);
+
+static void recordFixed(FixedCommandKind kind, uint32_t mode, std::initializer_list<float> values = {}) {
+    if (!g_listCompiling) return;
+    FixedCommand command; command.kind = kind; command.mode = mode;
+    size_t i = 0; for (float value : values) if (i < 4) command.values[i++] = value;
+    g_fixedLists[g_listId].push_back(command);
+}
+
 // ---------------------------------------------------------------------------
 // Vertex / immediate-mode pipeline (GL 1.0/1.1)
 // ---------------------------------------------------------------------------
 extern "C" void glBegin(uint32_t mode) {
+    if (g_listCompiling) { recordFixed(FixedCommandKind::Begin, mode); if (!g_listExecute) return; }
     if (metalModeEnabled()) { g_fixedRecording = true; g_fixedPrimitive = mode; g_fixedVertices.clear(); return; }
     glDispatch<void, uint32_t>("glBegin", mode);
 }
 extern "C" void glEnd(void) {
+    if (g_listCompiling) { recordFixed(FixedCommandKind::End, 0); if (!g_listExecute) return; }
     if (g_fixedRecording) {
         g_fixedRecording = false;
         const uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
@@ -1531,13 +1564,38 @@ GL_PASSTHROUGH2(void, glHint, uint32_t, target, uint32_t, mode)
 // ---------------------------------------------------------------------------
 // Display lists (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(uint32_t, glGenLists, int32_t, range)
-GL_PASSTHROUGH2(void, glNewList, uint32_t, list, uint32_t, mode)
-GL_PASSTHROUGH0(void, glEndList)
-GL_PASSTHROUGH1(void, glCallList, uint32_t, list)
+extern "C" uint32_t glGenLists(int32_t range) {
+    if (!metalModeEnabled()) return glDispatch<uint32_t, int32_t>("glGenLists", range);
+    if (range <= 0) return 0; uint32_t first = g_nextFixedList; g_nextFixedList += static_cast<uint32_t>(range); return first;
+}
+extern "C" void glNewList(uint32_t list, uint32_t mode) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t,uint32_t>("glNewList",list,mode); return; }
+    g_listId=list; g_fixedLists[list].clear(); g_listCompiling=true; g_listExecute=(mode==0x1301);
+}
+extern "C" void glEndList(void) {
+    if (!metalModeEnabled()) { glDispatch<void>("glEndList"); return; }
+    g_listCompiling=false; g_listExecute=false; g_listId=0;
+}
+extern "C" void glCallList(uint32_t list) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glCallList",list); return; }
+    auto it=g_fixedLists.find(list); if(it==g_fixedLists.end()) return;
+    bool wasCompiling=g_listCompiling; g_listCompiling=false;
+    for(const auto& c:it->second) switch(c.kind) {
+    case FixedCommandKind::Begin: glBegin(c.mode); break; case FixedCommandKind::End: glEnd(); break;
+    case FixedCommandKind::Vertex: glVertex4f(c.values[0],c.values[1],c.values[2],c.values[3]); break;
+    case FixedCommandKind::Color: glColor4f(c.values[0],c.values[1],c.values[2],c.values[3]); break;
+    case FixedCommandKind::TexCoord: glTexCoord2f(c.values[0],c.values[1]); break;
+    case FixedCommandKind::Normal: glNormal3f(c.values[0],c.values[1],c.values[2]); break;
+    default: break;
+    }
+    g_listCompiling=wasCompiling;
+}
 GL_PASSTHROUGH3(void, glCallLists, int32_t, n, uint32_t, type, const void*, lists)
-GL_PASSTHROUGH2(void, glDeleteLists, uint32_t, list, int32_t, range)
-GL_PASSTHROUGH1(unsigned char, glIsList, uint32_t, list)
+extern "C" void glDeleteLists(uint32_t list, int32_t range) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t,int32_t>("glDeleteLists",list,range); return; }
+    for(int32_t i=0;i<range;++i) g_fixedLists.erase(list+static_cast<uint32_t>(i));
+}
+extern "C" unsigned char glIsList(uint32_t list) { if (metalModeEnabled()) return g_fixedLists.count(list)!=0; return glDispatch<unsigned char,uint32_t>("glIsList",list); }
 
 // ---------------------------------------------------------------------------
 // Immediate-mode vertex data (GL 1.0)
@@ -1567,11 +1625,11 @@ static void fixedVertex(float x, float y, float z, float w) {
         g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3], g_fixedTexcoord[0], g_fixedTexcoord[1]});
     }
 }
-extern "C" void glVertex2f(float x, float y) { if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
-extern "C" void glVertex3f(float x, float y, float z) { if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
-extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
-extern "C" void glTexCoord1f(float s) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=0; } else glDispatch<void,float>("glTexCoord1f",s); }
-extern "C" void glTexCoord2f(float s,float t) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float>("glTexCoord2f",s,t); }
+extern "C" void glVertex2f(float x, float y) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,0,1}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
+extern "C" void glVertex3f(float x, float y, float z) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,z,1}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
+extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,z,w}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
+extern "C" void glTexCoord1f(float s) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,0}); if (!g_listExecute) return; } if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=0; } else glDispatch<void,float>("glTexCoord1f",s); }
+extern "C" void glTexCoord2f(float s,float t) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,t}); if (!g_listExecute) return; } if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float>("glTexCoord2f",s,t); }
 extern "C" void glTexCoord3f(float s,float t,float r) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float,float>("glTexCoord3f",s,t,r); }
 extern "C" void glTexCoord4f(float s,float t,float r,float q) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float,float,float>("glTexCoord4f",s,t,r,q); }
 extern "C" void glColor3ub(unsigned char r, unsigned char g, unsigned char b) {
@@ -1588,6 +1646,7 @@ GL_PASSTHROUGH2(void, glColorMaterial, uint32_t, face, uint32_t, mode)
 // Lighting / material (GL 1.0)
 // ---------------------------------------------------------------------------
 extern "C" void glNormal3f(float x, float y, float z) {
+    if (g_listCompiling) { recordFixed(FixedCommandKind::Normal,0,{x,y,z}); if (!g_listExecute) return; }
     if (g_fixedRecording) { g_fixedNormal[0]=x; g_fixedNormal[1]=y; g_fixedNormal[2]=z; return; }
     glDispatch<void, float, float, float>("glNormal3f", x, y, z);
 }
@@ -1638,10 +1697,12 @@ GL_PASSTHROUGH6(void, glFrustum, double, l, double, r, double, b, double, t, dou
 // Color (legacy)
 // ---------------------------------------------------------------------------
 extern "C" void glColor3f(float r, float g, float b) {
+    if (g_listCompiling) { recordFixed(FixedCommandKind::Color,0,{r,g,b,1}); if (!g_listExecute) return; }
     if (g_fixedRecording) { g_fixedColor[0] = r; g_fixedColor[1] = g; g_fixedColor[2] = b; g_fixedColor[3] = 1.0f; return; }
     glDispatch<void, float, float, float>("glColor3f", r, g, b);
 }
 extern "C" void glColor4f(float r, float g, float b, float a) {
+    if (g_listCompiling) { recordFixed(FixedCommandKind::Color,0,{r,g,b,a}); if (!g_listExecute) return; }
     if (g_fixedRecording) { g_fixedColor[0] = r; g_fixedColor[1] = g; g_fixedColor[2] = b; g_fixedColor[3] = a; return; }
     glDispatch<void, float, float, float, float>("glColor4f", r, g, b, a);
 }
