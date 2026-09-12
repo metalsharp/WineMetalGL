@@ -100,7 +100,9 @@ class GLMetalRenderer {
     void drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
                                size_t offset, uint32_t instances);
     void drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
-                           uint32_t width, uint32_t height);
+                           uint32_t width, uint32_t height, uint64_t textureHandle = 0,
+                           uint32_t minFilter = 0x2601, uint32_t magFilter = 0x2601,
+                           uint32_t wrapS = 0x2901, uint32_t wrapT = 0x2901);
 
     /// Begin a render pass on the default framebuffer (FBO 0).
     /// If setMetalLayer() was called, the pass targets the current

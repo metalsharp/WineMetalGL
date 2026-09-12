@@ -23,7 +23,7 @@ prefix; no ARM or universal artifacts are produced.
   SSBO/image writeback, uniform-buffer bindings, deterministic clear/readback,
   and synchronized flush/finish.
 - Legacy GLSL 1.20 remains on Wine compatibility paths; experimental mode
-  provides a Metal-backed immediate-mode triangle path.
+  provides a Metal-backed immediate-mode triangle and 2D texture path.
 
 The generated support manifest is `docs/api-coverage.json`. It deliberately
 separates exported/forwarded entry points from operations owned by Metal and

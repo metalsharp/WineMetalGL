@@ -47,6 +47,7 @@ tests/native/probe-metalsharp-opengl.sh
 tests/wine/opengl_clear_metal.c
 tests/wine/opengl_compute.c
 tests/wine/opengl_fixed.c
+tests/wine/opengl_fixed_texture.c
 tests/wine/opengl_gl33_fbo.c
 tests/wine/opengl_gl33_instanced.c
 tests/wine/opengl_gl33_metal.c

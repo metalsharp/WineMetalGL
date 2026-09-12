@@ -1,4 +1,4 @@
-# WineMetalGL 1.0.0 validation
+# WineMetalGL 1.1.0 validation
 
 Validation date: 2026-09-12
 
@@ -39,7 +39,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Uniform-buffer object binding and reflection.
 - Compute `imageStore` to a 2D RGBA8 texture with FBO readback.
 - Arrays/elements indirect draw commands.
-- Basic fixed-function immediate-mode triangle rendering.
+- Basic fixed-function immediate-mode triangle and texture rendering.
 - Sync/fence completion behavior.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
 
@@ -67,6 +67,7 @@ WINEMETALGL_COMPUTE_OK
 WINEMETALGL_IMAGE_OK
 WINEMETALGL_INDIRECT_OK
 WINEMETALGL_FIXED_OK
+WINEMETALGL_FIXED_TEXTURE_OK
 ```
 
 The Wine log also reports:

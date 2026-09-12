@@ -115,6 +115,8 @@ std::vector<float> g_fixedVertices;
 float g_fixedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 bool g_fixedLighting = false;
 bool g_fixedLight0 = false;
+bool g_fixedTextureEnabled = false;
+float g_fixedTexcoord[2] = {0.0f, 0.0f};
 float g_fixedNormal[3] = {0.0f, 0.0f, 1.0f};
 float g_fixedLightPosition[4] = {0.0f, 0.0f, 1.0f, 0.0f};
 float g_fixedLightAmbient[4] = {0.2f, 0.2f, 0.2f, 1.0f};
@@ -367,7 +369,9 @@ extern "C" void glEnd(void) {
         const uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
         const uint32_t height = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
         g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
-        g_metalRenderer.drawFixedFunction(g_fixedVertices.data(), g_fixedVertices.size() / 7, g_fixedPrimitive, width, height);
+        uint64_t textureHandle = 0; uint32_t minFilter=0x2601, magFilter=0x2601, wrapS=0x2901, wrapT=0x2901;
+        if (g_fixedTextureEnabled) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture=g_textures.find(g_textureUnits[0]); if(texture!=g_textures.end()){textureHandle=texture->second.metalHandle;minFilter=texture->second.minFilter;magFilter=texture->second.magFilter;wrapS=texture->second.wrapS;wrapT=texture->second.wrapT;} }
+        g_metalRenderer.drawFixedFunction(g_fixedVertices.data(), g_fixedVertices.size() / 9, g_fixedPrimitive, width, height, textureHandle, minFilter, magFilter, wrapS, wrapT);
         return;
     }
     glDispatch<void>("glEnd");
@@ -417,6 +421,7 @@ extern "C" void glEnable(uint32_t cap) {
     if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = true;
     if (cap == 0x0B50) g_fixedLighting = true;
     if (cap == 0x4000) g_fixedLight0 = true;
+    if (cap == 0x0DE1) g_fixedTextureEnabled = true;
 }
 extern "C" void glDisable(uint32_t cap) {
     glDispatch<void, uint32_t>("glDisable", cap);
@@ -424,6 +429,7 @@ extern "C" void glDisable(uint32_t cap) {
     if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = false;
     if (cap == 0x0B50) g_fixedLighting = false;
     if (cap == 0x4000) g_fixedLight0 = false;
+    if (cap == 0x0DE1) g_fixedTextureEnabled = false;
 }
 extern "C" void glBlendFunc(uint32_t sfactor, uint32_t dfactor) {
     glDispatch<void, uint32_t, uint32_t>("glBlendFunc", sfactor, dfactor);
@@ -1558,16 +1564,16 @@ static void fixedVertex(float x, float y, float z, float w) {
             for (int i = 0; i < 3; ++i) color[i] = std::min(1.0f, g_fixedLightAmbient[i] + g_fixedMaterialDiffuse[i] * g_fixedLightDiffuse[i] * diffuse);
             color[3] = g_fixedMaterialDiffuse[3];
         }
-        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3]});
+        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3], g_fixedTexcoord[0], g_fixedTexcoord[1]});
     }
 }
 extern "C" void glVertex2f(float x, float y) { if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
 extern "C" void glVertex3f(float x, float y, float z) { if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
 extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
-GL_PASSTHROUGH1(void, glTexCoord1f, float, s)
-GL_PASSTHROUGH2(void, glTexCoord2f, float, s, float, t)
-GL_PASSTHROUGH3(void, glTexCoord3f, float, s, float, t, float, r)
-GL_PASSTHROUGH4(void, glTexCoord4f, float, s, float, t, float, r, float, q)
+extern "C" void glTexCoord1f(float s) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=0; } else glDispatch<void,float>("glTexCoord1f",s); }
+extern "C" void glTexCoord2f(float s,float t) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float>("glTexCoord2f",s,t); }
+extern "C" void glTexCoord3f(float s,float t,float r) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float,float>("glTexCoord3f",s,t,r); }
+extern "C" void glTexCoord4f(float s,float t,float r,float q) { if (g_fixedRecording) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; } else glDispatch<void,float,float,float,float>("glTexCoord4f",s,t,r,q); }
 extern "C" void glColor3ub(unsigned char r, unsigned char g, unsigned char b) {
     if (g_fixedRecording) { g_fixedColor[0]=r/255.0f; g_fixedColor[1]=g/255.0f; g_fixedColor[2]=b/255.0f; g_fixedColor[3]=1.0f; return; }
     glDispatch<void, unsigned char, unsigned char, unsigned char>("glColor3ub", r, g, b);

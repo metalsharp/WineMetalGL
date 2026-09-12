@@ -44,6 +44,7 @@ struct GLMetalRenderer::Impl {
     // Last created pipeline state
     id<MTLRenderPipelineState> currentPipeline = nil;
     id<MTLRenderPipelineState> fixedPipeline = nil;
+    id<MTLRenderPipelineState> fixedTexturedPipeline = nil;
     id<MTLDepthStencilState> currentDepthStencilState = nil;
     id<MTLComputePipelineState> currentComputePipeline = nil;
     id<MTLComputeCommandEncoder> currentComputeEncoder = nil;
@@ -378,49 +379,64 @@ void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
 }
 
 void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
-                                          uint32_t width, uint32_t height)
+                                          uint32_t width, uint32_t height, uint64_t textureHandle,
+                                          uint32_t minFilter, uint32_t magFilter, uint32_t wrapS, uint32_t wrapT)
 {
     if (!m_device || !vertices || !vertexCount) return;
     {
         std::lock_guard<std::mutex> lock(m_impl->mutex);
-        if (!m_impl->fixedPipeline) {
+        id<MTLRenderPipelineState> pipeline = textureHandle ? m_impl->fixedTexturedPipeline : m_impl->fixedPipeline;
+        if (!pipeline) {
             static const char source[] =
                 "#include <metal_stdlib>\nusing namespace metal;\n"
-                "struct In { float3 p [[attribute(0)]]; float4 c [[attribute(1)]]; };\n"
-                "struct Out { float4 p [[position]]; float4 c; };\n"
-                "vertex Out fixed_vertex(In i [[stage_in]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; return o; }\n"
-                "fragment float4 fixed_fragment(Out i [[stage_in]]) { return i.c; }\n";
+                "struct In { float3 p [[attribute(0)]]; float4 c [[attribute(1)]]; float2 uv [[attribute(2)]]; };\n"
+                "struct Out { float4 p [[position]]; float4 c; float2 uv; };\n"
+                "vertex Out fixed_vertex(In i [[stage_in]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; return o; }\n"
+                "fragment float4 fixed_fragment(Out i [[stage_in]]) { return i.c; }\n"
+                "fragment float4 fixed_tex_fragment(Out i [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]]) { return i.c * tex.sample(samp, i.uv); }\n";
             NSError* error = nil;
             NSString* text = [NSString stringWithUTF8String:source];
             id<MTLLibrary> library = [m_device newLibraryWithSource:text options:nil error:&error];
             if (!library) { if (error) NSLog(@"Fixed pipeline compile: %@", error); return; }
             MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
             descriptor.vertexFunction = [library newFunctionWithName:@"fixed_vertex"];
-            descriptor.fragmentFunction = [library newFunctionWithName:@"fixed_fragment"];
-            if (!descriptor.vertexFunction || !descriptor.fragmentFunction) {
-                NSLog(@"Fixed pipeline functions missing: names=%@ vertex=%@ fragment=%@", library.functionNames, descriptor.vertexFunction, descriptor.fragmentFunction);
-                return;
-            }
+            descriptor.fragmentFunction = [library newFunctionWithName:textureHandle ? @"fixed_tex_fragment" : @"fixed_fragment"];
+            if (!descriptor.vertexFunction || !descriptor.fragmentFunction) { if (error) NSLog(@"Fixed pipeline functions missing: %@", error); return; }
             descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-            descriptor.vertexDescriptor.layouts[0].stride = sizeof(float) * 7;
+            descriptor.vertexDescriptor.layouts[0].stride = sizeof(float) * 9;
             descriptor.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
             descriptor.vertexDescriptor.attributes[0].format = MTLVertexFormatFloat3;
-            descriptor.vertexDescriptor.attributes[0].offset = 0;
-            descriptor.vertexDescriptor.attributes[0].bufferIndex = 0;
+            descriptor.vertexDescriptor.attributes[0].offset = 0; descriptor.vertexDescriptor.attributes[0].bufferIndex = 0;
             descriptor.vertexDescriptor.attributes[1].format = MTLVertexFormatFloat4;
-            descriptor.vertexDescriptor.attributes[1].offset = sizeof(float) * 3;
-            descriptor.vertexDescriptor.attributes[1].bufferIndex = 0;
-            m_impl->fixedPipeline = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
-            if (!m_impl->fixedPipeline && error) NSLog(@"Fixed pipeline create: %@", error);
+            descriptor.vertexDescriptor.attributes[1].offset = sizeof(float) * 3; descriptor.vertexDescriptor.attributes[1].bufferIndex = 0;
+            descriptor.vertexDescriptor.attributes[2].format = MTLVertexFormatFloat2;
+            descriptor.vertexDescriptor.attributes[2].offset = sizeof(float) * 7;
+            descriptor.vertexDescriptor.attributes[2].bufferIndex = 0;
+            id<MTLRenderPipelineState> created = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+            if (textureHandle) m_impl->fixedTexturedPipeline = created;
+            else m_impl->fixedPipeline = created;
+            if (!created && error) NSLog(@"Fixed pipeline create: %@", error);
         }
     }
-    if (!m_impl->fixedPipeline) return;
+    id<MTLRenderPipelineState> pipeline = textureHandle ? m_impl->fixedTexturedPipeline : m_impl->fixedPipeline;
+    if (!pipeline) return;
     beginRenderPassToTexture(0, width ? width : 64, height ? height : 64, true);
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentEncoder) return;
-    id<MTLBuffer> buffer = [m_device newBufferWithBytes:vertices length:vertexCount * 7 * sizeof(float)
+    id<MTLBuffer> buffer = [m_device newBufferWithBytes:vertices length:vertexCount * 9 * sizeof(float)
                                                 options:MTLResourceStorageModeShared];
-    [m_impl->currentEncoder setRenderPipelineState:m_impl->fixedPipeline];
+    [m_impl->currentEncoder setRenderPipelineState:pipeline];
+    if (textureHandle) {
+        auto texture = m_impl->textures.find(textureHandle);
+        if (texture != m_impl->textures.end()) [m_impl->currentEncoder setFragmentTexture:texture->second atIndex:0];
+        MTLSamplerDescriptor* samplerDescriptor = [[MTLSamplerDescriptor alloc] init];
+        samplerDescriptor.minFilter = minFilter == 0x2600 ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+        samplerDescriptor.magFilter = magFilter == 0x2600 ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+        samplerDescriptor.sAddressMode = wrapS == 0x812F ? MTLSamplerAddressModeClampToEdge : MTLSamplerAddressModeRepeat;
+        samplerDescriptor.tAddressMode = wrapT == 0x812F ? MTLSamplerAddressModeClampToEdge : MTLSamplerAddressModeRepeat;
+        id<MTLSamplerState> sampler = [m_device newSamplerStateWithDescriptor:samplerDescriptor];
+        if (sampler) [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:0];
+    }
     [m_impl->currentEncoder setVertexBuffer:buffer offset:0 atIndex:0];
     [m_impl->currentEncoder setViewport:(MTLViewport){0, 0, (double)(width ? width : 64), (double)(height ? height : 64), 0, 1}];
     [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(primitiveType) vertexStart:0 vertexCount:vertexCount];
