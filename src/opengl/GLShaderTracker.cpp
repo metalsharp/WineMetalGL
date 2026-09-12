@@ -28,6 +28,9 @@ namespace {
 constexpr uint32_t kGL_VERTEX_SHADER = 0x8B31;
 constexpr uint32_t kGL_FRAGMENT_SHADER = 0x8B30;
 constexpr uint32_t kGL_COMPUTE_SHADER = 0x91B9;
+constexpr uint32_t kGL_GEOMETRY_SHADER = 0x8DD9;
+constexpr uint32_t kGL_TESS_CONTROL_SHADER = 0x8E88;
+constexpr uint32_t kGL_TESS_EVALUATION_SHADER = 0x8E87;
 
 /// Map a GL shader-type enum to the internal ShaderStage enum. Unknown
 /// enums fall back to Vertex so that tracker entries still have a sensible
@@ -41,10 +44,15 @@ ShaderStage mapGLShaderType(uint32_t glType) {
         return ShaderStage::Pixel;
     case kGL_COMPUTE_SHADER:
         return ShaderStage::Compute;
+    case kGL_GEOMETRY_SHADER:
+        return ShaderStage::Geometry;
+    case kGL_TESS_CONTROL_SHADER:
+        return ShaderStage::Hull;
+    case kGL_TESS_EVALUATION_SHADER:
+        return ShaderStage::Domain;
     default:
-        // Geometry / tessellation / mesh / ray-tracing stages are not
-        // supported by the OpenGL bridge's MSL translation path; fall
-        // back to Vertex so the entry exists but will fail translation.
+        // Unknown shader types retain a safe vertex-stage metadata value;
+        // known advanced stages are mapped explicitly above.
         return ShaderStage::Vertex;
     }
 }

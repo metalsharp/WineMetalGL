@@ -1,0 +1,10 @@
+#include <windows.h>
+#include <GL/gl.h>
+#include <stdio.h>
+#define TESC 0x8e88
+#define TESE 0x8e87
+#define COMPILE 0x8b81
+typedef GLuint(WINAPI*CS)(GLenum);typedef void(WINAPI*SS)(GLuint,GLsizei,const char*const*,const GLint*);typedef void(WINAPI*CO)(GLuint);typedef void(WINAPI*SI)(GLuint,GLenum,GLint*);typedef void(WINAPI*SL)(GLuint,GLsizei,GLsizei*,char*);
+static void*p(const char*n){PROC q=wglGetProcAddress(n);HMODULE m;if(q)return(void*)q;m=GetModuleHandleA("opengl32.dll");return m?(void*)GetProcAddress(m,n):0;}
+#define L(t,v,n)do{v=(t)p(n);if(!v){printf("FAIL missing %s\n",n);return 14;}}while(0)
+int main(void){static const char control[]="#version 450 core\nlayout(vertices=3)out;void main(){gl_out[gl_InvocationID].gl_Position=gl_in[gl_InvocationID].gl_Position;if(gl_InvocationID==0){gl_TessLevelInner[0]=1.0;gl_TessLevelOuter[0]=1.0;gl_TessLevelOuter[1]=1.0;gl_TessLevelOuter[2]=1.0;}}";static const char eval[]="#version 450 core\nlayout(triangles,equal_spacing,cw)in;void main(){gl_Position=gl_TessCoord.x*gl_in[0].gl_Position+gl_TessCoord.y*gl_in[1].gl_Position+gl_TessCoord.z*gl_in[2].gl_Position;}";PIXELFORMATDESCRIPTOR d={0};HWND w;HDC dc;HGLRC c;int pf;CS cs;SS ss;CO co;SI si;SL sl;GLuint a,b;GLint ok;char log[2048]={0};w=CreateWindowA("STATIC","WineMetalGL tess compile",WS_OVERLAPPEDWINDOW,0,0,64,64,0,0,0,0);if(!w)return 11;dc=GetDC(w);d.nSize=sizeof(d);d.nVersion=1;d.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL;d.iPixelType=PFD_TYPE_RGBA;d.cColorBits=32;pf=ChoosePixelFormat(dc,&d);if(!pf||!SetPixelFormat(dc,pf,&d))return 12;c=wglCreateContext(dc);if(!c||!wglMakeCurrent(dc,c))return 13;L(CS,cs,"glCreateShader");L(SS,ss,"glShaderSource");L(CO,co,"glCompileShader");L(SI,si,"glGetShaderiv");L(SL,sl,"glGetShaderInfoLog");a=cs(TESC);b=cs(TESE);{const char*x=control;ss(a,1,&x,0);}{const char*x=eval;ss(b,1,&x,0);}co(a);co(b);si(a,COMPILE,&ok);if(!ok){sl(a,sizeof(log),0,log);printf("TESC FAIL %s\\n",log);return 15;}si(b,COMPILE,&ok);if(!ok){sl(b,sizeof(log),0,log);printf("TESE FAIL %s\\n",log);return 16;}printf("WINEMETALGL_TESSELLATION_COMPILE_OK\n");wglMakeCurrent(0,0);wglDeleteContext(c);ReleaseDC(w,dc);DestroyWindow(w);return 0;}

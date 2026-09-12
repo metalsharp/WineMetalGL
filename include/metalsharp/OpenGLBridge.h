@@ -44,17 +44,34 @@ struct GLState {
 
     // Blend state
     bool blendEnabled = false;
-    uint32_t blendSrcRGB = 0;
+    bool cullEnabled = false;
+    uint32_t cullFace = 0x0405; /* GL_BACK */
+    uint32_t frontFace = 0x0901; /* GL_CCW */
+    uint32_t blendSrcRGB = 1;
     uint32_t blendDstRGB = 0;
+    uint32_t blendSrcAlpha = 1;
+    uint32_t blendDstAlpha = 0;
+    uint32_t blendEquationRGB = 0x8006;
+    uint32_t blendEquationAlpha = 0x8006;
+    bool colorMask[4] = {true, true, true, true};
 
     // Depth state
     bool depthTestEnabled = false;
     bool depthWriteEnabled = true;
     uint32_t depthFunc = 0x0201; /* GL_LESS */
+    bool stencilTestEnabled = false;
+    uint32_t stencilFunc = 0x0207; /* GL_ALWAYS */
+    int32_t stencilRef = 0;
+    uint32_t stencilValueMask = 0xffffffffu;
+    uint32_t stencilWriteMask = 0xffffffffu;
+    uint32_t stencilFail = 0x1e00; /* GL_KEEP */
+    uint32_t stencilDepthFail = 0x1e00;
+    uint32_t stencilDepthPass = 0x1e00;
 
     // Clear state
     float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     float clearDepth = 1.0f;
+    int32_t clearStencil = 0;
 
     // Current bound objects
     uint32_t boundTexture2D = 0;
@@ -72,6 +89,15 @@ struct GLState {
     int32_t viewportY = 0;
     int32_t viewportWidth = 0;
     int32_t viewportHeight = 0;
+    double depthNear = 0.0;
+    double depthFar = 1.0;
+    int32_t packAlignment = 4;
+    int32_t unpackAlignment = 4;
+    uint32_t patchVertices = 3;
+    uint32_t drawBuffer = 0x0405; /* GL_BACK */
+    uint32_t readBuffer = 0x0405;
+    bool scissorEnabled = false;
+    int32_t scissorX = 0, scissorY = 0, scissorWidth = 0, scissorHeight = 0;
 };
 
 /// Bridge between Windows opengl32.dll callers and macOS native OpenGL.

@@ -36,6 +36,8 @@ typedef void (WINAPI *PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
 typedef void (WINAPI *PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
 typedef void (WINAPI *PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);
 typedef void (WINAPI *PFNGLDRAWELEMENTSPROC)(GLenum, GLsizei, GLenum, const void *);
+typedef void (WINAPI *PFNGLDRAWELEMENTSBASEVERTEXPROC)(GLenum, GLsizei, GLenum, const void *, GLint);
+typedef void (WINAPI *PFNGLBINDVERTEXBUFFERPROC)(GLuint,GLuint,intptr_t,GLsizei); typedef void (WINAPI *PFNGLVERTEXATTRIBBINDINGPROC)(GLuint,GLuint); typedef void (WINAPI *PFNGLVERTEXATTRIBFORMATPROC)(GLuint,GLint,GLenum,GLboolean,GLuint);
 
 static void *get_proc(const char *name)
 {
@@ -62,7 +64,7 @@ int main(void)
         "out vec4 color;\n"
         "uniform vec4 tint;\n"
         "void main() { color = tint; }\n";
-    static const float vertices[] = {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
+    static const float vertices[] = {0.0f, 0.0f, -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
     static const uint16_t indices[] = {0, 1, 2};
     PIXELFORMATDESCRIPTOR pfd = {0};
     HWND window;
@@ -91,7 +93,7 @@ int main(void)
     PFNGLDELETEBUFFERSPROC delete_buffers;
     PFNGLENABLEVERTEXATTRIBARRAYPROC enable_attrib;
     PFNGLVERTEXATTRIBPOINTERPROC attrib_pointer;
-    PFNGLDRAWELEMENTSPROC draw_elements;
+    PFNGLDRAWELEMENTSPROC draw_elements; PFNGLDRAWELEMENTSBASEVERTEXPROC draw_elements_base; PFNGLBINDVERTEXBUFFERPROC bind_vertex_buffer; PFNGLVERTEXATTRIBBINDINGPROC attrib_binding; PFNGLVERTEXATTRIBFORMATPROC attrib_format;
 
     setvbuf(stdout, NULL, _IONBF, 0);
     window = CreateWindowA("STATIC", "WineMetalGL GL33 resources", WS_OVERLAPPEDWINDOW,
@@ -125,7 +127,7 @@ int main(void)
     LOAD(PFNGLDELETEBUFFERSPROC, delete_buffers, "glDeleteBuffers");
     LOAD(PFNGLENABLEVERTEXATTRIBARRAYPROC, enable_attrib, "glEnableVertexAttribArray");
     LOAD(PFNGLVERTEXATTRIBPOINTERPROC, attrib_pointer, "glVertexAttribPointer");
-    LOAD(PFNGLDRAWELEMENTSPROC, draw_elements, "glDrawElements");
+    LOAD(PFNGLDRAWELEMENTSPROC, draw_elements, "glDrawElements"); LOAD(PFNGLDRAWELEMENTSBASEVERTEXPROC, draw_elements_base, "glDrawElementsBaseVertex"); LOAD(PFNGLBINDVERTEXBUFFERPROC, bind_vertex_buffer, "glBindVertexBuffer"); LOAD(PFNGLVERTEXATTRIBBINDINGPROC, attrib_binding, "glVertexAttribBinding"); LOAD(PFNGLVERTEXATTRIBFORMATPROC, attrib_format, "glVertexAttribFormat");
 
     vertex_shader = create_shader(GL_VERTEX_SHADER); fragment_shader = create_shader(GL_FRAGMENT_SHADER);
     { const char *source = vertex_source; shader_source(vertex_shader, 1, &source, NULL); compile_shader(vertex_shader); }
@@ -144,8 +146,8 @@ int main(void)
 
     gen_buffers(1, &vbo); bind_buffer(GL_ARRAY_BUFFER, vbo); buffer_data(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     gen_buffers(1, &ibo); bind_buffer(GL_ELEMENT_ARRAY_BUFFER, ibo); buffer_data(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0);
-    glViewport(0, 0, 64, 64); draw_elements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, (const void *)0);
+    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0); bind_vertex_buffer(0,vbo,0,2*sizeof(float)); attrib_binding(0,0); attrib_format(0,2,GL_FLOAT,GL_FALSE,0);
+    glViewport(0, 0, 64, 64); draw_elements_base(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, (const void *)0, 1);
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("GL33 resources readback rgba=%u,%u,%u,%u error=0x%x\n", pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());
     if (pixel[0] < 47 || pixel[0] > 55 || pixel[1] < 98 || pixel[1] > 106 || pixel[2] < 149 || pixel[2] > 157 || pixel[3] < 250) return 19;

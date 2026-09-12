@@ -21,54 +21,61 @@
     },
     "gl_legacy": {
       "forwarded": "Wine's compatibility path covers the exported OpenGL 1.0-2.1 surface",
-      "metal_owned": ["glViewport", "glClear", "glFlush", "glFinish", "glReadPixels"]
+      "metal_owned": ["glViewport", "glClear", "glFlush", "glFinish", "glReadPixels", "glGetStringi", "glGetIntegerv"]
     },
     "gl_resources": {
       "metal_owned": [
-        "glGenBuffers", "glBindBuffer", "glBufferData", "glBufferSubData", "glMapBuffer", "glVertexAttribPointer",
-        "glEnableVertexAttribArray", "glDrawArrays", "glDrawElements",
+        "glGenBuffers", "glCreateBuffers", "glBindBuffer", "glBufferData", "glBufferStorage", "glNamedBufferStorage", "glNamedBufferData", "glMapNamedBuffer", "glUnmapNamedBuffer", "glGetBufferParameteriv", "glGetBufferParameteri64v", "glNamedBufferSubData", "glCopyBufferSubData", "glBindBuffersBase", "glBindVertexBuffers", "glBufferSubData", "glMapBuffer", "glVertexAttribPointer",
+        "glEnableVertexAttribArray", "glVertexAttribIPointer", "glBindVertexBuffer", "glVertexAttribBinding", "glVertexBindingDivisor", "glVertexAttribFormat", "glVertexAttribIFormat", "glDrawArrays", "glDrawElements", "glDrawRangeElements", "glMultiDrawArrays", "glMultiDrawElements", "glMultiDrawElementsBaseVertex", "glMultiDrawArraysIndirect", "glMultiDrawElementsIndirect", "glDrawElementsBaseVertex", "glDrawElementsInstancedBaseVertex", "glDrawElementsInstancedBaseVertexBaseInstance", "glDrawArraysInstancedBaseInstance",
         "glUniform1f", "glUniform2f", "glUniform3f", "glUniform4f",
-        "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i",
-        "glUniformMatrix2fv", "glUniformMatrix3fv", "glUniformMatrix4fv",
+        "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i", "glUniform1ui", "glUniform2ui", "glUniform3ui", "glUniform4ui",
+        "glUniform1uiv", "glUniform2uiv", "glUniform3uiv", "glUniform4uiv", "glUniformMatrix2x3fv", "glUniformMatrix2x4fv", "glUniformMatrix3x2fv", "glUniformMatrix3x4fv", "glUniformMatrix4x2fv", "glUniformMatrix4x3fv", "glUniformMatrix2fv", "glUniformMatrix3fv", "glUniformMatrix4fv",
         "glGetUniformLocation", "glDrawArraysInstanced", "glDrawElementsInstanced",
         "glGenVertexArrays", "glBindVertexArray", "glVertexAttribDivisor",
-        "glGenTextures", "glBindTexture", "glActiveTexture", "glTexImage2D",
-        "glTexSubImage2D", "glTexImage3D", "glTexParameteri", "glGenSamplers", "glBindSampler", "glSamplerParameteri", "glGenFramebuffers",
-        "glBindFramebuffer", "glFramebufferTexture2D", "glCheckFramebufferStatus", "glBlitFramebuffer",
-        "glClear", "glClearColor", "glDepthFunc", "glDepthMask", "glGenQueries", "glBeginQuery", "glEndQuery", "glGetQueryObjectuiv", "glFenceSync", "glClientWaitSync", "glDeleteSync"
+        "glGenTextures", "glCreateTextures", "glBindTexture", "glBindTextureUnit", "glBindTextures", "glActiveTexture", "glTexImage2D", "glTexStorage2D", "glTexStorage3D", "glTextureStorage2D", "glTextureStorage3D", "glTextureParameteri", "glTextureSubImage2D", "glTextureSubImage3D", "glGenerateTextureMipmap", "glGetTextureLevelParameteriv",
+        "glTexSubImage2D", "glCopyTexImage2D", "glCopyTexSubImage2D", "glGetTexImage", "glGetTextureImage", "glGetTexLevelParameteriv", "glTexImage3D", "glTexSubImage3D", "glCopyImageSubData", "glBindImageTexture", "glBindImageTextures", "glPixelStorei (pack/unpack alignment)", "glTexParameteri", "glGenerateMipmap", "glGenSamplers", "glBindSampler", "glBindSamplers", "glSamplerParameteri", "glSamplerParameterf", "glSamplerParameteriv", "glSamplerParameterfv", "glGenFramebuffers", "glCreateFramebuffers",
+        "glBindFramebuffer", "glFramebufferTexture2D", "glFramebufferTextureLayer", "glNamedFramebufferTexture", "glNamedFramebufferRenderbuffer", "glCheckFramebufferStatus", "glCheckNamedFramebufferStatus", "glBlitFramebuffer",
+        "glClear", "glClearBufferfv", "glClearBufferiv", "glClearBufferuiv", "glClearBufferfi", "glClearColor", "glClearStencil", "glDepthRange", "glDepthRangef", "glReadBuffer", "glDrawBuffer", "glDrawBuffers", "glScissor", "glBlendFunc", "glBlendFuncSeparate", "glBlendEquation", "glBlendEquationSeparate", "glColorMask", "glDepthFunc", "glPatchParameteri", "glBeginTransformFeedback", "glEndTransformFeedback", "glTransformFeedbackVaryings", "glDepthMask", "glStencilFunc", "glStencilOp", "glStencilMask", "glGenQueries", "glBeginQuery", "glEndQuery", "glGetQueryObjectuiv", "glFenceSync", "glClientWaitSync", "glDeleteSync"
       ],
       "forwarded": ["glGenRenderbuffers", "glFramebufferRenderbuffer"]
     },
     "shader_stages": {
-      "implemented": ["vertex", "fragment", "compute (buffer binding and dispatch)", "image load/store (2D rgba8)"],
-      "compiler_only": [],
-      "rejected": ["geometry", "tessellation", "mesh", "task", "ray-tracing"]
+      "implemented": ["vertex", "fragment", "compute (buffer binding and dispatch)", "image load/store (2D rgba8)", "basic triangle and quad tessellation evaluation draw", "simple triangle geometry pass-through emulation", "limited pass-through shader transform-feedback capture"],
+      "compiler_only": ["tessellation control translation"],
+      "rejected": ["geometry", "full tessellation-control", "mesh", "task", "ray-tracing"]
     }
   },
   "validated_profiles": [
     "GLSL 1.20 compatibility readback",
     "GLSL 3.30 vertex/fragment Metal draw/readback",
     "GLSL 4.50 vertex/fragment translation",
-    "indexed GL 3.3-style draw with VBO/IBO, vertex attribute, and uniform",
+    "indexed GL 3.3-style draw with VBO/IBO, range/base-vertex offset, DSA vertex binding, vertex attribute, uniform, and direct multi-draw",
+    "multi-draw arrays and elements indirect submission",
     "texture sampling with sampler parameters",
-    "3D texture sampling",
-    "color-texture/renderbuffer FBO attachment, readback, blit, and multisample fallback",
-    "instanced draw with depth attachment",
+    "2D mipmap generation, immutable storage, DSA texture allocation/subimage update, 16-bit normalized and half-float texture upload, 3D texture sampling, texture copy, packed-pixel/half-float conversion, BGRA upload, image copy, pack/unpack alignment, and 3D texture readback",
+    "tessellation control/evaluation compilation",
+    "basic triangle and quad tessellation evaluation draw with fixed factors",
+    "simple triangle geometry pass-through emulation",
+    "limited pass-through shader transform-feedback capture",
+    "fixed-function blend, scissor, and cull state",
+    "color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, readback, blit, and multisample fallback",
+    "instanced/base-instance draw with depth/stencil attachments",
     "compute shader dispatch with SSBO writeback",
-    "uniform-buffer object binding with Metal reflection",
+    "uniform-buffer object binding, DSA buffer creation/storage, buffer storage allocation, and buffer-size reflection",
     "compute imageStore with 2D rgba8 writeback",
     "arrays and elements indirect draw",
-    "basic fixed-function immediate-mode triangle, texture, and display-list path",
+    "basic fixed-function immediate-mode triangle, texture environment replace/modulate, display-list, multi-light diffuse/material lighting, linear/exp fog, blending, and fixed transform-feedback path",
     "sampler object state",
     "sync/fence and sample-query completion",
     "real CAMetalLayer default-surface presentation",
+    "multiple current WGL contexts",
     "x86_64 guest in WoW64",
     "i386 guest in WoW64"
   ],
   "not_advertised": [
     "complete Khronos OpenGL 4.6 conformance",
-    "geometry/tessellation/transform-feedback emulation",
-    "fixed-function advanced lighting/material semantics, image formats beyond 2D rgba8, multi-draw indirect variants",
+    "general geometry/full tessellation-control and general shader transform-feedback emulation",
+    "fixed-function specular/texture-combine semantics and image formats beyond 2D rgba8",
     "complete texture/sampler/FBO format matrix",
     "EGL/GLES entry points"
   ]

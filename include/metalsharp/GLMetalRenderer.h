@@ -76,9 +76,11 @@ class GLMetalRenderer {
     /// creation failed.
     bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState);
     bool createComputePipeline(const GLShaderState& computeShader);
+    bool createTessellationPipeline(const GLShaderState& evaluationShader, const GLShaderState& fragmentShader, const GLState& glState, bool quad = false);
 
     /// Bind the current pipeline state for drawing.
     void usePipeline();
+    void setRasterState(const GLState& glState);
 
     /// Create a Metal buffer from raw vertex data.
     /// @return buffer handle (non-zero on success)
@@ -95,14 +97,17 @@ class GLMetalRenderer {
     /// Encode an indexed draw using an index buffer previously bound with
     /// bindIndexBuffer(). `indexType` is GL_UNSIGNED_BYTE/SHORT/INT.
     void bindIndexBuffer(uint64_t bufferHandle, size_t offset);
-    void drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset);
-    void drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances);
+    void drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset, int32_t baseVertex = 0, uint32_t baseInstance = 0);
+    void drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances, uint32_t baseInstance = 0);
     void drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
-                               size_t offset, uint32_t instances);
+                               size_t offset, uint32_t instances, int32_t baseVertex = 0, uint32_t baseInstance = 0);
+    void drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor = 1.0f, bool quad = false);
     void drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
-                           uint32_t width, uint32_t height, uint64_t textureHandle = 0,
-                           uint32_t minFilter = 0x2601, uint32_t magFilter = 0x2601,
-                           uint32_t wrapS = 0x2901, uint32_t wrapT = 0x2901);
+                           uint32_t width, uint32_t height, uint64_t textureHandle,
+                           uint32_t minFilter, uint32_t magFilter,
+                           uint32_t wrapS, uint32_t wrapT,
+                           bool alphaTest, uint32_t alphaFunc, float alphaRef,
+                           uint32_t textureEnvMode, const GLState& glState);
 
     /// Begin a render pass on the default framebuffer (FBO 0).
     /// If setMetalLayer() was called, the pass targets the current
@@ -114,7 +119,7 @@ class GLMetalRenderer {
     /// Begin a pass targeting a Metal texture owned by an OpenGL FBO.
     /// `textureHandle == 0` selects the current CAMetalDrawable/offscreen
     /// default target. The texture must have render-target usage.
-    void beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear);
+    void beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear, uint64_t depthTextureHandle = 0, uint32_t colorSlice = 0);
 
     /// End the current render pass and present.
     void endRenderPass();
@@ -145,7 +150,7 @@ class GLMetalRenderer {
     /// The renderer's Metal target is BGRA8; this method performs the channel
     /// conversion required by glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE).
     bool readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
-    bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
+    bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data, uint32_t slice = 0);
     bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height);
 
     /// Set the vertex descriptor stride and per-attribute layout.
@@ -171,9 +176,10 @@ class GLMetalRenderer {
     /// @param width,height  texture dimensions in pixels
     /// @param data         BGRA8 pixel data, tightly packed
     /// @return non-zero texture handle on success
-    uint64_t createTexture(uint32_t width, uint32_t height, const void* data);
+    uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
+    uint64_t createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat);
 
     /// Bind a texture at the given fragment shader index.
     /// @param textureHandle  handle returned by createTexture
@@ -186,7 +192,7 @@ class GLMetalRenderer {
                      uint32_t wrapS, uint32_t wrapT);
 
     /// Set the encoder viewport (glViewport equivalent).
-    void setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height);
+    void setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height, double znear = 0.0, double zfar = 1.0);
 
     /// Set the encoder scissor rectangle (glScissor equivalent).
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height);
@@ -194,6 +200,7 @@ class GLMetalRenderer {
     /// Set the clear color/depth used by the next render pass.
     void setClearColor(float r, float g, float b, float a);
     void setClearDepth(float depth);
+    void setClearStencil(uint32_t stencil);
 
   private:
     struct Impl;

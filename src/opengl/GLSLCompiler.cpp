@@ -204,10 +204,9 @@ bool GLSLCompiler::translateSPIRVtoMSL(const std::vector<uint32_t>& spirv, Shade
         return false;
     }
 
-    // SPIRV-Cross's MSL entry-point model only covers the three stages the
-    // OpenGL bridge actually translates. Anything else (geometry,
-    // tessellation, mesh, ray-tracing) is rejected here so callers get a
-    // clean error instead of a confusing SPIRV-Cross exception.
+    // SPIRV-Cross can emit Metal source for compute-style tessellation
+    // control and native Metal tessellation evaluation stages. Geometry,
+    // mesh, and ray-tracing stages still require a separate emulation path.
     spv::ExecutionModel model;
     const char* entryPointName = nullptr;
     switch (stage) {
@@ -222,6 +221,14 @@ bool GLSLCompiler::translateSPIRVtoMSL(const std::vector<uint32_t>& spirv, Shade
     case ShaderStage::Compute:
         model = spv::ExecutionModelGLCompute;
         entryPointName = "kernel_main";
+        break;
+    case ShaderStage::Hull:
+        model = spv::ExecutionModelTessellationControl;
+        entryPointName = "tess_control_main";
+        break;
+    case ShaderStage::Domain:
+        model = spv::ExecutionModelTessellationEvaluation;
+        entryPointName = "tess_eval_main";
         break;
     default:
         errorLog = "GLSLCompiler::translateSPIRVtoMSL: unsupported shader stage for MSL translation";

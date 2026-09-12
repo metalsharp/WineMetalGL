@@ -26,6 +26,17 @@ OpenGLBridge::OpenGLBridge() : m_impl(new Impl()) {
     m_state.clearDepth = 1.0f;
     m_state.depthWriteEnabled = true;
     m_state.depthFunc = 0x0201;
+    m_state.blendSrcRGB = m_state.blendSrcAlpha = 1;
+    m_state.blendDstRGB = m_state.blendDstAlpha = 0;
+    m_state.blendEquationRGB = m_state.blendEquationAlpha = 0x8006;
+    m_state.colorMask[0] = m_state.colorMask[1] = m_state.colorMask[2] = m_state.colorMask[3] = true;
+    m_state.patchVertices = 3;
+    m_state.packAlignment = 4;
+    m_state.unpackAlignment = 4;
+    m_state.stencilFunc = 0x0207;
+    m_state.stencilValueMask = 0xffffffffu;
+    m_state.stencilWriteMask = 0xffffffffu;
+    m_state.stencilFail = m_state.stencilDepthFail = m_state.stencilDepthPass = 0x1e00;
 }
 
 OpenGLBridge::~OpenGLBridge() {
