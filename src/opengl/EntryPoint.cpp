@@ -100,6 +100,13 @@ bool g_fixedRecording = false;
 uint32_t g_fixedPrimitive = 0;
 std::vector<float> g_fixedVertices;
 float g_fixedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+bool g_fixedLighting = false;
+bool g_fixedLight0 = false;
+float g_fixedNormal[3] = {0.0f, 0.0f, 1.0f};
+float g_fixedLightPosition[4] = {0.0f, 0.0f, 1.0f, 0.0f};
+float g_fixedLightAmbient[4] = {0.2f, 0.2f, 0.2f, 1.0f};
+float g_fixedLightDiffuse[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+float g_fixedMaterialDiffuse[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 float g_fixedModelview[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
 float g_fixedProjection[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
 std::vector<std::array<float, 16>> g_fixedModelviewStack;
@@ -379,11 +386,15 @@ extern "C" void glEnable(uint32_t cap) {
     glDispatch<void, uint32_t>("glEnable", cap);
     if (cap == 0x0BE2) g_glBridge.state().blendEnabled = true;
     if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = true;
+    if (cap == 0x0B50) g_fixedLighting = true;
+    if (cap == 0x4000) g_fixedLight0 = true;
 }
 extern "C" void glDisable(uint32_t cap) {
     glDispatch<void, uint32_t>("glDisable", cap);
     if (cap == 0x0BE2) g_glBridge.state().blendEnabled = false;
     if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = false;
+    if (cap == 0x0B50) g_fixedLighting = false;
+    if (cap == 0x4000) g_fixedLight0 = false;
 }
 extern "C" void glBlendFunc(uint32_t sfactor, uint32_t dfactor) {
     glDispatch<void, uint32_t, uint32_t>("glBlendFunc", sfactor, dfactor);
@@ -1466,13 +1477,22 @@ static void fixedVertex(float x, float y, float z, float w) {
         float mvp[16], input[4] = {x, y, z, w}, output[4] = {};
         fixedMultiply(mvp, g_fixedProjection, g_fixedModelview);
         for (int r = 0; r < 4; ++r) for (int k = 0; k < 4; ++k) output[r] += mvp[k * 4 + r] * input[k];
-        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], g_fixedColor[0], g_fixedColor[1], g_fixedColor[2], g_fixedColor[3]});
+        float color[4] = {g_fixedColor[0], g_fixedColor[1], g_fixedColor[2], g_fixedColor[3]};
+        if (g_fixedLighting && g_fixedLight0) {
+            float lx = g_fixedLightPosition[0], ly = g_fixedLightPosition[1], lz = g_fixedLightPosition[2];
+            if (g_fixedLightPosition[3] != 0.0f) { lx -= x; ly -= y; lz -= z; }
+            float length = std::sqrt(lx * lx + ly * ly + lz * lz);
+            if (length > 0.0f) { lx /= length; ly /= length; lz /= length; }
+            float diffuse = std::max(0.0f, g_fixedNormal[0] * lx + g_fixedNormal[1] * ly + g_fixedNormal[2] * lz);
+            for (int i = 0; i < 3; ++i) color[i] = std::min(1.0f, g_fixedLightAmbient[i] + g_fixedMaterialDiffuse[i] * g_fixedLightDiffuse[i] * diffuse);
+            color[3] = g_fixedMaterialDiffuse[3];
+        }
+        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3]});
     }
 }
 extern "C" void glVertex2f(float x, float y) { if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
 extern "C" void glVertex3f(float x, float y, float z) { if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
 extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
-GL_PASSTHROUGH3(void, glNormal3f, float, nx, float, ny, float, nz)
 GL_PASSTHROUGH1(void, glTexCoord1f, float, s)
 GL_PASSTHROUGH2(void, glTexCoord2f, float, s, float, t)
 GL_PASSTHROUGH3(void, glTexCoord3f, float, s, float, t, float, r)
@@ -1490,9 +1510,22 @@ GL_PASSTHROUGH2(void, glColorMaterial, uint32_t, face, uint32_t, mode)
 // ---------------------------------------------------------------------------
 // Lighting / material (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH3(void, glLightfv, uint32_t, light, uint32_t, pname, const float*, params)
+extern "C" void glNormal3f(float x, float y, float z) {
+    if (g_fixedRecording) { g_fixedNormal[0]=x; g_fixedNormal[1]=y; g_fixedNormal[2]=z; return; }
+    glDispatch<void, float, float, float>("glNormal3f", x, y, z);
+}
+extern "C" void glLightfv(uint32_t light, uint32_t pname, const float* params) {
+    glDispatch<void, uint32_t, uint32_t, const float*>("glLightfv", light, pname, params);
+    if (!metalModeEnabled() || !params || light != 0x4000) return;
+    if (pname == 0x1203) std::memcpy(g_fixedLightPosition, params, sizeof(g_fixedLightPosition));
+    else if (pname == 0x1200) std::memcpy(g_fixedLightAmbient, params, sizeof(g_fixedLightAmbient));
+    else if (pname == 0x1201) std::memcpy(g_fixedLightDiffuse, params, sizeof(g_fixedLightDiffuse));
+}
 GL_PASSTHROUGH2(void, glLightModelfv, uint32_t, pname, const float*, params)
-GL_PASSTHROUGH3(void, glMaterialfv, uint32_t, face, uint32_t, pname, const float*, params)
+extern "C" void glMaterialfv(uint32_t face, uint32_t pname, const float* params) {
+    glDispatch<void, uint32_t, uint32_t, const float*>("glMaterialfv", face, pname, params);
+    if (metalModeEnabled() && params && pname == 0x1201) std::memcpy(g_fixedMaterialDiffuse, params, sizeof(g_fixedMaterialDiffuse));
+}
 GL_PASSTHROUGH1(void, glShadeModel, uint32_t, mode)
 
 // ---------------------------------------------------------------------------

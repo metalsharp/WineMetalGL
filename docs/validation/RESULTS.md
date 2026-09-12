@@ -1,4 +1,4 @@
-# WineMetalGL 0.5.0 validation
+# WineMetalGL 0.6.0 validation
 
 Validation date: 2026-09-12
 
