@@ -1,4 +1,4 @@
-# WineMetalGL 1.4.0 validation
+# WineMetalGL 1.5.0 validation
 
 Validation date: 2026-09-12
 
@@ -28,7 +28,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - `opengl32.dll` and WGL loading.
 - Window DC, pixel format, context creation, and extension discovery.
 - GLSL 1.20 compatibility FBO/readback.
-- GLSL 3.30 Metal compile/link/draw/readback.
+- GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string.
 - GLSL 4.50 Metal compile/link/draw/readback.
 - Program uniform/attribute interface reflection for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.

@@ -47,6 +47,7 @@ metalsharp::GLMetalRenderer g_metalRenderer;
 std::once_flag g_glInitFlag;
 std::once_flag g_metalInitFlag;
 bool g_metalAvailable = false;
+bool g_modernContextReady = false;
 
 struct ExperimentalProgram {
     bool linked = false;
@@ -1991,15 +1992,12 @@ extern "C" void glBindFramebuffer(uint32_t target, uint32_t framebuffer) {
 // via GL_PASSTHROUGH).
 // glGetString is hand-written for GL_EXTENSIONS passthrough (Phase 5b).
 // ---------------------------------------------------------------------------
+extern "C" int metalsharp_opengl_modern_context_ready(void);
 extern "C" const uint8_t* glGetString(uint32_t name) {
-    // Only handle GL_EXTENSIONS via our bridge (Phase 5b).
-    // We do NOT forward to native GL's glGetString because dlsym
-    // on the framework handle may resolve to our own shim symbol,
-    // creating infinite recursion. Non-extension queries return
-    // empty strings; real implementations query via Metal API.
-    if (name == 0x1F03) { // GL_EXTENSIONS
-        return glGetString_EXTENSIONS_override(name);
-    }
+    if (metalsharp_opengl_modern_context_ready() && name == 0x1F00) return (const uint8_t*)"MetalSharp";
+    if (metalsharp_opengl_modern_context_ready() && name == 0x1F01) return (const uint8_t*)"Apple M4 Metal (WineMetalGL)";
+    if (metalsharp_opengl_modern_context_ready() && name == 0x1F02) return (const uint8_t*)"3.3 WineMetalGL";
+    if (name == 0x1F03) return glGetString_EXTENSIONS_override(name);
     return reinterpret_cast<const uint8_t*>("");
 }
 
@@ -2022,8 +2020,12 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
  * sidecar only receives the opaque layer pointer and therefore does not
  * depend on Wine's private Objective-C classes. */
 extern "C" void metalsharp_opengl_set_metal_layer(void* layer) {
-    if (ensureMetalInit())
-        g_metalRenderer.setMetalLayer(layer);
+    g_modernContextReady = true;
+    if (ensureMetalInit()) g_metalRenderer.setMetalLayer(layer);
+}
+
+extern "C" int metalsharp_opengl_modern_context_ready(void) {
+    return g_modernContextReady && metalModeEnabled();
 }
 
 extern "C" int metalsharp_opengl_is_drawable_backed(void) {

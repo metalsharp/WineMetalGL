@@ -119,6 +119,7 @@ int main(void)
     if (!format || !SetPixelFormat(dc, format, &pfd)) return 12;
     context = wglCreateContext(dc);
     if (!context || !wglMakeCurrent(dc, context)) return 13;
+    printf("OPENGL_EXPERIMENTAL_VERSION_%s\\n", (const char *)glGetString(GL_VERSION));
 
 #define LOAD(type, variable, symbol) do { \
     variable = (type)get_gl_proc(symbol); \
