@@ -14,7 +14,8 @@ destination="$destination_dir/metalsharp-opengl.dylib"
 
 test -d "$destination_dir"
 test -f "$source_library"
-test "$(lipo -archs "$source_library")" = "arm64"
+test "$(lipo -archs "$source_library")" = "x86_64"
+test "$(otool -l "$source_library" | awk '/LC_BUILD_VERSION/{found=1} found && /minos/{print $2; exit}')" = "15.0"
 
 install -m 755 "$source_library" "$destination"
 codesign --force --sign - "$destination"

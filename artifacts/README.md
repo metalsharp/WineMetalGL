@@ -1,14 +1,15 @@
-# Accepted binary snapshot
+# WineMetalGL 0.2.0 staged artifacts
 
-These files are the binaries used by the accepted VKMT OpenGL matrix:
+These artifacts are ABI-coupled to the WineForge/Wine 11.17 build used by the
+release probes. They target only x86_64 macOS 15 hosts and x86_64/i386 Windows
+guests in one WoW64 prefix.
 
-- `host-arm64/`: native Apple Silicon sidecar and Wine Unix thunk.
-- `guest/aarch64/`, `guest/x86_64/`, `guest/i386/`: Wine PE `opengl32.dll`.
-- `wine-driver/`: accepted native ARM64 host driver plus architecture-facing
-  Wine driver modules.
+- `host-x86_64/metalsharp-opengl.dylib`: native Metal sidecar.
+- `wine-driver/winemac.so`: matching x86_64 Unix macOS driver.
+- `wine-driver/win32u.so`: matching OpenGL extension-parser build.
+- `guest/x86_64/opengl32.dll`: x86_64 guest OpenGL client.
+- `guest/i386/opengl32.dll`: i386 guest OpenGL client.
 
-ARM64EC shares Wine's ARM64/ARM64X host driver surface, so there is no
-separate ARM64EC Mach-O driver.
-
-All host Mach-O libraries in this snapshot must report `arm64`. Do not mix
-the snapshot with an ABI-incompatible Wine tree.
+Use `scripts/stage-wine.sh` for a fresh Wine build instead of mixing these
+files with an unrelated runtime. These files are inspection/reproduction
+artifacts; no installed application runtime is modified by this repository.

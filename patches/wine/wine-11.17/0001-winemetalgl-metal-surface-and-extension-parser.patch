@@ -1,0 +1,214 @@
+diff --git a/dlls/win32u/opengl.c b/dlls/win32u/opengl.c
+index 6ab3a03..5679212 100644
+--- a/dlls/win32u/opengl.c
++++ b/dlls/win32u/opengl.c
+@@ -275,9 +275,9 @@ static void parse_current_extensions( BOOLEAN extensions[GL_EXTENSION_COUNT] )
+     }
+     else
+     {
+-        enum opengl_extension extensions[GL_EXTENSION_COUNT];
+-        size_t extension_count = parse_extensions( (const char *)funcs->p_glGetString( GL_EXTENSIONS ), extensions );
+-        for (size_t i = 0; i < extension_count; i++) extensions[i] = TRUE;
++        enum opengl_extension parsed_extensions[GL_EXTENSION_COUNT];
++        size_t extension_count = parse_extensions( (const char *)funcs->p_glGetString( GL_EXTENSIONS ), parsed_extensions );
++        for (size_t i = 0; i < extension_count; i++) extensions[parsed_extensions[i]] = TRUE;
+     }
+ }
+ 
+diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+index 696734f..320e42b 100644
+--- a/dlls/winemac.drv/opengl.c
++++ b/dlls/winemac.drv/opengl.c
+@@ -69,6 +69,10 @@ struct macdrv_context
+     macdrv_view             read_view;
+     CGLPBufferObj           read_pbuffer;
+     int                     swap_interval;
++    macdrv_metal_device     metal_device;
++    macdrv_metal_view       metal_view;
++    macdrv_view             metal_source_view;
++    macdrv_metal_layer      metal_layer;
+ };
+ 
+ struct gl_drawable
+@@ -83,6 +87,7 @@ static struct gl_drawable *impl_from_opengl_drawable(struct opengl_drawable *bas
+ }
+ 
+ static void *opengl_handle;
++static void *metalsharp_opengl_handle;
+ static const struct opengl_funcs *funcs;
+ static const struct opengl_driver_funcs macdrv_driver_funcs;
+ static const struct opengl_drawable_funcs macdrv_surface_funcs;
+@@ -95,6 +100,48 @@ static const GLubyte *(*pglGetString)(GLenum name);
+ static PFN_glGetIntegerv pglGetIntegerv;
+ static void (*pglReadPixels)(GLint x, GLint y, GLsizei width, GLsizei height,
+                              GLenum format, GLenum type, void *pixels);
++static void (*pmetalsharp_set_metal_layer)(void *layer);
++static int (*pmetalsharp_is_drawable_backed)(void);
++
++static void update_metal_surface(struct macdrv_context *context)
++{
++    if (!pmetalsharp_set_metal_layer) return;
++
++    if (!context->draw_view)
++    {
++        if (context->metal_view)
++        {
++            macdrv_view_release_metal_view(context->metal_view);
++            context->metal_view = NULL;
++        }
++        if (context->metal_device)
++        {
++            macdrv_release_metal_device(context->metal_device);
++            context->metal_device = NULL;
++        }
++        context->metal_source_view = NULL;
++        context->metal_layer = NULL;
++        pmetalsharp_set_metal_layer(NULL);
++        return;
++    }
++
++    if (context->metal_source_view != context->draw_view && context->metal_view)
++    {
++        macdrv_view_release_metal_view(context->metal_view);
++        context->metal_view = NULL;
++        context->metal_layer = NULL;
++    }
++    if (!context->metal_device)
++        context->metal_device = macdrv_create_metal_device();
++    if (!context->metal_view && context->metal_device)
++    {
++        context->metal_view = macdrv_view_create_metal_view(context->draw_view, context->metal_device);
++        context->metal_source_view = context->draw_view;
++    }
++    if (context->metal_view)
++        context->metal_layer = macdrv_view_get_metal_layer(context->metal_view);
++    pmetalsharp_set_metal_layer(context->metal_layer);
++}
+ 
+ 
+ struct color_mode {
+@@ -2233,12 +2280,14 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
+     if (!private)
+     {
+         macdrv_make_context_current(NULL, NULL, CGRectNull);
++        if (pmetalsharp_set_metal_layer) pmetalsharp_set_metal_layer(NULL);
+         NtCurrentTeb()->glReserved2 = NULL;
+         return TRUE;
+     }
+     if (!draw || !read)
+     {
+         CGLSetCurrentContext(context->cglcontext);
++        update_metal_surface(context);
+         return TRUE;
+     }
+ 
+@@ -2276,6 +2325,7 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
+ 
+     make_context_current(context, FALSE);
+     NtCurrentTeb()->glReserved2 = context;
++    update_metal_surface(context);
+ 
+     return TRUE;
+ }
+@@ -2523,6 +2573,8 @@ static void macdrv_init_extensions(struct opengl_funcs *funcs, BOOLEAN extension
+  */
+ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, const struct opengl_driver_funcs **driver_funcs)
+ {
++    const char *metalsharp;
++
+     TRACE("()\n");
+ 
+     if (version != WINE_OPENGL_DRIVER_VERSION)
+@@ -2557,10 +2609,33 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+ 
+ #undef LOAD_FUNCPTR
+ 
++    /* Optional x86_64 WineMetalGL sidecar. Wine continues to own WGL
++     * contexts, guest thunks, drawables, and the legacy fallback. */
++    metalsharp = getenv("WINEMETALGL");
++    if (!metalsharp || strcmp(metalsharp, "0"))
++    {
++        metalsharp_opengl_handle = dlopen("@loader_path/metalsharp-opengl.dylib", RTLD_NOW | RTLD_LOCAL);
++        if (metalsharp_opengl_handle)
++        {
++            pmetalsharp_set_metal_layer = dlsym(metalsharp_opengl_handle, "metalsharp_opengl_set_metal_layer");
++            pmetalsharp_is_drawable_backed = dlsym(metalsharp_opengl_handle, "metalsharp_opengl_is_drawable_backed");
++            TRACE("loaded x86_64 WineMetalGL OpenGL sidecar%s\n",
++                  pmetalsharp_set_metal_layer ? " with CAMetalLayer bridge" : "");
++        }
++        else
++            WARN("WineMetalGL sidecar unavailable, using system OpenGL: %s\n", dlerror());
++    }
++    else TRACE("WineMetalGL sidecar disabled by WINEMETALGL=0\n");
++
+     *driver_funcs = &macdrv_driver_funcs;
+     return STATUS_SUCCESS;
+ 
+ failed:
++    if (metalsharp_opengl_handle)
++    {
++        dlclose(metalsharp_opengl_handle);
++        metalsharp_opengl_handle = NULL;
++    }
+     dlclose(opengl_handle);
+     opengl_handle = NULL;
+     return STATUS_NOT_SUPPORTED;
+@@ -2662,6 +2737,8 @@ static BOOL macdrv_context_destroy(void *private)
+ 
+     TRACE("deleting context %p/%p/%p\n", context, context->context, context->cglcontext);
+ 
++    if (context->metal_view) macdrv_view_release_metal_view(context->metal_view);
++    if (context->metal_device) macdrv_release_metal_device(context->metal_device);
+     macdrv_dispose_opengl_context(context->context);
+     free(context);
+     return TRUE;
+@@ -2669,13 +2746,31 @@ static BOOL macdrv_context_destroy(void *private)
+ 
+ static void *macdrv_get_proc_address(const char *name)
+ {
++    void *proc;
++
+     /* redirect some standard OpenGL functions */
+     if (!strcmp(name, "glCopyPixels")) return macdrv_glCopyPixels;
+     if (!strcmp(name, "glGetString")) return macdrv_glGetString;
++    if (!strcmp(name, "glReadPixels") && metalsharp_opengl_handle &&
++        getenv("WINEMETALGL_EXPERIMENTAL") &&
++        !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1") &&
++        (proc = dlsym(metalsharp_opengl_handle, name)))
++        return proc;
+     if (!strcmp(name, "glReadPixels")) return macdrv_glReadPixels;
+ 
+     /* redirect some OpenGL extension functions */
+     if (!strcmp(name, "glCopyColorTable")) return macdrv_glCopyColorTable;
++
++    /* Dispatch sidecar-owned extension entry points when present. Native
++     * OpenGL remains the symbol-by-symbol fallback. Experimental shader and
++     * Metal draw routing is selected by WINEMETALGL_EXPERIMENTAL. */
++    if (metalsharp_opengl_handle &&
++        (strcmp(name, "glCreateShader") ||
++         (getenv("WINEMETALGL_EXPERIMENTAL") &&
++          !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1"))) &&
++        (proc = dlsym(metalsharp_opengl_handle, name)))
++        return proc;
++
+     return dlsym(opengl_handle, name);
+ }
+ 
+@@ -2686,6 +2781,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
+     TRACE("%s context %p/%p/%p\n", debugstr_opengl_drawable(base), context, (context ? context->context : NULL),
+           (context ? context->cglcontext : NULL));
+ 
++    /* A Metal-owned context presents its CAMetalDrawable from the sidecar's
++     * command buffer. Do not flush or present Wine's legacy CGL surface a
++     * second time; that would make the visible surface differ from the one
++     * returned by glReadPixels. */
++    if (pmetalsharp_is_drawable_backed && getenv("WINEMETALGL_EXPERIMENTAL") &&
++        !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1") && pmetalsharp_is_drawable_backed())
++    {
++        TRACE("WineMetalGL CAMetalLayer present path\n");
++        return TRUE;
++    }
++
+     if (context)
+     {
+         struct macdrv_client_surface *client = impl_from_client_surface(base->client);

@@ -28,6 +28,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #if __has_include(<spirv_cross_c.h>)
 #define METALSHARP_HAS_SPIRV_CROSS 1
@@ -47,10 +48,19 @@ struct ExperimentalProgram {
     bool linked = false;
     bool linkSuccess = false;
     std::string infoLog;
+    std::unordered_map<std::string, int32_t> uniformLocations;
+    std::unordered_map<int32_t, std::vector<uint8_t>> uniformValues;
 };
 
 std::mutex g_programMutex;
 std::unordered_map<uint32_t, ExperimentalProgram> g_programs;
+
+struct ExperimentalBuffer {
+    uint64_t metalHandle = 0;
+    size_t size = 0;
+};
+std::mutex g_bufferMutex;
+std::unordered_map<uint32_t, ExperimentalBuffer> g_buffers;
 
 void ensureGLInit() {
     std::call_once(g_glInitFlag, [] { g_glBridge.init(); });
@@ -63,6 +73,44 @@ bool ensureMetalInit() {
 
 bool isExperimentalProgram(uint32_t program) {
     return metalsharp::GLShaderTracker::instance().hasProgram(program);
+}
+
+bool beginExperimentalDraw(uint32_t program) {
+    if (!ensureMetalInit()) return false;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto programIt = g_programs.find(program);
+    if (programIt == g_programs.end() || !programIt->second.linkSuccess) return false;
+
+    metalsharp::GLShaderState* vertex = nullptr;
+    metalsharp::GLShaderState* fragment = nullptr;
+    for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
+        auto* state = metalsharp::GLShaderTracker::instance().getShader(shader);
+        if (!state) continue;
+        if (state->stage == metalsharp::ShaderStage::Vertex) vertex = state;
+        else if (state->stage == metalsharp::ShaderStage::Pixel) fragment = state;
+    }
+    if (!vertex || !fragment || !g_metalRenderer.createPipeline(*vertex, *fragment, g_glBridge.state())) return false;
+
+    const uint32_t width = g_glBridge.state().viewportWidth > 0
+                               ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
+    const uint32_t height = g_glBridge.state().viewportHeight > 0
+                                ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
+    g_metalRenderer.beginRenderPass(width, height);
+    g_metalRenderer.setViewport(0, 0, width, height);
+    g_metalRenderer.usePipeline();
+
+    /* OpenGL uniform locations are opaque integers. The first Metal ABI
+     * reserves buffer(0) for a tightly packed 16-byte slot per queried
+     * location; this provides deterministic scalar/vector/matrix updates and
+     * keeps the canonical values independent of the legacy GL context. */
+    std::vector<uint8_t> uniformData;
+    for (const auto& entry : programIt->second.uniformValues) {
+        const size_t offset = static_cast<size_t>(entry.first) * 16;
+        if (offset + entry.second.size() > uniformData.size()) uniformData.resize(offset + entry.second.size());
+        std::memcpy(uniformData.data() + offset, entry.second.data(), entry.second.size());
+    }
+    if (!uniformData.empty()) g_metalRenderer.updateUniformBuffer(0, uniformData.data(), uniformData.size());
+    return true;
 }
 
 // Variadic dispatch: forwards to a native GL function resolved by name and
@@ -162,8 +210,35 @@ GL_PASSTHROUGH1(void, glDepthFunc, uint32_t, func)
 // Buffer objects (GL 1.5)
 // ---------------------------------------------------------------------------
 GL_PASSTHROUGH2(void, glGenBuffers, int32_t, n, uint32_t*, buffers)
-GL_PASSTHROUGH2(void, glDeleteBuffers, int32_t, n, const uint32_t*, buffers)
-GL_PASSTHROUGH4(void, glBufferData, uint32_t, target, int64_t, size, const void*, data, uint32_t, usage)
+
+extern "C" void glDeleteBuffers(int32_t n, const uint32_t* buffers) {
+    if (buffers) {
+        std::lock_guard<std::mutex> lock(g_bufferMutex);
+        for (int32_t i = 0; i < n; ++i) g_buffers.erase(buffers[i]);
+    }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteBuffers", n, buffers);
+}
+
+extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, uint32_t usage) {
+    constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;
+    constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893;
+    const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
+                              std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
+    const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
+                          target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer : 0;
+    if (experimental && name && size > 0 && ensureMetalInit()) {
+        uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
+        if (handle) {
+            std::lock_guard<std::mutex> lock(g_bufferMutex);
+            g_buffers[name] = {handle, static_cast<size_t>(size)};
+            return;
+        }
+        metalsharp::GLErrorTracker::instance().setError(0x0505);
+        return;
+    }
+    glDispatch<void, uint32_t, int64_t, const void*, uint32_t>("glBufferData", target, size, data, usage);
+}
+
 GL_PASSTHROUGH4(void, glBufferSubData, uint32_t, target, int64_t, offset, int64_t, size, const void*, data)
 GL_PASSTHROUGH2(void*, glMapBuffer, uint32_t, target, uint32_t, access)
 GL_PASSTHROUGH1(unsigned char, glUnmapBuffer, uint32_t, target)
@@ -197,21 +272,10 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
 extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
     const uint32_t program = g_glBridge.state().currentProgram;
     if (isExperimentalProgram(program)) {
-        std::lock_guard<std::mutex> lock(g_programMutex);
-        auto it = g_programs.find(program);
-        if (it == g_programs.end() || !it->second.linkSuccess || !ensureMetalInit()) {
+        if (!beginExperimentalDraw(program)) {
             metalsharp::GLErrorTracker::instance().setError(0x0502); // GL_INVALID_OPERATION
             return;
         }
-        const uint32_t width = g_glBridge.state().viewportWidth > 0
-                                   ? static_cast<uint32_t>(g_glBridge.state().viewportWidth)
-                                   : 64;
-        const uint32_t height = g_glBridge.state().viewportHeight > 0
-                                    ? static_cast<uint32_t>(g_glBridge.state().viewportHeight)
-                                    : 64;
-        g_metalRenderer.beginRenderPass(width, height);
-        g_metalRenderer.setViewport(0, 0, width, height);
-        g_metalRenderer.usePipeline();
         g_metalRenderer.drawArrays(mode, static_cast<uint32_t>(first), static_cast<uint32_t>(count));
         g_metalRenderer.endRenderPass();
         g_metalRenderer.finish();
@@ -219,7 +283,29 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
     }
     glDispatch<void, uint32_t, int32_t, int32_t>("glDrawArrays", mode, first, count);
 }
-GL_PASSTHROUGH4(void, glDrawElements, uint32_t, mode, int32_t, count, uint32_t, type, const void*, indices)
+
+extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, const void* indices) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, int32_t, uint32_t, const void*>("glDrawElements", mode, count, type, indices);
+        return;
+    }
+    uint64_t indexBuffer = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_bufferMutex);
+        auto it = g_buffers.find(g_glBridge.state().boundElementArrayBuffer);
+        if (it != g_buffers.end()) indexBuffer = it->second.metalHandle;
+    }
+    if (!indexBuffer || !beginExperimentalDraw(program)) {
+        metalsharp::GLErrorTracker::instance().setError(0x0502);
+        return;
+    }
+    g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
+    g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type,
+                                 reinterpret_cast<size_t>(indices));
+    g_metalRenderer.endRenderPass();
+    g_metalRenderer.finish();
+}
 
 // ---------------------------------------------------------------------------
 // Client-side vertex arrays (legacy immediate-mode interop)
@@ -272,8 +358,28 @@ extern "C" void glDisableVertexAttribArray(uint32_t index) {
 // don't need a Metal vertex descriptor because the framework emits them
 // directly. The interception only matters once cross-compiled shaders
 // start flowing through the Metal backend.
-GL_PASSTHROUGH6(void, glVertexAttribPointer, uint32_t, index, int32_t, size, uint32_t, type, unsigned char, normalized,
-                int32_t, stride, const void*, pointer)
+extern "C" void glVertexAttribPointer(uint32_t index, int32_t size, uint32_t type, unsigned char normalized,
+                                      int32_t stride, const void* pointer) {
+    const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
+                              std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
+    const uint32_t bufferName = g_glBridge.state().boundArrayBuffer;
+    if (experimental && bufferName) {
+        uint64_t handle = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_bufferMutex);
+            auto it = g_buffers.find(bufferName);
+            if (it != g_buffers.end()) handle = it->second.metalHandle;
+        }
+        if (handle) {
+            g_metalRenderer.setVertexAttribute(index, size, type, normalized != 0,
+                                               static_cast<uint32_t>(stride), handle,
+                                               reinterpret_cast<size_t>(pointer));
+            return;
+        }
+    }
+    glDispatch<void, uint32_t, int32_t, uint32_t, unsigned char, int32_t, const void*>(
+        "glVertexAttribPointer", index, size, type, normalized, stride, pointer);
+}
 GL_PASSTHROUGH2(void, glVertexAttrib1f, uint32_t, index, float, v0)
 GL_PASSTHROUGH3(void, glVertexAttrib2f, uint32_t, index, float, v0, float, v1)
 GL_PASSTHROUGH4(void, glVertexAttrib3f, uint32_t, index, float, v0, float, v1, float, v2)
@@ -577,9 +683,10 @@ extern "C" void glLinkProgram(uint32_t program) {
         result.infoLog = "MetalSharp: attached shaders did not compile";
     } else if (!ensureMetalInit()) {
         result.infoLog = "MetalSharp: Metal device initialization failed";
-    } else if (!g_metalRenderer.createPipeline(*vertex, *fragment, g_glBridge.state())) {
-        result.infoLog = "MetalSharp: Metal pipeline creation failed";
     } else {
+        /* Pipeline creation is deferred until the first draw. OpenGL sets
+         * vertex-array state after linking, and Metal requires that state in
+         * the pipeline descriptor for shaders with vertex inputs. */
         result.linkSuccess = true;
     }
 
@@ -689,21 +796,48 @@ extern "C" void glUseProgram(uint32_t program) {
 // shaders (which never reach the cross-compile path) keep working without
 // any uniform-mapping shim.
 
-GL_PASSTHROUGH2(int32_t, glGetUniformLocation, uint32_t, program, const char*, name)
-GL_PASSTHROUGH2(void, glUniform1f, int32_t, location, float, v0)
-GL_PASSTHROUGH3(void, glUniform2f, int32_t, location, float, v0, float, v1)
-GL_PASSTHROUGH4(void, glUniform3f, int32_t, location, float, v0, float, v1, float, v2)
-GL_PASSTHROUGH5(void, glUniform4f, int32_t, location, float, v0, float, v1, float, v2, float, v3)
-GL_PASSTHROUGH2(void, glUniform1i, int32_t, location, int32_t, v0)
-GL_PASSTHROUGH3(void, glUniform2i, int32_t, location, int32_t, v0, int32_t, v1)
-GL_PASSTHROUGH4(void, glUniform3i, int32_t, location, int32_t, v0, int32_t, v1, int32_t, v2)
-GL_PASSTHROUGH5(void, glUniform4i, int32_t, location, int32_t, v0, int32_t, v1, int32_t, v2, int32_t, v3)
-GL_PASSTHROUGH4(void, glUniformMatrix2fv, int32_t, location, int32_t, count, unsigned char, transpose, const float*,
-                value)
-GL_PASSTHROUGH4(void, glUniformMatrix3fv, int32_t, location, int32_t, count, unsigned char, transpose, const float*,
-                value)
-GL_PASSTHROUGH4(void, glUniformMatrix4fv, int32_t, location, int32_t, count, unsigned char, transpose, const float*,
-                value)
+extern "C" int32_t glGetUniformLocation(uint32_t program, const char* name) {
+    if (!isExperimentalProgram(program))
+        return glDispatch<int32_t, uint32_t, const char*>("glGetUniformLocation", program, name);
+    if (!name || !*name) return -1;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto it = g_programs.find(program);
+    if (it == g_programs.end()) return -1;
+    auto found = it->second.uniformLocations.find(name);
+    if (found != it->second.uniformLocations.end()) return found->second;
+    const int32_t location = static_cast<int32_t>(it->second.uniformLocations.size());
+    it->second.uniformLocations.emplace(name, location);
+    return location;
+}
+
+template <typename T>
+void setExperimentalUniform(int32_t location, const T* values, size_t count) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program) || location < 0 || !values) return;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto it = g_programs.find(program);
+    if (it == g_programs.end()) return;
+    it->second.uniformValues[location] = std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(values),
+                                                              reinterpret_cast<const uint8_t*>(values) + count);
+}
+
+extern "C" void glUniform1f(int32_t location, float v0) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float>("glUniform1f", location, v0); }
+extern "C" void glUniform2f(int32_t location, float v0, float v1) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float>("glUniform2f", location, v0, v1); }
+extern "C" void glUniform3f(int32_t location, float v0, float v1, float v2) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float>("glUniform3f", location, v0, v1, v2); }
+extern "C" void glUniform4f(int32_t location, float v0, float v1, float v2, float v3) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float, float>("glUniform4f", location, v0, v1, v2, v3); }
+extern "C" void glUniform1i(int32_t location, int32_t v0) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t>("glUniform1i", location, v0); }
+extern "C" void glUniform2i(int32_t location, int32_t v0, int32_t v1) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t>("glUniform2i", location, v0, v1); }
+extern "C" void glUniform3i(int32_t location, int32_t v0, int32_t v1, int32_t v2) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t>("glUniform3i", location, v0, v1, v2); }
+extern "C" void glUniform4i(int32_t location, int32_t v0, int32_t v1, int32_t v2, int32_t v3) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t, int32_t>("glUniform4i", location, v0, v1, v2, v3); }
+extern "C" void glUniformMatrix2fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
+    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 4 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix2fv", location, count, transpose, value);
+}
+extern "C" void glUniformMatrix3fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
+    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 9 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix3fv", location, count, transpose, value);
+}
+extern "C" void glUniformMatrix4fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
+    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 16 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix4fv", location, count, transpose, value);
+}
 GL_PASSTHROUGH3(void, glGetUniformfv, uint32_t, program, int32_t, location, float*, params)
 GL_PASSTHROUGH3(void, glGetUniformiv, uint32_t, program, int32_t, location, int32_t*, params)
 GL_PASSTHROUGH7(void, glGetActiveUniform, uint32_t, program, uint32_t, index, int32_t, bufSize, int32_t*, length,
@@ -1009,4 +1143,17 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         // Best-effort default. Return zero so callers don't read garbage.
         *params = 0;
     }
+}
+
+/* Private ABI used by the Wine macOS driver.  The driver owns the Cocoa
+ * view and creates the CAMetalLayer through its normal view helpers; the
+ * sidecar only receives the opaque layer pointer and therefore does not
+ * depend on Wine's private Objective-C classes. */
+extern "C" void metalsharp_opengl_set_metal_layer(void* layer) {
+    if (ensureMetalInit())
+        g_metalRenderer.setMetalLayer(layer);
+}
+
+extern "C" int metalsharp_opengl_is_drawable_backed(void) {
+    return ensureMetalInit() && g_metalRenderer.isDrawableBacked();
 }

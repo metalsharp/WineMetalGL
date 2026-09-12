@@ -15,7 +15,7 @@ cleanup()
 }
 trap cleanup EXIT HUP INT TERM
 
-clang -arch arm64 \
+clang -arch x86_64 \
     "$project_root/tests/native/glsl_translation_probe.c" \
     -o "$probe_root/glsl_translation_probe"
 

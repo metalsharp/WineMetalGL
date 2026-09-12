@@ -89,8 +89,16 @@ class GLMetalRenderer {
     /// Encode a draw call (glDrawArrays equivalent).
     void drawArrays(uint32_t primitiveType, uint32_t first, uint32_t count);
 
+    /// Encode an indexed draw using an index buffer previously bound with
+    /// bindIndexBuffer(). `indexType` is GL_UNSIGNED_BYTE/SHORT/INT.
+    void bindIndexBuffer(uint64_t bufferHandle, size_t offset);
+    void drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset);
+
     /// Begin a render pass on the default framebuffer (FBO 0).
-    /// @param width,height framebuffer dimensions
+    /// If setMetalLayer() was called, the pass targets the current
+    /// CAMetalDrawable. Otherwise it uses a private BGRA8 texture for
+    /// off-screen/FBO operation.
+    /// @param width,height fallback framebuffer dimensions
     void beginRenderPass(uint32_t width, uint32_t height);
 
     /// End the current render pass and present.
@@ -101,6 +109,14 @@ class GLMetalRenderer {
 
     /// Commit and wait for GPU to finish (glFinish equivalent).
     void finish();
+
+    /// Attach the native CAMetalLayer owned by the Wine window. The layer is
+    /// retained by the renderer until it is replaced or cleared. Passing
+    /// nullptr returns the renderer to its deterministic off-screen target.
+    void setMetalLayer(void* layer);
+
+    /// Return whether the last render pass used a CAMetalDrawable.
+    bool isDrawableBacked() const;
 
     /// Copy RGBA8 pixels from the most recent offscreen render target.
     /// The renderer's Metal target is BGRA8; this method performs the channel
@@ -113,6 +129,12 @@ class GLMetalRenderer {
     /// @param formats  per-attribute Metal vertex format enum (length = count)
     /// @param count    number of vertex attributes
     void setVertexLayout(uint32_t stride, const uint32_t* offsets, const uint32_t* formats, uint32_t count);
+
+    /// Configure one interleaved vertex attribute. This is the GL-facing
+    /// form used by the state tracker; the renderer maps the GL scalar type
+    /// and component count to an MTLVertexFormat.
+    void setVertexAttribute(uint32_t index, int32_t size, uint32_t type, bool normalized,
+                            uint32_t stride, uint64_t bufferHandle, size_t offset);
 
     /// Allocate/update a uniform buffer at the given binding index.
     /// @param binding  fragment-shader uniform buffer binding slot

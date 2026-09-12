@@ -3,12 +3,13 @@
   "configurePresets": [
     {
       "name": "release",
-      "displayName": "Apple Silicon release",
+      "displayName": "x86_64 macOS release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_OSX_ARCHITECTURES": "arm64"
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0"
       }
     }
   ],

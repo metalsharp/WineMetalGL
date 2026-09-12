@@ -8,6 +8,6 @@ cmake --build --preset release
 
 library="$project_root/build/release/metalsharp-opengl.dylib"
 test -f "$library"
-test "$(lipo -archs "$library")" = "arm64"
+test "$(lipo -archs "$library")" = "x86_64"
 
-printf '%s\n' "Built ARM64 sidecar: $library"
+printf '%s\n' "Built x86_64 sidecar: $library"

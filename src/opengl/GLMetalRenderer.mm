@@ -27,6 +27,8 @@
 ///   * finish()   → commit + waitUntilCompleted (glFinish equivalent).
 
 #import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
+#include <algorithm>
 #include <metalsharp/GLMetalRenderer.h>
 #include <metalsharp/GLShaderTracker.h>
 #include <metalsharp/OpenGLBridge.h>
@@ -68,6 +70,20 @@ struct GLMetalRenderer::Impl {
     // Current render pass descriptor
     MTLRenderPassDescriptor* currentPassDescriptor = nil;
     id<MTLTexture> colorTarget = nil;
+    CAMetalLayer* metalLayer = nil;
+    id<CAMetalDrawable> currentDrawable = nil;
+    bool drawableBacked = false;
+    id<MTLBuffer> currentIndexBuffer = nil;
+    size_t currentIndexOffset = 0;
+
+    struct VertexAttribute {
+        uint32_t index = 0;
+        MTLVertexFormat format = MTLVertexFormatInvalid;
+        uint32_t stride = 0;
+        uint64_t bufferHandle = 0;
+        size_t offset = 0;
+    };
+    std::vector<VertexAttribute> vertexAttributes;
 
     // Pending vertex layout (Phase 3d). stride==0 means "no layout set";
     // createPipeline copies these into MTLRenderPipelineDescriptor.
@@ -75,7 +91,7 @@ struct GLMetalRenderer::Impl {
     std::vector<uint32_t> vertexAttributeOffsets;
     std::vector<uint32_t> vertexAttributeFormats;
 
-    std::mutex mutex;
+    mutable std::mutex mutex;
 };
 
 GLMetalRenderer::GLMetalRenderer() : m_impl(new Impl()) {}
@@ -92,6 +108,20 @@ bool GLMetalRenderer::init() {
         return false;
     m_commandQueue = [m_device newCommandQueue];
     return m_commandQueue != nil;
+}
+
+void GLMetalRenderer::setMetalLayer(void* layer) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->metalLayer = (__bridge CAMetalLayer*)layer;
+    if (!m_impl->metalLayer) {
+        m_impl->currentDrawable = nil;
+        m_impl->drawableBacked = false;
+    }
+}
+
+bool GLMetalRenderer::isDrawableBacked() const {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->drawableBacked;
 }
 
 bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader,
@@ -138,10 +168,18 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
 
     // Phase 3d: apply pending vertex layout (if any) to the descriptor.
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    if (m_impl->vertexStride != 0 && !m_impl->vertexAttributeFormats.empty()) {
-        // Bind every attribute to buffer index 0 and configure the layout
-        // descriptor so the vertex shader sees the per-attribute streams
-        // out of a single interleaved vertex buffer.
+    if (!m_impl->vertexAttributes.empty()) {
+        for (const auto& attribute : m_impl->vertexAttributes) {
+            if (attribute.index >= 31 || attribute.format == MTLVertexFormatInvalid) continue;
+            desc.vertexDescriptor.attributes[attribute.index].format = attribute.format;
+            desc.vertexDescriptor.attributes[attribute.index].offset = attribute.offset;
+            desc.vertexDescriptor.attributes[attribute.index].bufferIndex = 0;
+            desc.vertexDescriptor.layouts[0].stride = attribute.stride;
+        }
+        desc.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+    } else if (m_impl->vertexStride != 0 && !m_impl->vertexAttributeFormats.empty()) {
+        // Compatibility API for callers that provide a complete interleaved
+        // layout in one shot.
         desc.vertexDescriptor.layouts[0].stride = m_impl->vertexStride;
         desc.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
@@ -171,9 +209,13 @@ void GLMetalRenderer::usePipeline() {
 }
 
 uint64_t GLMetalRenderer::createBuffer(const void* data, size_t size) {
-    if (!m_device || !data || size == 0)
+    if (!m_device || size == 0)
         return 0;
-    id<MTLBuffer> buf = [m_device newBufferWithBytes:data length:size options:MTLResourceStorageModeShared];
+    id<MTLBuffer> buf;
+    if (data)
+        buf = [m_device newBufferWithBytes:data length:size options:MTLResourceStorageModeShared];
+    else
+        buf = [m_device newBufferWithLength:size options:MTLResourceStorageModeShared];
     if (!buf)
         return 0;
     std::lock_guard<std::mutex> lock(m_impl->mutex);
@@ -195,6 +237,14 @@ void GLMetalRenderer::bindVertexBuffer(uint64_t bufferHandle, size_t offset, uin
 void GLMetalRenderer::drawArrays(uint32_t primitiveType, uint32_t first, uint32_t count) {
     if (!m_impl->currentEncoder)
         return;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        for (const auto& attribute : m_impl->vertexAttributes) {
+            auto it = m_impl->buffers.find(attribute.bufferHandle);
+            if (it != m_impl->buffers.end())
+                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
+        }
+    }
     // Map GL primitive type to Metal
     MTLPrimitiveType mtlType = MTLPrimitiveTypeTriangle;
     switch (primitiveType) {
@@ -219,18 +269,86 @@ void GLMetalRenderer::drawArrays(uint32_t primitiveType, uint32_t first, uint32_
     [m_impl->currentEncoder drawPrimitives:mtlType vertexStart:first vertexCount:count];
 }
 
+static MTLPrimitiveType metalPrimitiveType(uint32_t primitiveType)
+{
+    switch (primitiveType) {
+    case 0x0000: return MTLPrimitiveTypePoint;
+    case 0x0001: return MTLPrimitiveTypeLine;
+    case 0x0003: return MTLPrimitiveTypeLineStrip;
+    case 0x0004: return MTLPrimitiveTypeTriangle;
+    case 0x0005: return MTLPrimitiveTypeTriangleStrip;
+    case 0x0006: return MTLPrimitiveTypeTriangleStrip;
+    default: return MTLPrimitiveTypeTriangle;
+    }
+}
+
+void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->buffers.find(bufferHandle);
+    if (it != m_impl->buffers.end()) {
+        m_impl->currentIndexBuffer = it->second;
+        m_impl->currentIndexOffset = offset;
+    } else {
+        m_impl->currentIndexBuffer = nil;
+        m_impl->currentIndexOffset = 0;
+    }
+}
+
+void GLMetalRenderer::drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset)
+{
+    if (!m_impl->currentEncoder || !m_impl->currentIndexBuffer || !count)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        for (const auto& attribute : m_impl->vertexAttributes) {
+            auto it = m_impl->buffers.find(attribute.bufferHandle);
+            if (it != m_impl->buffers.end())
+                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
+        }
+    }
+    MTLIndexType mtlIndexType;
+    switch (indexType) {
+    case 0x1403: mtlIndexType = MTLIndexTypeUInt16; break;
+    case 0x1405: mtlIndexType = MTLIndexTypeUInt32; break;
+    default: return;
+    }
+    [m_impl->currentEncoder drawIndexedPrimitives:metalPrimitiveType(primitiveType)
+                                       indexCount:count
+                                        indexType:mtlIndexType
+                                      indexBuffer:m_impl->currentIndexBuffer
+                                indexBufferOffset:m_impl->currentIndexOffset + offset];
+}
+
 void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
     if (!m_device)
         return;
 
-    // For Phase 3a, we use an offscreen texture. Real drawable integration
-    // comes in Phase 3g/3j with WGL swap chain support.
-    MTLTextureDescriptor* texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                                                       width:width
-                                                                                      height:height
-                                                                                   mipmapped:NO];
-    texDesc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-    id<MTLTexture> texture = [m_device newTextureWithDescriptor:texDesc];
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    id<MTLTexture> texture = nil;
+    id<CAMetalDrawable> drawable = nil;
+
+    if (m_impl->metalLayer) {
+        /* CAMetalLayer drawableSize is maintained by the Wine view. A
+         * zero-size/minimized layer has no drawable; retrying on the next
+         * frame is preferable to encoding into a stale surface. */
+        if (width && height)
+            m_impl->metalLayer.drawableSize = CGSizeMake(width, height);
+        drawable = [m_impl->metalLayer nextDrawable];
+        texture = drawable.texture;
+    }
+
+    if (!texture) {
+        MTLTextureDescriptor* texDesc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                 width:width
+                                                                height:height
+                                                             mipmapped:NO];
+        texDesc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        texture = [m_device newTextureWithDescriptor:texDesc];
+    }
+    if (!texture)
+        return;
 
     MTLRenderPassDescriptor* passDesc = [MTLRenderPassDescriptor renderPassDescriptor];
     passDesc.colorAttachments[0].texture = texture;
@@ -239,17 +357,20 @@ void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
     passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     id<MTLCommandBuffer> cmdBuf = [m_commandQueue commandBuffer];
-
-    std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->colorTarget = texture;
+    m_impl->currentDrawable = drawable;
+    m_impl->drawableBacked = drawable != nil;
     m_impl->currentCommandBuffer = cmdBuf;
     m_impl->currentPassDescriptor = passDesc;
     m_impl->currentEncoder = [cmdBuf renderCommandEncoderWithDescriptor:passDesc];
 }
 
 void GLMetalRenderer::endRenderPass() {
-    [m_impl->currentEncoder endEncoding];
     std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (m_impl->currentEncoder)
+        [m_impl->currentEncoder endEncoding];
+    if (m_impl->currentCommandBuffer && m_impl->currentDrawable)
+        [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable];
     m_impl->currentEncoder = nil;
     // The command buffer stays live so flush()/finish() can commit it.
 }
@@ -261,6 +382,7 @@ void GLMetalRenderer::flush() {
         // After commit the buffer is read-only; clear so the next beginRenderPass
         // gets a fresh one.
         m_impl->currentCommandBuffer = nil;
+        m_impl->currentDrawable = nil;
     }
 }
 
@@ -274,6 +396,7 @@ void GLMetalRenderer::finish() {
                   m_impl->currentCommandBuffer.error);
         }
         m_impl->currentCommandBuffer = nil;
+        m_impl->currentDrawable = nil;
     }
 }
 
@@ -340,6 +463,30 @@ void GLMetalRenderer::setVertexLayout(uint32_t stride, const uint32_t* offsets, 
     m_impl->vertexAttributeFormats.assign(formats, formats + count);
 }
 
+void GLMetalRenderer::setVertexAttribute(uint32_t index, int32_t size, uint32_t type, bool normalized,
+                                          uint32_t stride, uint64_t bufferHandle, size_t offset)
+{
+    MTLVertexFormat format = MTLVertexFormatInvalid;
+    if (type == 0x1406) {
+        switch (size) {
+        case 1: format = MTLVertexFormatFloat; break;
+        case 2: format = MTLVertexFormatFloat2; break;
+        case 3: format = MTLVertexFormatFloat3; break;
+        case 4: format = MTLVertexFormatFloat4; break;
+        }
+    } else if (type == 0x1401 && size == 4) {
+        format = normalized ? MTLVertexFormatUChar4Normalized : MTLVertexFormatUChar4;
+    } else if (type == 0x1403 && size == 4) {
+        format = normalized ? MTLVertexFormatUShort4Normalized : MTLVertexFormatUShort4;
+    }
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = std::find_if(m_impl->vertexAttributes.begin(), m_impl->vertexAttributes.end(),
+                           [index](const auto& attribute) { return attribute.index == index; });
+    Impl::VertexAttribute attribute{index, format, stride, bufferHandle, offset};
+    if (it == m_impl->vertexAttributes.end()) m_impl->vertexAttributes.push_back(attribute);
+    else *it = attribute;
+}
+
 void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, size_t size) {
     if (!m_device)
         return;
@@ -380,6 +527,7 @@ void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, si
     // If a render pass is currently active, push the updated buffer into the
     // encoder so the next fragment-shader invocation sees the new contents.
     if (m_impl->currentEncoder) {
+        [m_impl->currentEncoder setVertexBuffer:buf offset:0 atIndex:binding];
         [m_impl->currentEncoder setFragmentBuffer:buf offset:0 atIndex:binding];
     }
 }

@@ -115,7 +115,7 @@ int main(void)
     }
     printf("PASS opengl32 load/exports pointer_bits=%u\n", (unsigned)(sizeof(void *) * 8));
 
-    hwnd = CreateWindowA("STATIC", "VKMT OpenGL Probe", WS_OVERLAPPEDWINDOW,
+    hwnd = CreateWindowA("STATIC", "WineMetalGL OpenGL Probe", WS_OVERLAPPEDWINDOW,
                          CW_USEDEFAULT, CW_USEDEFAULT, 64, 64, NULL, NULL, NULL, NULL);
     if (!hwnd)
     {

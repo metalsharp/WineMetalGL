@@ -53,7 +53,7 @@ static int compile_one(GLuint shader, const char *source,
 
 int main(void)
 {
-#ifdef VKMT_OPENGL_GLSL450
+#ifdef WINEMETALGL_GLSL450
     static const char version_name[] = "GLSL450";
     static const char success_marker[] = "OPENGL_GL450_METAL_DRAW_READBACK_OK";
     static const char vertex_source[] =
@@ -106,7 +106,7 @@ int main(void)
         printf("FAIL opengl32 load error=%lu\n", GetLastError());
         return 10;
     }
-    window = CreateWindowA("STATIC", "VKMT GL330 Metal", WS_OVERLAPPEDWINDOW,
+    window = CreateWindowA("STATIC", "WineMetalGL GL330 Metal", WS_OVERLAPPEDWINDOW,
                            0, 0, 64, 64, NULL, NULL, NULL, NULL);
     if (!window) return 11;
     dc = GetDC(window);
@@ -172,7 +172,12 @@ int main(void)
         pixel[1] < 98 || pixel[1] > 106 ||
         pixel[2] < 149 || pixel[2] > 157 || pixel[3] < 250)
         return 17;
+    if (!SwapBuffers(dc)) {
+        printf("FAIL SwapBuffers error=%lu\n", GetLastError());
+        return 18;
+    }
     printf("%s\n", success_marker);
+    printf("WINEMETALGL_DEFAULT_FBO_PRESENT_OK\n");
 
     use_program(0);
     delete_program(program);

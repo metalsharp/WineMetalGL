@@ -1,13 +1,21 @@
-# Wine patch series
+# Wine 11.17 integration
 
-`full-series/` contains 19 ordered `git format-patch` files. Apply it to
-the Wine 11.12 tag to reproduce the custom architecture substrate and the
-accepted OpenGL integration.
+The release target is x86_64 Unix Wine 11.17 with x86_64 and i386 guests in a
+single WoW64 prefix. ARM host drivers, ARM guest images, ARM64EC, and
+universal output are intentionally outside this tree.
 
-`opengl-only/` contains the final two OpenGL commits:
+The actual release build uses the WineForge 11.17 source at:
 
-1. Multi-architecture Metal runtime integration.
-2. Experimental Metal readback routing in `winemac`.
+```text
+/Volumes/AverySSD/Crossover-WineForge-macos15/merged-wine-11.17
+```
 
-The OpenGL-only series assumes the exact prerequisite state through Wine
-commit `0805c29`. Use the full series for a fresh tree.
+The local source includes the CrossOver/WineForge integration and the
+WineMetalGL changes in `dlls/win32u/opengl.c` and `dlls/winemac.drv/opengl.c`.
+Those files are rebuilt and staged together with the sidecar; no installed
+runtime is modified by this repository.
+
+`wine-11.17/` contains small, reviewable integration deltas that can be
+applied to a matching Wine 11.17 tree. The full WineForge/CrossOver source
+integration is maintained in the separate build source because it includes
+non-OpenGL runtime components.

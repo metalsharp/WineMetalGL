@@ -42,7 +42,7 @@ int main(int argc, char **argv)
             write_line(marker, dependencies[i]);
             write_line(marker, "OPENGL_DEPENDENCY_LOAD_FAILED");
             write_error(marker, GetLastError());
-            if (GetEnvironmentVariableA("VKMT_OPENGL_PROBE_PAUSE", NULL, 0)) Sleep(30000);
+            if (GetEnvironmentVariableA("WINEMETALGL_OPENGL_PROBE_PAUSE", NULL, 0)) Sleep(30000);
             return 4;
         }
         if (!lstrcmpiA(dependencies[i], "opengl32.dll")) opengl32 = module;

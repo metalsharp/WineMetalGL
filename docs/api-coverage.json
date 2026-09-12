@@ -1,0 +1,62 @@
+{
+  "project": "WineMetalGL",
+  "release": "0.2.0",
+  "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
+  "guests": ["x86_64", "i386"],
+  "prefix": "WINEARCH=wow64",
+  "paths": {
+    "compatibility": {"owner": "Wine/winemac.drv + legacy OpenGL", "status": "forwarded"},
+    "metal": {"owner": "WineMetalGL sidecar", "status": "implemented"}
+  },
+  "entry_points": {
+    "wgl": {
+      "implemented": [
+        "wglCreateContext", "wglCreateContextAttribsARB", "wglDeleteContext",
+        "wglMakeCurrent", "wglGetCurrentContext", "wglGetCurrentDC",
+        "wglChoosePixelFormatARB", "wglDescribePixelFormat",
+        "wglGetPixelFormat", "wglSetPixelFormat", "wglSwapIntervalEXT",
+        "wglGetProcAddress"
+      ],
+      "forwarded_or_driver_owned": ["wglShareLists"]
+    },
+    "gl_legacy": {
+      "forwarded": "Wine's compatibility path covers the exported OpenGL 1.0-2.1 surface",
+      "metal_owned": ["glViewport", "glClear", "glFlush", "glFinish", "glReadPixels"]
+    },
+    "gl_resources": {
+      "metal_owned": [
+        "glGenBuffers", "glBindBuffer", "glBufferData", "glVertexAttribPointer",
+        "glEnableVertexAttribArray", "glDrawArrays", "glDrawElements",
+        "glUniform1f", "glUniform2f", "glUniform3f", "glUniform4f",
+        "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i",
+        "glUniformMatrix2fv", "glUniformMatrix3fv", "glUniformMatrix4fv",
+        "glGetUniformLocation"
+      ],
+      "forwarded": [
+        "glGenTextures", "glBindTexture", "glTexImage2D",
+        "glGenFramebuffers", "glFramebufferTexture2D", "glCheckFramebufferStatus"
+      ]
+    },
+    "shader_stages": {
+      "implemented": ["vertex", "fragment"],
+      "compiler_only": ["compute"],
+      "rejected": ["geometry", "tessellation", "mesh", "task", "ray-tracing"]
+    }
+  },
+  "validated_profiles": [
+    "GLSL 1.20 compatibility readback",
+    "GLSL 3.30 vertex/fragment Metal draw/readback",
+    "GLSL 4.50 vertex/fragment translation",
+    "indexed GL 3.3-style draw with VBO/IBO, vertex attribute, and uniform",
+    "real CAMetalLayer default-surface presentation",
+    "x86_64 guest in WoW64",
+    "i386 guest in WoW64"
+  ],
+  "not_advertised": [
+    "complete Khronos OpenGL 4.6 conformance",
+    "geometry/tessellation/transform-feedback emulation",
+    "compute/image/SSBO/indirect execution",
+    "complete texture/sampler/FBO format matrix",
+    "EGL/GLES entry points"
+  ]
+}

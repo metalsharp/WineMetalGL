@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(WineMetalGL VERSION 0.1.0 LANGUAGES C CXX OBJC OBJCXX)
+project(WineMetalGL VERSION 0.2.0 LANGUAGES C CXX OBJC OBJCXX)
 
 if(NOT APPLE)
     message(FATAL_ERROR "WineMetalGL builds only on macOS.")
@@ -9,7 +9,11 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Host architecture")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS deployment target" FORCE)
+set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Host architecture" FORCE)
+if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+    message(FATAL_ERROR "WineMetalGL only supports x86_64 Mach-O output; universal and ARM targets are not supported.")
+endif()
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
@@ -82,7 +86,7 @@ set_target_properties(winemetalgl PROPERTIES
     OUTPUT_NAME "metalsharp-opengl"
     PREFIX ""
     INSTALL_NAME_DIR "@rpath"
-    OSX_ARCHITECTURES "arm64"
+    OSX_ARCHITECTURES "x86_64"
 )
 
 install(TARGETS winemetalgl LIBRARY DESTINATION lib)

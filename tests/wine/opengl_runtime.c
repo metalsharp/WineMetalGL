@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 #undef RESOLVE
     mark("OPENGL32_EXPORTS_OK");
 
-    window = CreateWindowExA(0, "STATIC", "VKMT OpenGL Probe",
+    window = CreateWindowExA(0, "STATIC", "WineMetalGL OpenGL Probe",
                              WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, NULL, NULL, NULL, NULL);
     if (!window)
     {
