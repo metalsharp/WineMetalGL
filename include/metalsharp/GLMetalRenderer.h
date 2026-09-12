@@ -122,6 +122,7 @@ class GLMetalRenderer {
     /// Begin/dispatch a compute workload for a compute-only OpenGL program.
     void beginComputePass();
     void bindComputeBuffer(uint64_t bufferHandle, uint32_t index);
+    void bindComputeTexture(uint64_t textureHandle, uint32_t index);
     void dispatchCompute(uint32_t x, uint32_t y, uint32_t z);
     bool readBuffer(uint64_t bufferHandle, size_t offset, size_t size, void* data);
 
@@ -137,6 +138,7 @@ class GLMetalRenderer {
     /// The renderer's Metal target is BGRA8; this method performs the channel
     /// conversion required by glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE).
     bool readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
+    bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
 
     /// Set the vertex descriptor stride and per-attribute layout.
     /// @param stride   byte stride of a single vertex

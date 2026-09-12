@@ -58,6 +58,10 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_instanced.c" -o "$RUN_ROOT/instanced32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_compute.c" -o "$RUN_ROOT/compute64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_compute.c" -o "$RUN_ROOT/compute32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image.c" -o "$RUN_ROOT/image64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image.c" -o "$RUN_ROOT/image32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_indirect.c" -o "$RUN_ROOT/indirect64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_indirect.c" -o "$RUN_ROOT/indirect32.exe" -lopengl32 -luser32 -lgdi32
 
 export WINEPREFIX="$PREFIX" WINEARCH=wow64 WINEMETALGL=1 WINEDEBUG=${WINEDEBUG:-+wgl}
 "${TIMEOUT[@]}" "$WINE" wineboot -u >"$RUN_ROOT/wineboot.log" 2>&1
@@ -93,6 +97,10 @@ run_shader "$RUN_ROOT/instanced64.exe"
 run_shader "$RUN_ROOT/instanced32.exe"
 run_shader "$RUN_ROOT/compute64.exe"
 run_shader "$RUN_ROOT/compute32.exe"
+run_shader "$RUN_ROOT/image64.exe"
+run_shader "$RUN_ROOT/image32.exe"
+run_shader "$RUN_ROOT/indirect64.exe"
+run_shader "$RUN_ROOT/indirect32.exe"
 grep -q OPENGL_GL330_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl33-64.exe.stdout"
 grep -q OPENGL_GL330_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl33-32.exe.stdout"
 grep -q OPENGL_GL450_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl45-64.exe.stdout"
@@ -111,6 +119,10 @@ grep -q WINEMETALGL_INSTANCED_OK "$RUN_ROOT/instanced64.exe.stdout"
 grep -q WINEMETALGL_INSTANCED_OK "$RUN_ROOT/instanced32.exe.stdout"
 grep -q WINEMETALGL_COMPUTE_OK "$RUN_ROOT/compute64.exe.stdout"
 grep -q WINEMETALGL_COMPUTE_OK "$RUN_ROOT/compute32.exe.stdout"
+grep -q WINEMETALGL_IMAGE_OK "$RUN_ROOT/image64.exe.stdout"
+grep -q WINEMETALGL_IMAGE_OK "$RUN_ROOT/image32.exe.stdout"
+grep -q WINEMETALGL_INDIRECT_OK "$RUN_ROOT/indirect64.exe.stdout"
+grep -q WINEMETALGL_INDIRECT_OK "$RUN_ROOT/indirect32.exe.stdout"
 
 echo WINEMETALGL_WOW64_X86_64_OK
 echo WINEMETALGL_WOW64_I386_OK
@@ -127,3 +139,5 @@ echo WINEMETALGL_FBO_OK
 echo WINEMETALGL_CLEAR_OK
 echo WINEMETALGL_INSTANCED_OK
 echo WINEMETALGL_COMPUTE_OK
+echo WINEMETALGL_IMAGE_OK
+echo WINEMETALGL_INDIRECT_OK

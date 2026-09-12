@@ -51,6 +51,8 @@ tests/wine/opengl_gl33_instanced.c
 tests/wine/opengl_gl33_metal.c
 tests/wine/opengl_gl33_resources.c
 tests/wine/opengl_gl33_texture.c
+tests/wine/opengl_image.c
+tests/wine/opengl_indirect.c
 tests/wine/opengl_load_probe.c
 tests/wine/opengl_runtime.c
 tests/wine/opengl_runtime_probe.c

@@ -546,6 +546,13 @@ void GLMetalRenderer::bindComputeBuffer(uint64_t bufferHandle, uint32_t index) {
     if (it != m_impl->buffers.end()) [m_impl->currentComputeEncoder setBuffer:it->second offset:0 atIndex:index];
 }
 
+void GLMetalRenderer::bindComputeTexture(uint64_t textureHandle, uint32_t index) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!m_impl->currentComputeEncoder) return;
+    auto it = m_impl->textures.find(textureHandle);
+    if (it != m_impl->textures.end()) [m_impl->currentComputeEncoder setTexture:it->second atIndex:index];
+}
+
 void GLMetalRenderer::dispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentComputeEncoder || !x || !y || !z) return;
@@ -611,6 +618,41 @@ bool GLMetalRenderer::readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, ui
             rgba[destination + 3] = bgra[source + 3];
         }
     }
+    return true;
+}
+
+bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y,
+                                       uint32_t width, uint32_t height, void* data) {
+    if (!data || !width || !height) return false;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->textures.find(textureHandle);
+    if (it == m_impl->textures.end()) return false;
+    id<MTLTexture> texture = it->second;
+    if (x + width > texture.width || y + height > texture.height) return false;
+    const NSUInteger bytesPerRow = (static_cast<NSUInteger>(width) * 4 + 255) & ~static_cast<NSUInteger>(255);
+    const NSUInteger bufferSize = bytesPerRow * static_cast<NSUInteger>(height);
+    id<MTLBuffer> staging = [m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> commandBuffer = [m_commandQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+    if (!staging || !commandBuffer || !blit) return false;
+    [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(x, y, 0)
+               sourceSize:MTLSizeMake(width, height, 1)
+                 toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow
+    destinationBytesPerImage:bufferSize];
+    [blit endEncoding]; [commandBuffer commit]; [commandBuffer waitUntilCompleted];
+    if (commandBuffer.status != MTLCommandBufferStatusCompleted) return false;
+    uint8_t* rgba = static_cast<uint8_t*>(data);
+    const uint8_t* bgra = static_cast<const uint8_t*>(staging.contents);
+    for (uint32_t row = 0; row < height; ++row)
+        for (uint32_t column = 0; column < width; ++column) {
+            const size_t source = static_cast<size_t>(row) * bytesPerRow + column * 4;
+            const size_t destination = (static_cast<size_t>(row) * width + column) * 4;
+            rgba[destination + 0] = bgra[source + 2];
+            rgba[destination + 1] = bgra[source + 1];
+            rgba[destination + 2] = bgra[source + 0];
+            rgba[destination + 3] = bgra[source + 3];
+        }
     return true;
 }
 
@@ -704,7 +746,7 @@ uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const v
                                                                                        width:width
                                                                                       height:height
                                                                                    mipmapped:NO];
-    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
     id<MTLTexture> texture = [m_device newTextureWithDescriptor:texDesc];
     if (!texture)
         return 0;

@@ -33,6 +33,9 @@ typedef void (WINAPI *PFNGLBINDTEXTUREPROC)(GLenum, GLuint);
 typedef void (WINAPI *PFNGLTEXPARAMETERIPROC)(GLenum, GLenum, GLint);
 typedef void (WINAPI *PFNGLTEXIMAGE2DPROC)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 typedef void (WINAPI *PFNGLDELETETEXTURESPROC)(GLsizei, const GLuint *);
+typedef void (WINAPI *PFNGLGENSAMPLERSPROC)(GLsizei, GLuint *);
+typedef void (WINAPI *PFNGLBINDSAMPLERPROC)(GLuint, GLuint);
+typedef void (WINAPI *PFNGLSAMPLERPARAMETERIPROC)(GLuint, GLenum, GLint);
 
 typedef void (WINAPI *PFNGLDRAWAREASPROC)(GLenum, GLint, GLint); /* unused; keeps fixture self-contained */
 static void *get_proc(const char *name)
@@ -58,6 +61,7 @@ int main(void)
     PFNGLGETUNIFORMLOCATIONPROC get_uniform_location; PFNGLUNIFORM1IPROC uniform1i;
     PFNGLGENTEXTURESPROC gen_textures; PFNGLBINDTEXTUREPROC bind_texture; PFNGLTEXPARAMETERIPROC tex_parameteri;
     PFNGLTEXIMAGE2DPROC tex_image_2d; PFNGLDELETETEXTURESPROC delete_textures;
+    PFNGLGENSAMPLERSPROC gen_samplers; PFNGLBINDSAMPLERPROC bind_sampler; PFNGLSAMPLERPARAMETERIPROC sampler_parameteri;
     setvbuf(stdout, NULL, _IONBF, 0);
     window = CreateWindowA("STATIC", "WineMetalGL texture", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, NULL, NULL, NULL, NULL);
     if (!window) return 11; dc = GetDC(window);
@@ -66,10 +70,10 @@ int main(void)
     context = wglCreateContext(dc); if (!context || !wglMakeCurrent(dc, context)) return 13;
     LOAD(PFNGLCREATESHADERPROC, create_shader, "glCreateShader"); LOAD(PFNGLSHADERSOURCEPROC, shader_source, "glShaderSource"); LOAD(PFNGLCOMPILESHADERPROC, compile_shader, "glCompileShader"); LOAD(PFNGLGETSHADERIVPROC, get_shader_iv, "glGetShaderiv");
     LOAD(PFNGLCREATEPROGRAMPROC, create_program, "glCreateProgram"); LOAD(PFNGLATTACHSHADERPROC, attach_shader, "glAttachShader"); LOAD(PFNGLLINKPROGRAMPROC, link_program, "glLinkProgram"); LOAD(PFNGLGETPROGRAMIVPROC, get_program_iv, "glGetProgramiv"); LOAD(PFNGLUSEPROGRAMPROC, use_program, "glUseProgram");
-    LOAD(PFNGLGETUNIFORMLOCATIONPROC, get_uniform_location, "glGetUniformLocation"); LOAD(PFNGLUNIFORM1IPROC, uniform1i, "glUniform1i"); LOAD(PFNGLGENTEXTURESPROC, gen_textures, "glGenTextures"); LOAD(PFNGLBINDTEXTUREPROC, bind_texture, "glBindTexture"); LOAD(PFNGLTEXPARAMETERIPROC, tex_parameteri, "glTexParameteri"); LOAD(PFNGLTEXIMAGE2DPROC, tex_image_2d, "glTexImage2D"); LOAD(PFNGLDELETETEXTURESPROC, delete_textures, "glDeleteTextures");
+    LOAD(PFNGLGETUNIFORMLOCATIONPROC, get_uniform_location, "glGetUniformLocation"); LOAD(PFNGLUNIFORM1IPROC, uniform1i, "glUniform1i"); LOAD(PFNGLGENTEXTURESPROC, gen_textures, "glGenTextures"); LOAD(PFNGLBINDTEXTUREPROC, bind_texture, "glBindTexture"); LOAD(PFNGLTEXPARAMETERIPROC, tex_parameteri, "glTexParameteri"); LOAD(PFNGLTEXIMAGE2DPROC, tex_image_2d, "glTexImage2D"); LOAD(PFNGLDELETETEXTURESPROC, delete_textures, "glDeleteTextures"); LOAD(PFNGLGENSAMPLERSPROC, gen_samplers, "glGenSamplers"); LOAD(PFNGLBINDSAMPLERPROC, bind_sampler, "glBindSampler"); LOAD(PFNGLSAMPLERPARAMETERIPROC, sampler_parameteri, "glSamplerParameteri");
     v = create_shader(GL_VERTEX_SHADER); f = create_shader(GL_FRAGMENT_SHADER); { const char *s = vs; shader_source(v, 1, &s, NULL); } { const char *s = fs; shader_source(f, 1, &s, NULL); } compile_shader(v); compile_shader(f); get_shader_iv(v, GL_COMPILE_STATUS, &compiled); if (!compiled) return 15; get_shader_iv(f, GL_COMPILE_STATUS, &compiled); if (!compiled) return 16;
     program = create_program(); attach_shader(program, v); attach_shader(program, f); link_program(program); get_program_iv(program, GL_LINK_STATUS, &linked); if (!linked) return 17; use_program(program);
-    gen_textures(1, &texture); bind_texture(GL_TEXTURE_2D, texture); tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); tex_image_2d(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    gen_textures(1, &texture); bind_texture(GL_TEXTURE_2D, texture); tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); tex_image_2d(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba); GLuint sampler; gen_samplers(1, &sampler); bind_sampler(0, sampler); sampler_parameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR); sampler_parameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     location = get_uniform_location(program, "tex"); if (location < 0) return 18; uniform1i(location, 0);
     glViewport(0, 0, 64, 64); glDrawArrays(GL_TRIANGLES, 0, 3); glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("GL33 texture readback rgba=%u,%u,%u,%u error=0x%x\n", pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());

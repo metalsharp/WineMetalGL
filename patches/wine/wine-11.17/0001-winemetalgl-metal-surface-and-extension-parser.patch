@@ -31,7 +31,7 @@ index 6ab3a03..5679212 100644
  }
 
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
-index 696734f..dd9bd34 100644
+index 696734f..fde3597 100644
 --- a/dlls/winemac.drv/opengl.c
 +++ b/dlls/winemac.drv/opengl.c
 @@ -69,6 +69,10 @@ struct macdrv_context
@@ -148,7 +148,7 @@ index 696734f..dd9bd34 100644
      TRACE("()\n");
 
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2616,97 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2616,113 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
 
  #undef LOAD_FUNCPTR
 
@@ -184,9 +184,16 @@ index 696734f..dd9bd34 100644
 +            WINEMETALGL_BIND(glDrawElements);
 +            WINEMETALGL_BIND(glDrawArraysInstanced);
 +            WINEMETALGL_BIND(glDrawElementsInstanced);
++            WINEMETALGL_BIND(glDrawArraysIndirect);
++            WINEMETALGL_BIND(glDrawElementsIndirect);
++            WINEMETALGL_BIND(glMultiDrawArraysIndirect);
++            WINEMETALGL_BIND(glMultiDrawElementsIndirect);
++            WINEMETALGL_BIND(glMultiDrawArrays);
++            WINEMETALGL_BIND(glMultiDrawElements);
 +            WINEMETALGL_BIND(glDispatchCompute);
 +            WINEMETALGL_BIND(glMemoryBarrier);
 +            WINEMETALGL_BIND(glBindBufferBase);
++            WINEMETALGL_BIND(glBindImageTexture);
 +            WINEMETALGL_BIND(glGetBufferSubData);
 +            WINEMETALGL_BIND(glVertexAttribPointer);
 +            WINEMETALGL_BIND(glEnableVertexAttribArray);
@@ -204,6 +211,10 @@ index 696734f..dd9bd34 100644
 +            WINEMETALGL_BIND(glTexParameteri);
 +            WINEMETALGL_BIND(glTexSubImage2D);
 +            WINEMETALGL_BIND(glTexParameterf);
++            WINEMETALGL_BIND(glGenSamplers);
++            WINEMETALGL_BIND(glDeleteSamplers);
++            WINEMETALGL_BIND(glBindSampler);
++            WINEMETALGL_BIND(glSamplerParameteri);
 +            WINEMETALGL_BIND(glGenFramebuffers);
 +            WINEMETALGL_BIND(glDeleteFramebuffers);
 +            WINEMETALGL_BIND(glBindFramebuffer);
@@ -225,6 +236,11 @@ index 696734f..dd9bd34 100644
 +            WINEMETALGL_BIND(glUniformMatrix4fv);
 +            WINEMETALGL_BIND(glFlush);
 +            WINEMETALGL_BIND(glFinish);
++            WINEMETALGL_BIND(glFenceSync);
++            WINEMETALGL_BIND(glClientWaitSync);
++            WINEMETALGL_BIND(glWaitSync);
++            WINEMETALGL_BIND(glDeleteSync);
++            WINEMETALGL_BIND(glIsSync);
 +#undef WINEMETALGL_BIND
 +            TRACE("loaded x86_64 WineMetalGL OpenGL sidecar%s\n",
 +                  pmetalsharp_set_metal_layer ? " with CAMetalLayer bridge" : "");
@@ -246,7 +262,7 @@ index 696734f..dd9bd34 100644
      dlclose(opengl_handle);
      opengl_handle = NULL;
      return STATUS_NOT_SUPPORTED;
-@@ -2662,6 +2808,8 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2662,6 +2824,8 @@ static BOOL macdrv_context_destroy(void *private)
 
      TRACE("deleting context %p/%p/%p\n", context, context->context, context->cglcontext);
 
@@ -255,7 +271,7 @@ index 696734f..dd9bd34 100644
      macdrv_dispose_opengl_context(context->context);
      free(context);
      return TRUE;
-@@ -2669,13 +2817,31 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2669,13 +2833,31 @@ static BOOL macdrv_context_destroy(void *private)
 
  static void *macdrv_get_proc_address(const char *name)
  {
@@ -287,7 +303,7 @@ index 696734f..dd9bd34 100644
      return dlsym(opengl_handle, name);
  }
 
-@@ -2686,6 +2852,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
+@@ -2686,6 +2868,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
      TRACE("%s context %p/%p/%p\n", debugstr_opengl_drawable(base), context, (context ? context->context : NULL),
            (context ? context->cglcontext : NULL));
 

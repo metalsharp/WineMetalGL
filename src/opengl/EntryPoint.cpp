@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #if __has_include(<spirv_cross_c.h>)
@@ -57,6 +58,8 @@ struct ExperimentalProgram {
 
 std::mutex g_programMutex;
 std::unordered_map<uint32_t, ExperimentalProgram> g_programs;
+std::mutex g_syncMutex;
+std::unordered_set<void*> g_syncs;
 
 struct ExperimentalBuffer {
     uint64_t metalHandle = 0;
@@ -82,9 +85,14 @@ std::mutex g_resourceMutex;
 std::unordered_map<uint32_t, ExperimentalTexture> g_textures;
 std::unordered_map<uint32_t, ExperimentalFramebuffer> g_framebuffers;
 std::array<uint32_t, metalsharp::kMaxTextureUnits> g_textureUnits{};
+std::array<uint32_t, 16> g_imageUnits{};
 std::array<uint32_t, metalsharp::kMaxVertexAttribs> g_attributeDivisors{};
 std::unordered_map<uint32_t, bool> g_vertexArrays;
+struct ExperimentalSampler { uint32_t minFilter = 0x2601, magFilter = 0x2601, wrapS = 0x2901, wrapT = 0x2901; };
+std::unordered_map<uint32_t, ExperimentalSampler> g_samplers;
+std::array<uint32_t, metalsharp::kMaxTextureUnits> g_samplerUnits{};
 uint32_t g_boundStorageBuffer = 0;
+uint32_t g_boundIndirectBuffer = 0;
 uint32_t g_currentVertexArray = 0;
 uint32_t g_activeTextureUnit = 0;
 
@@ -160,6 +168,11 @@ bool beginExperimentalCompute(uint32_t program) {
     std::lock_guard<std::mutex> resourceLock(g_bufferMutex);
     auto buffer = g_buffers.find(g_boundStorageBuffer);
     if (buffer != g_buffers.end()) g_metalRenderer.bindComputeBuffer(buffer->second.metalHandle, 0);
+    std::lock_guard<std::mutex> textureLock(g_resourceMutex);
+    for (uint32_t unit = 0; unit < g_imageUnits.size(); ++unit) {
+        auto image = g_textures.find(g_imageUnits[unit]);
+        if (image != g_textures.end()) g_metalRenderer.bindComputeTexture(image->second.metalHandle, unit);
+    }
     return true;
 }
 
@@ -207,8 +220,12 @@ bool beginExperimentalDraw(uint32_t program) {
         auto texture = g_textures.find(g_textureUnits[unit]);
         if (texture == g_textures.end()) continue;
         g_metalRenderer.bindTexture(texture->second.metalHandle, unit);
-        g_metalRenderer.bindSampler(unit, texture->second.minFilter, texture->second.magFilter,
-                                    texture->second.wrapS, texture->second.wrapT);
+        auto sampler = g_samplers.find(g_samplerUnits[unit]);
+        if (sampler != g_samplers.end())
+            g_metalRenderer.bindSampler(unit, sampler->second.minFilter, sampler->second.magFilter, sampler->second.wrapS, sampler->second.wrapT);
+        else
+            g_metalRenderer.bindSampler(unit, texture->second.minFilter, texture->second.magFilter,
+                                        texture->second.wrapS, texture->second.wrapT);
     }
     g_metalRenderer.usePipeline();
 
@@ -372,11 +389,13 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893;
     constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
+    constexpr uint32_t kGL_DRAW_INDIRECT_BUFFER = 0x8F3F;
     const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
                               std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
     const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
                           target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer :
-                          target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer : 0;
+                          target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer :
+                          target == kGL_DRAW_INDIRECT_BUFFER ? g_boundIndirectBuffer : 0;
     if (experimental && name && size > 0 && ensureMetalInit()) {
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
         if (handle) {
@@ -425,12 +444,15 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;         // GL_ARRAY_BUFFER
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893; // GL_ELEMENT_ARRAY_BUFFER
     constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
+    constexpr uint32_t kGL_DRAW_INDIRECT_BUFFER = 0x8F3F;
     if (target == kGL_ARRAY_BUFFER) {
         g_glBridge.state().boundArrayBuffer = buffer;
     } else if (target == kGL_ELEMENT_ARRAY_BUFFER) {
         g_glBridge.state().boundElementArrayBuffer = buffer;
     } else if (target == kGL_SHADER_STORAGE_BUFFER) {
         g_boundStorageBuffer = buffer;
+    } else if (target == kGL_DRAW_INDIRECT_BUFFER) {
+        g_boundIndirectBuffer = buffer;
     }
 }
 
@@ -512,6 +534,109 @@ extern "C" void glDrawElementsInstanced(uint32_t mode, int32_t count, uint32_t t
                                           reinterpret_cast<size_t>(indices), static_cast<uint32_t>(instances));
     g_metalRenderer.endRenderPass();
     g_metalRenderer.finish();
+}
+
+extern "C" void glDrawArraysIndirect(uint32_t mode, const void* indirect) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, const void*>("glDrawArraysIndirect", mode, indirect);
+        return;
+    }
+    struct Command { uint32_t count, instances, first, baseInstance; } command{};
+    uint64_t handle = 0;
+    { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(g_boundIndirectBuffer); if (it != g_buffers.end()) handle = it->second.metalHandle; }
+    if (!handle || !g_metalRenderer.readBuffer(handle, reinterpret_cast<size_t>(indirect), sizeof(command), &command) ||
+        !beginExperimentalDraw(program)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    if (command.instances > 1) g_metalRenderer.drawArraysInstanced(mode, command.first, command.count, command.instances);
+    else g_metalRenderer.drawArrays(mode, command.first, command.count);
+    g_metalRenderer.endRenderPass(); g_metalRenderer.finish();
+}
+
+extern "C" void glDrawElementsIndirect(uint32_t mode, uint32_t type, const void* indirect) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, uint32_t, const void*>("glDrawElementsIndirect", mode, type, indirect);
+        return;
+    }
+    struct Command { uint32_t count, instances, firstIndex, baseVertex, baseInstance; } command{};
+    uint64_t indirectHandle = 0, indexHandle = 0;
+    { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(g_boundIndirectBuffer); if (it != g_buffers.end()) indirectHandle = it->second.metalHandle; auto ix = g_buffers.find(g_glBridge.state().boundElementArrayBuffer); if (ix != g_buffers.end()) indexHandle = ix->second.metalHandle; }
+    size_t indexSize = type == 0x1403 ? 2 : type == 0x1405 ? 4 : 0;
+    if (!indirectHandle || !indexHandle || !indexSize || !g_metalRenderer.readBuffer(indirectHandle, reinterpret_cast<size_t>(indirect), sizeof(command), &command) ||
+        !beginExperimentalDraw(program)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    g_metalRenderer.bindIndexBuffer(indexHandle, 0);
+    size_t indexOffset = static_cast<size_t>(command.firstIndex) * indexSize;
+    if (command.instances > 1) g_metalRenderer.drawElementsInstanced(mode, command.count, type, indexOffset, command.instances);
+    else g_metalRenderer.drawElements(mode, command.count, type, indexOffset);
+    g_metalRenderer.endRenderPass(); g_metalRenderer.finish();
+}
+
+extern "C" void glBindImageTexture(uint32_t unit, uint32_t texture, int32_t level, unsigned char layered,
+                                    int32_t layer, uint32_t access, uint32_t format) {
+    glDispatch<void, uint32_t, uint32_t, int32_t, unsigned char, int32_t, uint32_t, uint32_t>(
+        "glBindImageTexture", unit, texture, level, layered, layer, access, format);
+    if (metalModeEnabled() && unit < g_imageUnits.size()) g_imageUnits[unit] = texture;
+}
+
+extern "C" void glMultiDrawArraysIndirect(uint32_t mode, const void* indirect, int32_t drawcount, int32_t stride) {
+    if (!isExperimentalProgram(g_glBridge.state().currentProgram)) {
+        glDispatch<void, uint32_t, const void*, int32_t, int32_t>("glMultiDrawArraysIndirect", mode, indirect, drawcount, stride);
+        return;
+    }
+    const size_t commandStride = stride > 0 ? static_cast<size_t>(stride) : 16;
+    for (int32_t i = 0; i < drawcount; ++i)
+        glDrawArraysIndirect(mode, static_cast<const uint8_t*>(indirect) + i * commandStride);
+}
+
+extern "C" void glMultiDrawElementsIndirect(uint32_t mode, uint32_t type, const void* indirect,
+                                             int32_t drawcount, int32_t stride) {
+    if (!isExperimentalProgram(g_glBridge.state().currentProgram)) {
+        glDispatch<void, uint32_t, uint32_t, const void*, int32_t, int32_t>("glMultiDrawElementsIndirect", mode, type, indirect, drawcount, stride);
+        return;
+    }
+    const size_t commandStride = stride > 0 ? static_cast<size_t>(stride) : 20;
+    for (int32_t i = 0; i < drawcount; ++i)
+        glDrawElementsIndirect(mode, type, static_cast<const uint8_t*>(indirect) + i * commandStride);
+}
+
+extern "C" void glMultiDrawArrays(uint32_t mode, const int32_t* first, const int32_t* count, int32_t drawcount) {
+    if (!isExperimentalProgram(g_glBridge.state().currentProgram)) {
+        glDispatch<void, uint32_t, const int32_t*, const int32_t*, int32_t>("glMultiDrawArrays", mode, first, count, drawcount);
+        return;
+    }
+    for (int32_t i = 0; i < drawcount; ++i) glDrawArrays(mode, first[i], count[i]);
+}
+
+extern "C" void glMultiDrawElements(uint32_t mode, const int32_t* count, uint32_t type,
+                                     const void* const* indices, int32_t drawcount) {
+    if (!isExperimentalProgram(g_glBridge.state().currentProgram)) {
+        glDispatch<void, uint32_t, const int32_t*, uint32_t, const void* const*, int32_t>("glMultiDrawElements", mode, count, type, indices, drawcount);
+        return;
+    }
+    for (int32_t i = 0; i < drawcount; ++i) glDrawElements(mode, count[i], type, indices[i]);
+}
+
+extern "C" void glGenSamplers(int32_t n, uint32_t* samplers) {
+    glDispatch<void, int32_t, uint32_t*>("glGenSamplers", n, samplers);
+    if (metalModeEnabled() && samplers) { std::lock_guard<std::mutex> lock(g_resourceMutex); for (int32_t i = 0; i < n; ++i) g_samplers.emplace(samplers[i], ExperimentalSampler{}); }
+}
+extern "C" void glDeleteSamplers(int32_t n, const uint32_t* samplers) {
+    if (samplers) { std::lock_guard<std::mutex> lock(g_resourceMutex); for (int32_t i = 0; i < n; ++i) g_samplers.erase(samplers[i]); }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteSamplers", n, samplers);
+}
+extern "C" void glBindSampler(uint32_t unit, uint32_t sampler) {
+    glDispatch<void, uint32_t, uint32_t>("glBindSampler", unit, sampler);
+    if (metalModeEnabled() && unit < g_samplerUnits.size()) g_samplerUnits[unit] = sampler;
+}
+extern "C" void glSamplerParameteri(uint32_t sampler, uint32_t pname, int32_t param) {
+    glDispatch<void, uint32_t, uint32_t, int32_t>("glSamplerParameteri", sampler, pname, param);
+    if (!metalModeEnabled()) return;
+    std::lock_guard<std::mutex> lock(g_resourceMutex);
+    auto it = g_samplers.find(sampler); if (it == g_samplers.end()) return;
+    if (pname == 0x2801) it->second.minFilter = param;
+    else if (pname == 0x2800) it->second.magFilter = param;
+    else if (pname == 0x2802) it->second.wrapS = param;
+    else if (pname == 0x2803) it->second.wrapT = param;
 }
 
 extern "C" void glDispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
@@ -1260,8 +1385,36 @@ extern "C" const uint8_t* glGetStringi(uint32_t name, uint32_t index) {
 // ---------------------------------------------------------------------------
 // Misc commands (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH0(void, glFlush)
-GL_PASSTHROUGH0(void, glFinish)
+extern "C" void glFlush(void) {
+    if (metalModeEnabled()) { g_metalRenderer.flush(); return; }
+    glDispatch<void>("glFlush");
+}
+extern "C" void glFinish(void) {
+    if (metalModeEnabled()) { g_metalRenderer.finish(); return; }
+    glDispatch<void>("glFinish");
+}
+extern "C" void* glFenceSync(uint32_t condition, uint32_t flags) {
+    if (!metalModeEnabled()) return glDispatch<void*, uint32_t, uint32_t>("glFenceSync", condition, flags);
+    void* sync = new uint64_t(1);
+    std::lock_guard<std::mutex> lock(g_syncMutex); g_syncs.insert(sync); return sync;
+}
+extern "C" uint32_t glClientWaitSync(void* sync, uint32_t flags, uint64_t timeout) {
+    if (!metalModeEnabled()) return glDispatch<uint32_t, void*, uint32_t, uint64_t>("glClientWaitSync", sync, flags, timeout);
+    std::lock_guard<std::mutex> lock(g_syncMutex); if (!g_syncs.count(sync)) return 0x0501;
+    g_metalRenderer.finish(); return 0x911C; /* GL_CONDITION_SATISFIED */
+}
+extern "C" void glWaitSync(void* sync, uint32_t flags, uint64_t timeout) {
+    if (metalModeEnabled()) { g_metalRenderer.finish(); return; }
+    glDispatch<void, void*, uint32_t, uint64_t>("glWaitSync", sync, flags, timeout);
+}
+extern "C" void glDeleteSync(void* sync) {
+    if (metalModeEnabled()) { std::lock_guard<std::mutex> lock(g_syncMutex); if (g_syncs.erase(sync)) delete static_cast<uint64_t*>(sync); return; }
+    glDispatch<void, void*>("glDeleteSync", sync);
+}
+extern "C" unsigned char glIsSync(void* sync) {
+    if (metalModeEnabled()) { std::lock_guard<std::mutex> lock(g_syncMutex); return g_syncs.count(sync) != 0; }
+    return glDispatch<unsigned char, void*>("glIsSync", sync);
+}
 GL_PASSTHROUGH2(void, glHint, uint32_t, target, uint32_t, mode)
 
 // ---------------------------------------------------------------------------
@@ -1369,9 +1522,16 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
 extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t format, uint32_t type, void* data) {
     const uint32_t program = g_glBridge.state().currentProgram;
     if (metalModeEnabled() && (isExperimentalProgram(program) || !program)) {
-        if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1908 && type == 0x1401 &&
-            g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), static_cast<uint32_t>(y),
-                                            static_cast<uint32_t>(w), static_cast<uint32_t>(h), data)) return;
+        bool read = false;
+        if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1908 && type == 0x1401) {
+            uint64_t textureHandle = 0;
+            { std::lock_guard<std::mutex> lock(g_resourceMutex);
+              auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+              if (fbo != g_framebuffers.end()) { auto texture = g_textures.find(fbo->second.colorTexture); if (texture != g_textures.end()) textureHandle = texture->second.metalHandle; } }
+            read = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), data) :
+                g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), data);
+        }
+        if (read) return;
         metalsharp::GLErrorTracker::instance().setError(0x0502);
         return;
     }
