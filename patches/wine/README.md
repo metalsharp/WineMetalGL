@@ -10,12 +10,11 @@ The actual release build uses the WineForge 11.17 source at:
 /Volumes/AverySSD/Crossover-WineForge-macos15/merged-wine-11.17
 ```
 
-The local source includes the CrossOver/WineForge integration and the
-WineMetalGL changes in `dlls/win32u/opengl.c` and `dlls/winemac.drv/opengl.c`.
-Those files are rebuilt and staged together with the sidecar; no installed
-runtime is modified by this repository.
+`wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch` records
+the OpenGL-specific delta used by the verified build. It includes the
+extension parser correction, CAMetalLayer bridge, sidecar core-function
+binding, modern WGL lookup gates, and the Metal presentation path.
 
-`wine-11.17/` contains small, reviewable integration deltas that can be
-applied to a matching Wine 11.17 tree. The full WineForge/CrossOver source
-integration is maintained in the separate build source because it includes
-non-OpenGL runtime components.
+The full WineForge/CrossOver source integration is maintained in the separate
+build source because it includes non-OpenGL runtime components. Apply this
+delta only to the matching WineForge/Wine 11.17 source revision.

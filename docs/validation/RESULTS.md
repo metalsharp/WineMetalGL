@@ -1,4 +1,4 @@
-# WineMetalGL 0.2.0 validation
+# WineMetalGL 0.3.0 validation
 
 Validation date: 2026-09-12
 
@@ -31,6 +31,10 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 3.30 Metal compile/link/draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.
+- Texture upload, sampler state, and GLSL texture sampling.
+- Color-texture FBO attachment, completeness, and readback.
+- Instanced drawing with a Metal depth attachment.
+- Compute shader dispatch with SSBO writeback on both guests.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
 
 Observed markers:
@@ -46,6 +50,11 @@ WINEMETALGL_READBACK_OK
 WINEMETALGL_GLSL330_OK
 WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
+WINEMETALGL_GL33_TEXTURE_OK
+WINEMETALGL_FBO_OK
+WINEMETALGL_CLEAR_OK
+WINEMETALGL_INSTANCED_OK
+WINEMETALGL_COMPUTE_OK
 ```
 
 The Wine log also reports:
@@ -60,5 +69,5 @@ which distinguishes the presented drawable from the legacy CGL fallback.
 
 This release does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
-tessellation, transform feedback, compute/image/SSBO execution, the full
+tessellation, transform feedback, image/indirect execution, the full
 texture/sampler/FBO format matrix, and EGL/GLES remain explicitly unadvertised.

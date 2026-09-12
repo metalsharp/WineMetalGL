@@ -49,7 +49,12 @@ struct GLState {
 
     // Depth state
     bool depthTestEnabled = false;
-    uint32_t depthFunc = 0;
+    bool depthWriteEnabled = true;
+    uint32_t depthFunc = 0x0201; /* GL_LESS */
+
+    // Clear state
+    float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float clearDepth = 1.0f;
 
     // Current bound objects
     uint32_t boundTexture2D = 0;

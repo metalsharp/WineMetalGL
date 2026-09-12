@@ -44,8 +44,13 @@ src/opengl/WGLShim.cpp
 src/runtime/Logger.cpp
 tests/native/glsl_translation_probe.c
 tests/native/probe-metalsharp-opengl.sh
+tests/wine/opengl_clear_metal.c
+tests/wine/opengl_compute.c
+tests/wine/opengl_gl33_fbo.c
+tests/wine/opengl_gl33_instanced.c
 tests/wine/opengl_gl33_metal.c
 tests/wine/opengl_gl33_resources.c
+tests/wine/opengl_gl33_texture.c
 tests/wine/opengl_load_probe.c
 tests/wine/opengl_runtime.c
 tests/wine/opengl_runtime_probe.c

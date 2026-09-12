@@ -1,0 +1,15 @@
+#include <windows.h>
+#include <GL/gl.h>
+#include <stdint.h>
+#include <stdio.h>
+#define GL_COMPUTE_SHADER 0x91b9
+#define GL_COMPILE_STATUS 0x8b81
+#define GL_LINK_STATUS 0x8b82
+#define GL_SHADER_STORAGE_BUFFER 0x90d2
+#define GL_DYNAMIC_COPY 0x88ea
+#define GL_SHADER_STORAGE_BARRIER_BIT 0x2000
+
+typedef GLuint (WINAPI *CS)(GLenum); typedef void (WINAPI *SS)(GLuint,GLsizei,const char *const*,const GLint*); typedef void (WINAPI *CO)(GLuint); typedef void (WINAPI *SI)(GLuint,GLenum,GLint*); typedef GLuint (WINAPI *CP)(void); typedef void (WINAPI *AT)(GLuint,GLuint); typedef void (WINAPI *LI)(GLuint); typedef void (WINAPI *PI)(GLuint,GLenum,GLint*); typedef void (WINAPI *US)(GLuint); typedef void (WINAPI *GB)(GLsizei,GLuint*); typedef void (WINAPI *BB)(GLenum,GLuint); typedef void (WINAPI *BD)(GLenum,intptr_t,const void*,GLenum); typedef void (WINAPI *BBA)(GLenum,GLuint,GLuint); typedef void (WINAPI *DC)(GLuint,GLuint,GLuint); typedef void (WINAPI *MB)(GLbitfield); typedef void (WINAPI *GBS)(GLenum,intptr_t,intptr_t,void*);
+static void *gp(const char*n){PROC p=wglGetProcAddress(n);HMODULE m;if(p)return(void*)p;m=GetModuleHandleA("opengl32.dll");return m?(void*)GetProcAddress(m,n):0;}
+#define L(t,v,n) do{v=(t)gp(n);if(!v){printf("FAIL missing %s\n",n);return 14;}}while(0)
+int main(void){static const char src[]="#version 430 core\nlayout(local_size_x=1) in;layout(std430,binding=0) buffer Data{uint value;};void main(){value=uint(305419896);}";PIXELFORMATDESCRIPTOR d={0};HWND w;HDC dc;HGLRC c;int pf;GLuint sh,pr,buf;GLint ok;uint32_t value=0;CS cs;SS ss;CO co;SI si;CP cp;AT at;LI li;PI pi;US us;GB gb;BB bb;BD bd;BBA bba;DC dispatch;MB barrier;GBS getsub;w=CreateWindowA("STATIC","WineMetalGL compute",WS_OVERLAPPEDWINDOW,0,0,64,64,0,0,0,0);if(!w)return 11;dc=GetDC(w);d.nSize=sizeof(d);d.nVersion=1;d.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL;d.iPixelType=PFD_TYPE_RGBA;d.cColorBits=32;pf=ChoosePixelFormat(dc,&d);if(!pf||!SetPixelFormat(dc,pf,&d))return 12;c=wglCreateContext(dc);if(!c||!wglMakeCurrent(dc,c))return 13;L(CS,cs,"glCreateShader");L(SS,ss,"glShaderSource");L(CO,co,"glCompileShader");L(SI,si,"glGetShaderiv");L(CP,cp,"glCreateProgram");L(AT,at,"glAttachShader");L(LI,li,"glLinkProgram");L(PI,pi,"glGetProgramiv");L(US,us,"glUseProgram");L(GB,gb,"glGenBuffers");L(BB,bb,"glBindBuffer");L(BD,bd,"glBufferData");L(BBA,bba,"glBindBufferBase");L(DC,dispatch,"glDispatchCompute");L(MB,barrier,"glMemoryBarrier");L(GBS,getsub,"glGetBufferSubData");sh=cs(GL_COMPUTE_SHADER);{const char*s=src;ss(sh,1,&s,0);}co(sh);si(sh,GL_COMPILE_STATUS,&ok);if(!ok)return 15;pr=cp();at(pr,sh);li(pr);pi(pr,GL_LINK_STATUS,&ok);if(!ok)return 16;us(pr);gb(1,&buf);bb(GL_SHADER_STORAGE_BUFFER,buf);bd(GL_SHADER_STORAGE_BUFFER,4,&value,GL_DYNAMIC_COPY);bba(GL_SHADER_STORAGE_BUFFER,0,buf);dispatch(1,1,1);barrier(GL_SHADER_STORAGE_BARRIER_BIT);getsub(GL_SHADER_STORAGE_BUFFER,0,4,&value);printf("Compute value=0x%08x error=0x%x\n",value,(unsigned)glGetError());if(value!=0x12345678u)return 17;printf("WINEMETALGL_COMPUTE_OK\n");wglMakeCurrent(0,0);wglDeleteContext(c);ReleaseDC(w,dc);DestroyWindow(w);return 0;}

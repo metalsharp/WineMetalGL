@@ -15,6 +15,7 @@
 /// instrumentation can be added without breaking this shim.
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <cstdlib>
 #include <metalsharp/GLErrorTracker.h>
@@ -26,6 +27,7 @@
 #include <metalsharp/OpenGLBridge.h>
 #include <metalsharp/ShaderStage.h>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -49,6 +51,7 @@ struct ExperimentalProgram {
     bool linkSuccess = false;
     std::string infoLog;
     std::unordered_map<std::string, int32_t> uniformLocations;
+    std::unordered_map<std::string, int32_t> attributeLocations;
     std::unordered_map<int32_t, std::vector<uint8_t>> uniformValues;
 };
 
@@ -62,6 +65,34 @@ struct ExperimentalBuffer {
 std::mutex g_bufferMutex;
 std::unordered_map<uint32_t, ExperimentalBuffer> g_buffers;
 
+struct ExperimentalTexture {
+    uint64_t metalHandle = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t minFilter = 0x2601; /* GL_LINEAR */
+    uint32_t magFilter = 0x2601;
+    uint32_t wrapS = 0x2901; /* GL_REPEAT */
+    uint32_t wrapT = 0x2901;
+    std::vector<uint8_t> pixels;
+};
+struct ExperimentalFramebuffer {
+    uint32_t colorTexture = 0;
+};
+std::mutex g_resourceMutex;
+std::unordered_map<uint32_t, ExperimentalTexture> g_textures;
+std::unordered_map<uint32_t, ExperimentalFramebuffer> g_framebuffers;
+std::array<uint32_t, metalsharp::kMaxTextureUnits> g_textureUnits{};
+std::array<uint32_t, metalsharp::kMaxVertexAttribs> g_attributeDivisors{};
+std::unordered_map<uint32_t, bool> g_vertexArrays;
+uint32_t g_boundStorageBuffer = 0;
+uint32_t g_currentVertexArray = 0;
+uint32_t g_activeTextureUnit = 0;
+
+bool metalModeEnabled() {
+    const char* value = std::getenv("WINEMETALGL_EXPERIMENTAL");
+    return value && !std::strcmp(value, "1");
+}
+
 void ensureGLInit() {
     std::call_once(g_glInitFlag, [] { g_glBridge.init(); });
 }
@@ -73,6 +104,63 @@ bool ensureMetalInit() {
 
 bool isExperimentalProgram(uint32_t program) {
     return metalsharp::GLShaderTracker::instance().hasProgram(program);
+}
+
+void discoverShaderInterface(ExperimentalProgram& program, const std::string& source, bool vertexStage) {
+    std::istringstream lines(source);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const size_t comment = line.find("//");
+        if (comment != std::string::npos) line.resize(comment);
+        const size_t uniform = line.find("uniform ");
+        if (uniform != std::string::npos) {
+            std::istringstream declaration(line.substr(uniform + 8));
+            std::string type, name;
+            if (declaration >> type >> name) {
+                const size_t terminator = name.find_first_of(";=,");
+                if (terminator != std::string::npos) name.resize(terminator);
+                const size_t array = name.find('[');
+                if (array != std::string::npos) name.resize(array);
+                if (!name.empty() && !program.uniformLocations.count(name))
+                    program.uniformLocations[name] = static_cast<int32_t>(program.uniformLocations.size());
+            }
+        }
+        if (!vertexStage) continue;
+        const size_t in = line.find(" in ");
+        if (in == std::string::npos && line.rfind("in ", 0) != 0) continue;
+        std::string declaration = line.substr(in == std::string::npos ? 3 : in + 4);
+        std::istringstream input(declaration);
+        std::string type, name;
+        if (!(input >> type >> name)) continue;
+        const size_t terminator = name.find_first_of(";[=");
+        if (terminator != std::string::npos) name.resize(terminator);
+        if (name.empty() || program.attributeLocations.count(name)) continue;
+        int32_t location = static_cast<int32_t>(program.attributeLocations.size());
+        const size_t layout = line.find("location");
+        if (layout != std::string::npos) {
+            const size_t equals = line.find('=', layout);
+            if (equals != std::string::npos) location = std::strtol(line.c_str() + equals + 1, nullptr, 10);
+        }
+        program.attributeLocations[name] = location;
+    }
+}
+
+bool beginExperimentalCompute(uint32_t program) {
+    if (!ensureMetalInit()) return false;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto it = g_programs.find(program);
+    if (it == g_programs.end() || !it->second.linkSuccess) return false;
+    metalsharp::GLShaderState* compute = nullptr;
+    for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
+        auto* state = metalsharp::GLShaderTracker::instance().getShader(shader);
+        if (state && state->stage == metalsharp::ShaderStage::Compute) compute = state;
+    }
+    if (!compute || !g_metalRenderer.createComputePipeline(*compute)) return false;
+    g_metalRenderer.beginComputePass();
+    std::lock_guard<std::mutex> resourceLock(g_bufferMutex);
+    auto buffer = g_buffers.find(g_boundStorageBuffer);
+    if (buffer != g_buffers.end()) g_metalRenderer.bindComputeBuffer(buffer->second.metalHandle, 0);
+    return true;
 }
 
 bool beginExperimentalDraw(uint32_t program) {
@@ -95,8 +183,33 @@ bool beginExperimentalDraw(uint32_t program) {
                                ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
     const uint32_t height = g_glBridge.state().viewportHeight > 0
                                 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
-    g_metalRenderer.beginRenderPass(width, height);
-    g_metalRenderer.setViewport(0, 0, width, height);
+    uint64_t colorTexture = 0;
+    uint32_t passWidth = width, passHeight = height;
+    {
+        std::lock_guard<std::mutex> resourceLock(g_resourceMutex);
+        if (g_glBridge.state().boundFramebuffer) {
+            auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+            if (fbo == g_framebuffers.end() || !fbo->second.colorTexture) return false;
+            auto texture = g_textures.find(fbo->second.colorTexture);
+            if (texture == g_textures.end()) return false;
+            colorTexture = texture->second.metalHandle;
+            passWidth = texture->second.width;
+            passHeight = texture->second.height;
+        }
+    }
+    g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1],
+                                   g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
+    g_metalRenderer.setClearDepth(g_glBridge.state().clearDepth);
+    g_metalRenderer.beginRenderPassToTexture(colorTexture, passWidth, passHeight, true);
+    g_metalRenderer.setViewport(0, 0, passWidth, passHeight);
+    for (uint32_t unit = 0; unit < g_textureUnits.size(); ++unit) {
+        std::lock_guard<std::mutex> resourceLock(g_resourceMutex);
+        auto texture = g_textures.find(g_textureUnits[unit]);
+        if (texture == g_textures.end()) continue;
+        g_metalRenderer.bindTexture(texture->second.metalHandle, unit);
+        g_metalRenderer.bindSampler(unit, texture->second.minFilter, texture->second.magFilter,
+                                    texture->second.wrapS, texture->second.wrapT);
+    }
     g_metalRenderer.usePipeline();
 
     /* OpenGL uniform locations are opaque integers. The first Metal ABI
@@ -187,8 +300,29 @@ GL_PASSTHROUGH0(void, glEnd)
 // ---------------------------------------------------------------------------
 // Buffers / state
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(void, glClear, uint32_t, mask)
-GL_PASSTHROUGH4(void, glClearColor, float, r, float, g, float, b, float, a)
+extern "C" void glClear(uint32_t mask) {
+    if (metalModeEnabled() && !g_glBridge.state().currentProgram && ensureMetalInit()) {
+        const uint32_t width = g_glBridge.state().viewportWidth > 0 ?
+            static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
+        const uint32_t height = g_glBridge.state().viewportHeight > 0 ?
+            static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
+        g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1],
+                                      g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
+        g_metalRenderer.setClearDepth(g_glBridge.state().clearDepth);
+        g_metalRenderer.beginRenderPassToTexture(0, width, height, true);
+        g_metalRenderer.endRenderPass();
+        g_metalRenderer.finish();
+        return;
+    }
+    glDispatch<void, uint32_t>("glClear", mask);
+}
+extern "C" void glClearColor(float r, float g, float b, float a) {
+    glDispatch<void, float, float, float, float>("glClearColor", r, g, b, a);
+    g_glBridge.state().clearColor[0] = r;
+    g_glBridge.state().clearColor[1] = g;
+    g_glBridge.state().clearColor[2] = b;
+    g_glBridge.state().clearColor[3] = a;
+}
 extern "C" void glViewport(int32_t x, int32_t y, int32_t w, int32_t h) {
     ensureGLInit();
     auto fn = reinterpret_cast<void (*)(int32_t, int32_t, int32_t, int32_t)>(
@@ -201,10 +335,25 @@ extern "C" void glViewport(int32_t x, int32_t y, int32_t w, int32_t h) {
     g_glBridge.state().viewportWidth = w;
     g_glBridge.state().viewportHeight = h;
 }
-GL_PASSTHROUGH1(void, glEnable, uint32_t, cap)
-GL_PASSTHROUGH1(void, glDisable, uint32_t, cap)
-GL_PASSTHROUGH2(void, glBlendFunc, uint32_t, sfactor, uint32_t, dfactor)
-GL_PASSTHROUGH1(void, glDepthFunc, uint32_t, func)
+extern "C" void glEnable(uint32_t cap) {
+    glDispatch<void, uint32_t>("glEnable", cap);
+    if (cap == 0x0BE2) g_glBridge.state().blendEnabled = true;
+    if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = true;
+}
+extern "C" void glDisable(uint32_t cap) {
+    glDispatch<void, uint32_t>("glDisable", cap);
+    if (cap == 0x0BE2) g_glBridge.state().blendEnabled = false;
+    if (cap == 0x0B71) g_glBridge.state().depthTestEnabled = false;
+}
+extern "C" void glBlendFunc(uint32_t sfactor, uint32_t dfactor) {
+    glDispatch<void, uint32_t, uint32_t>("glBlendFunc", sfactor, dfactor);
+    g_glBridge.state().blendSrcRGB = sfactor;
+    g_glBridge.state().blendDstRGB = dfactor;
+}
+extern "C" void glDepthFunc(uint32_t func) {
+    glDispatch<void, uint32_t>("glDepthFunc", func);
+    g_glBridge.state().depthFunc = func;
+}
 
 // ---------------------------------------------------------------------------
 // Buffer objects (GL 1.5)
@@ -222,10 +371,12 @@ extern "C" void glDeleteBuffers(int32_t n, const uint32_t* buffers) {
 extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, uint32_t usage) {
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893;
+    constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
     const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
                               std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
     const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
-                          target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer : 0;
+                          target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer :
+                          target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer : 0;
     if (experimental && name && size > 0 && ensureMetalInit()) {
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
         if (handle) {
@@ -237,6 +388,20 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
         return;
     }
     glDispatch<void, uint32_t, int64_t, const void*, uint32_t>("glBufferData", target, size, data, usage);
+}
+
+extern "C" void glBindBufferBase(uint32_t target, uint32_t index, uint32_t buffer) {
+    glDispatch<void, uint32_t, uint32_t, uint32_t>("glBindBufferBase", target, index, buffer);
+    if (target == 0x90D2 && index == 0) g_boundStorageBuffer = buffer;
+}
+
+extern "C" void glGetBufferSubData(uint32_t target, int64_t offset, int64_t size, void* data) {
+    if (metalModeEnabled() && target == 0x90D2 && g_boundStorageBuffer && offset >= 0 && size >= 0) {
+        uint64_t handle = 0;
+        { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(g_boundStorageBuffer); if (it != g_buffers.end()) handle = it->second.metalHandle; }
+        if (handle && g_metalRenderer.readBuffer(handle, static_cast<size_t>(offset), static_cast<size_t>(size), data)) return;
+    }
+    glDispatch<void, uint32_t, int64_t, int64_t, void*>("glGetBufferSubData", target, offset, size, data);
 }
 
 GL_PASSTHROUGH4(void, glBufferSubData, uint32_t, target, int64_t, offset, int64_t, size, const void*, data)
@@ -259,10 +424,13 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
     // here; the bridge only tracks the two targets consumed by draw submission.
     constexpr uint32_t kGL_ARRAY_BUFFER = 0x8892;         // GL_ARRAY_BUFFER
     constexpr uint32_t kGL_ELEMENT_ARRAY_BUFFER = 0x8893; // GL_ELEMENT_ARRAY_BUFFER
+    constexpr uint32_t kGL_SHADER_STORAGE_BUFFER = 0x90D2;
     if (target == kGL_ARRAY_BUFFER) {
         g_glBridge.state().boundArrayBuffer = buffer;
     } else if (target == kGL_ELEMENT_ARRAY_BUFFER) {
         g_glBridge.state().boundElementArrayBuffer = buffer;
+    } else if (target == kGL_SHADER_STORAGE_BUFFER) {
+        g_boundStorageBuffer = buffer;
     }
 }
 
@@ -305,6 +473,63 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
                                  reinterpret_cast<size_t>(indices));
     g_metalRenderer.endRenderPass();
     g_metalRenderer.finish();
+}
+
+extern "C" void glDrawArraysInstanced(uint32_t mode, int32_t first, int32_t count, int32_t instances) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, int32_t, int32_t, int32_t>("glDrawArraysInstanced", mode, first, count, instances);
+        return;
+    }
+    if (instances <= 0 || !beginExperimentalDraw(program)) {
+        metalsharp::GLErrorTracker::instance().setError(0x0502); return;
+    }
+    g_metalRenderer.drawArraysInstanced(mode, static_cast<uint32_t>(first), static_cast<uint32_t>(count),
+                                        static_cast<uint32_t>(instances));
+    g_metalRenderer.endRenderPass();
+    g_metalRenderer.finish();
+}
+
+extern "C" void glDrawElementsInstanced(uint32_t mode, int32_t count, uint32_t type, const void* indices,
+                                         int32_t instances) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, int32_t, uint32_t, const void*, int32_t>(
+            "glDrawElementsInstanced", mode, count, type, indices, instances);
+        return;
+    }
+    uint64_t indexBuffer = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_bufferMutex);
+        auto it = g_buffers.find(g_glBridge.state().boundElementArrayBuffer);
+        if (it != g_buffers.end()) indexBuffer = it->second.metalHandle;
+    }
+    if (instances <= 0 || !indexBuffer || !beginExperimentalDraw(program)) {
+        metalsharp::GLErrorTracker::instance().setError(0x0502); return;
+    }
+    g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
+    g_metalRenderer.drawElementsInstanced(mode, static_cast<uint32_t>(count), type,
+                                          reinterpret_cast<size_t>(indices), static_cast<uint32_t>(instances));
+    g_metalRenderer.endRenderPass();
+    g_metalRenderer.finish();
+}
+
+extern "C" void glDispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, uint32_t, uint32_t>("glDispatchCompute", x, y, z);
+        return;
+    }
+    if (!beginExperimentalCompute(program)) {
+        metalsharp::GLErrorTracker::instance().setError(0x0502); return;
+    }
+    g_metalRenderer.dispatchCompute(x, y, z);
+    g_metalRenderer.finish();
+}
+
+extern "C" void glMemoryBarrier(uint32_t barriers) {
+    if (metalModeEnabled()) { g_metalRenderer.finish(); return; }
+    glDispatch<void, uint32_t>("glMemoryBarrier", barriers);
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +611,40 @@ GL_PASSTHROUGH4(void, glVertexAttrib3f, uint32_t, index, float, v0, float, v1, f
 GL_PASSTHROUGH5(void, glVertexAttrib4f, uint32_t, index, float, v0, float, v1, float, v2, float, v3)
 GL_PASSTHROUGH3(void, glGetVertexAttribiv, uint32_t, index, uint32_t, pname, int32_t*, params)
 GL_PASSTHROUGH3(void, glGetVertexAttribPointerv, uint32_t, index, uint32_t, pname, void**, pointer)
-GL_PASSTHROUGH2(void, glVertexAttribDivisor, uint32_t, index, uint32_t, divisor)
+extern "C" void glVertexAttribDivisor(uint32_t index, uint32_t divisor) {
+    glDispatch<void, uint32_t, uint32_t>("glVertexAttribDivisor", index, divisor);
+    if (index < g_attributeDivisors.size()) g_attributeDivisors[index] = divisor;
+}
+
+extern "C" void glGenVertexArrays(int32_t n, uint32_t* arrays) {
+    glDispatch<void, int32_t, uint32_t*>("glGenVertexArrays", n, arrays);
+    if (metalModeEnabled() && arrays) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        for (int32_t i = 0; i < n; ++i) g_vertexArrays[arrays[i]] = true;
+    }
+}
+extern "C" void glDeleteVertexArrays(int32_t n, const uint32_t* arrays) {
+    if (arrays) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        for (int32_t i = 0; i < n; ++i) g_vertexArrays.erase(arrays[i]);
+    }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteVertexArrays", n, arrays);
+}
+extern "C" void glBindVertexArray(uint32_t array) {
+    glDispatch<void, uint32_t>("glBindVertexArray", array);
+    g_currentVertexArray = array;
+    if (metalModeEnabled() && array) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        g_vertexArrays[array] = true;
+    }
+}
+extern "C" unsigned char glIsVertexArray(uint32_t array) {
+    if (metalModeEnabled()) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        return g_vertexArrays.count(array) ? 1 : 0;
+    }
+    return glDispatch<unsigned char, uint32_t>("glIsVertexArray", array);
+}
 
 // ---------------------------------------------------------------------------
 // Shader objects (GL 2.0)
@@ -663,6 +921,7 @@ extern "C" void glLinkProgram(uint32_t program) {
 
     metalsharp::GLShaderState* vertex = nullptr;
     metalsharp::GLShaderState* fragment = nullptr;
+    metalsharp::GLShaderState* compute = nullptr;
     for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
         auto* state = metalsharp::GLShaderTracker::instance().getShader(shader);
         if (!state) {
@@ -672,18 +931,26 @@ extern "C" void glLinkProgram(uint32_t program) {
             vertex = state;
         } else if (state->stage == metalsharp::ShaderStage::Pixel) {
             fragment = state;
+        } else if (state->stage == metalsharp::ShaderStage::Compute) {
+            compute = state;
         }
     }
 
     ExperimentalProgram result;
     result.linked = true;
-    if (!vertex || !fragment) {
+    if (compute && !vertex && !fragment) {
+        if (!compute->compiled || !compute->compileSuccess) result.infoLog = "MetalSharp: compute shader did not compile";
+        else if (!ensureMetalInit()) result.infoLog = "MetalSharp: Metal device initialization failed";
+        else result.linkSuccess = true;
+    } else if (!vertex || !fragment) {
         result.infoLog = "MetalSharp: a vertex and fragment shader are required";
     } else if (!vertex->compiled || !vertex->compileSuccess || !fragment->compiled || !fragment->compileSuccess) {
         result.infoLog = "MetalSharp: attached shaders did not compile";
     } else if (!ensureMetalInit()) {
         result.infoLog = "MetalSharp: Metal device initialization failed";
     } else {
+        discoverShaderInterface(result, vertex->source, true);
+        discoverShaderInterface(result, fragment->source, false);
         /* Pipeline creation is deferred until the first draw. OpenGL sets
          * vertex-array state after linking, and Metal requires that state in
          * the pipeline descriptor for shaders with vertex inputs. */
@@ -718,6 +985,12 @@ extern "C" void glGetProgramiv(uint32_t program, uint32_t pname, int32_t* params
             return;
         case 0x8B84: // GL_INFO_LOG_LENGTH
             *params = static_cast<int32_t>(it->second.infoLog.size()) + 1;
+            return;
+        case 0x8B86: // GL_ACTIVE_UNIFORMS
+            *params = static_cast<int32_t>(it->second.uniformLocations.size());
+            return;
+        case 0x8B89: // GL_ACTIVE_ATTRIBUTES
+            *params = static_cast<int32_t>(it->second.attributeLocations.size());
             return;
         default:
             *params = 0;
@@ -829,6 +1102,23 @@ extern "C" void glUniform1i(int32_t location, int32_t v0) { if (isExperimentalPr
 extern "C" void glUniform2i(int32_t location, int32_t v0, int32_t v1) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t>("glUniform2i", location, v0, v1); }
 extern "C" void glUniform3i(int32_t location, int32_t v0, int32_t v1, int32_t v2) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t>("glUniform3i", location, v0, v1, v2); }
 extern "C" void glUniform4i(int32_t location, int32_t v0, int32_t v1, int32_t v2, int32_t v3) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t, int32_t>("glUniform4i", location, v0, v1, v2, v3); }
+
+#define WINEMETALGL_UNIFORM_ARRAY(name, scalar) \
+extern "C" void name(int32_t location, int32_t count, const scalar* values) { \
+    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { \
+        if (count > 0 && values) setExperimentalUniform(location, values, sizeof(scalar) * static_cast<size_t>(count)); \
+    } else glDispatch<void, int32_t, int32_t, const scalar*>(#name, location, count, values); \
+}
+WINEMETALGL_UNIFORM_ARRAY(glUniform1fv, float)
+WINEMETALGL_UNIFORM_ARRAY(glUniform2fv, float)
+WINEMETALGL_UNIFORM_ARRAY(glUniform3fv, float)
+WINEMETALGL_UNIFORM_ARRAY(glUniform4fv, float)
+WINEMETALGL_UNIFORM_ARRAY(glUniform1iv, int32_t)
+WINEMETALGL_UNIFORM_ARRAY(glUniform2iv, int32_t)
+WINEMETALGL_UNIFORM_ARRAY(glUniform3iv, int32_t)
+WINEMETALGL_UNIFORM_ARRAY(glUniform4iv, int32_t)
+#undef WINEMETALGL_UNIFORM_ARRAY
+
 extern "C" void glUniformMatrix2fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
     if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 4 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix2fv", location, count, transpose, value);
 }
@@ -846,8 +1136,25 @@ GL_PASSTHROUGH7(void, glGetActiveUniform, uint32_t, program, uint32_t, index, in
 // ---------------------------------------------------------------------------
 // Vertex attribute location queries (GL 2.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(int32_t, glGetAttribLocation, uint32_t, program, const char*, name)
-GL_PASSTHROUGH3(void, glBindAttribLocation, uint32_t, program, uint32_t, index, const char*, name)
+extern "C" int32_t glGetAttribLocation(uint32_t program, const char* name) {
+    if (!isExperimentalProgram(program))
+        return glDispatch<int32_t, uint32_t, const char*>("glGetAttribLocation", program, name);
+    if (!name) return -1;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto it = g_programs.find(program);
+    if (it == g_programs.end()) return -1;
+    auto found = it->second.attributeLocations.find(name);
+    return found == it->second.attributeLocations.end() ? -1 : found->second;
+}
+extern "C" void glBindAttribLocation(uint32_t program, uint32_t index, const char* name) {
+    if (!isExperimentalProgram(program)) {
+        glDispatch<void, uint32_t, uint32_t, const char*>("glBindAttribLocation", program, index, name);
+        return;
+    }
+    if (!name) return;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    g_programs[program].attributeLocations[name] = static_cast<int32_t>(index);
+}
 GL_PASSTHROUGH7(void, glGetActiveAttrib, uint32_t, program, uint32_t, index, int32_t, bufSize, int32_t*, length,
                 int32_t*, size, uint32_t*, type, char*, name)
 
@@ -885,9 +1192,15 @@ GL_PASSTHROUGH1(void, glLogicOp, uint32_t, opcode)
 // ---------------------------------------------------------------------------
 // Depth state (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(void, glDepthMask, unsigned char, flag)
+extern "C" void glDepthMask(unsigned char flag) {
+    glDispatch<void, unsigned char>("glDepthMask", flag);
+    g_glBridge.state().depthWriteEnabled = flag != 0;
+}
 GL_PASSTHROUGH2(void, glDepthRange, double, nearVal, double, farVal)
-GL_PASSTHROUGH1(void, glClearDepth, double, depth)
+extern "C" void glClearDepth(double depth) {
+    glDispatch<void, double>("glClearDepth", depth);
+    g_glBridge.state().clearDepth = static_cast<float>(depth);
+}
 
 // ---------------------------------------------------------------------------
 // Pixel storage / transfer (GL 1.0)
@@ -1023,17 +1336,43 @@ GL_PASSTHROUGH4(void, glColor4f, float, r, float, g, float, b, float, a)
 // ---------------------------------------------------------------------------
 // Texture upload / readback
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH9(void, glTexImage2D, uint32_t, target, int32_t, level, int32_t, internalFormat, int32_t, w, int32_t, h,
-                int32_t, border, uint32_t, format, uint32_t, type, const void*, data)
+extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
+                              int32_t border, uint32_t format, uint32_t type, const void* data) {
+    const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && w > 0 && h > 0 &&
+        (format == 0x1908 || format == 0x80E1) && type == 0x1401 && textureName) {
+        std::vector<uint8_t> pixels(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u, 0);
+        if (data) {
+            const auto* source = static_cast<const uint8_t*>(data);
+            for (size_t i = 0; i < static_cast<size_t>(w) * static_cast<size_t>(h); ++i) {
+                if (format == 0x1908) {
+                    pixels[i * 4 + 0] = source[i * 4 + 2];
+                    pixels[i * 4 + 1] = source[i * 4 + 1];
+                    pixels[i * 4 + 2] = source[i * 4 + 0];
+                    pixels[i * 4 + 3] = source[i * 4 + 3];
+                } else std::memcpy(pixels.data() + i * 4, source + i * 4, 4);
+            }
+        }
+        uint64_t handle = g_metalRenderer.createTexture(static_cast<uint32_t>(w), static_cast<uint32_t>(h), pixels.data());
+        if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto& texture = g_textures[textureName];
+        texture.metalHandle = handle;
+        texture.width = static_cast<uint32_t>(w);
+        texture.height = static_cast<uint32_t>(h);
+        texture.pixels = std::move(pixels);
+        return;
+    }
+    glDispatch<void, uint32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t, const void*>(
+        "glTexImage2D", target, level, internalFormat, w, h, border, format, type, data);
+}
 extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t format, uint32_t type, void* data) {
     const uint32_t program = g_glBridge.state().currentProgram;
-    if (isExperimentalProgram(program)) {
+    if (metalModeEnabled() && (isExperimentalProgram(program) || !program)) {
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1908 && type == 0x1401 &&
             g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), static_cast<uint32_t>(y),
-                                            static_cast<uint32_t>(w), static_cast<uint32_t>(h), data)) {
-            return;
-        }
-        metalsharp::GLErrorTracker::instance().setError(0x0502); // GL_INVALID_OPERATION
+                                            static_cast<uint32_t>(w), static_cast<uint32_t>(h), data)) return;
+        metalsharp::GLErrorTracker::instance().setError(0x0502);
         return;
     }
     glDispatch<void, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t, void*>(
@@ -1044,13 +1383,70 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
 // Texture objects (GL 1.1-1.3)
 // ---------------------------------------------------------------------------
 GL_PASSTHROUGH2(void, glGenTextures, int32_t, n, uint32_t*, textures)
-GL_PASSTHROUGH2(void, glDeleteTextures, int32_t, n, const uint32_t*, textures)
-GL_PASSTHROUGH2(void, glBindTexture, uint32_t, target, uint32_t, texture)
-GL_PASSTHROUGH1(void, glActiveTexture, uint32_t, texture)
-GL_PASSTHROUGH3(void, glTexParameteri, uint32_t, target, uint32_t, pname, int32_t, param)
+
+extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
+    if (textures) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        for (int32_t i = 0; i < n; ++i) g_textures.erase(textures[i]);
+    }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteTextures", n, textures);
+}
+
+extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
+    glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
+    if (target == 0x0DE1 && g_activeTextureUnit < g_textureUnits.size()) {
+        g_textureUnits[g_activeTextureUnit] = texture;
+        g_glBridge.state().boundTexture2D = texture;
+    }
+}
+
+extern "C" void glActiveTexture(uint32_t texture) {
+    glDispatch<void, uint32_t>("glActiveTexture", texture);
+    if (texture >= 0x84C0 && texture < 0x84C0 + g_textureUnits.size())
+        g_activeTextureUnit = texture - 0x84C0;
+}
+
+extern "C" void glTexParameteri(uint32_t target, uint32_t pname, int32_t param) {
+    glDispatch<void, uint32_t, uint32_t, int32_t>("glTexParameteri", target, pname, param);
+    if (target != 0x0DE1 || g_activeTextureUnit >= g_textureUnits.size()) return;
+    std::lock_guard<std::mutex> lock(g_resourceMutex);
+    auto it = g_textures.find(g_textureUnits[g_activeTextureUnit]);
+    if (it == g_textures.end()) return;
+    if (pname == 0x2801) it->second.minFilter = static_cast<uint32_t>(param);
+    else if (pname == 0x2800) it->second.magFilter = static_cast<uint32_t>(param);
+    else if (pname == 0x2802) it->second.wrapS = static_cast<uint32_t>(param);
+    else if (pname == 0x2803) it->second.wrapT = static_cast<uint32_t>(param);
+}
 GL_PASSTHROUGH3(void, glTexParameterf, uint32_t, target, uint32_t, pname, float, param)
-GL_PASSTHROUGH9(void, glTexSubImage2D, uint32_t, target, int32_t, level, int32_t, xoffset, int32_t, yoffset, int32_t,
-                width, int32_t, height, uint32_t, format, uint32_t, type, const void*, pixels)
+extern "C" void glTexSubImage2D(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset,
+                                int32_t width, int32_t height, uint32_t format, uint32_t type, const void* pixels) {
+    const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && width > 0 && height > 0 &&
+        format == 0x1908 && type == 0x1401 && pixels && textureName) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto it = g_textures.find(textureName);
+        if (it != g_textures.end() && xoffset >= 0 && yoffset >= 0 &&
+            static_cast<uint32_t>(xoffset + width) <= it->second.width &&
+            static_cast<uint32_t>(yoffset + height) <= it->second.height) {
+            const auto* source = static_cast<const uint8_t*>(pixels);
+            for (int32_t row = 0; row < height; ++row) {
+                for (int32_t col = 0; col < width; ++col) {
+                    size_t dst = (static_cast<size_t>(yoffset + row) * it->second.width + xoffset + col) * 4;
+                    size_t src = (static_cast<size_t>(row) * width + col) * 4;
+                    it->second.pixels[dst + 0] = source[src + 2];
+                    it->second.pixels[dst + 1] = source[src + 1];
+                    it->second.pixels[dst + 2] = source[src + 0];
+                    it->second.pixels[dst + 3] = source[src + 3];
+                }
+            }
+            it->second.metalHandle = g_metalRenderer.createTexture(it->second.width, it->second.height,
+                                                                     it->second.pixels.data());
+            return;
+        }
+    }
+    glDispatch<void, uint32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t, const void*>(
+        "glTexSubImage2D", target, level, xoffset, yoffset, width, height, format, type, pixels);
+}
 GL_PASSTHROUGH3(void, glTexEnvi, uint32_t, target, uint32_t, pname, int32_t, param)
 GL_PASSTHROUGH3(void, glTexEnvf, uint32_t, target, uint32_t, pname, float, param)
 GL_PASSTHROUGH3(void, glGetTexParameteriv, uint32_t, target, uint32_t, pname, int32_t*, params)
@@ -1092,13 +1488,41 @@ GL_PASSTHROUGH1(unsigned char, glIsRenderbuffer, uint32_t, renderbuffer)
 // ---------------------------------------------------------------------------
 // Framebuffer objects (GL 3.0 / EXT_framebuffer_object)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(void, glGenFramebuffers, int32_t, n, uint32_t*, framebuffers)
-GL_PASSTHROUGH2(void, glDeleteFramebuffers, int32_t, n, const uint32_t*, framebuffers)
-GL_PASSTHROUGH5(void, glFramebufferTexture2D, uint32_t, target, uint32_t, attachment, uint32_t, textarget, uint32_t,
-                texture, int32_t, level)
+extern "C" void glGenFramebuffers(int32_t n, uint32_t* framebuffers) {
+    glDispatch<void, int32_t, uint32_t*>("glGenFramebuffers", n, framebuffers);
+    if (metalModeEnabled() && framebuffers) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        for (int32_t i = 0; i < n; ++i) g_framebuffers.emplace(framebuffers[i], ExperimentalFramebuffer{});
+    }
+}
+extern "C" void glDeleteFramebuffers(int32_t n, const uint32_t* framebuffers) {
+    if (framebuffers) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        for (int32_t i = 0; i < n; ++i) g_framebuffers.erase(framebuffers[i]);
+    }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteFramebuffers", n, framebuffers);
+}
+extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uint32_t textarget,
+                                        uint32_t texture, int32_t level) {
+    glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t, int32_t>(
+        "glFramebufferTexture2D", target, attachment, textarget, texture, level);
+    if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && textarget == 0x0DE1) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        g_framebuffers[g_glBridge.state().boundFramebuffer].colorTexture = texture;
+    }
+}
 GL_PASSTHROUGH4(void, glFramebufferRenderbuffer, uint32_t, target, uint32_t, attachment, uint32_t, renderbuffertarget,
                 uint32_t, renderbuffer)
-GL_PASSTHROUGH1(uint32_t, glCheckFramebufferStatus, uint32_t, target)
+extern "C" uint32_t glCheckFramebufferStatus(uint32_t target) {
+    if (metalModeEnabled() && target == 0x8D40) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        if (!g_glBridge.state().boundFramebuffer) return 0x8CD5;
+        auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+        if (fbo != g_framebuffers.end() && g_textures.count(fbo->second.colorTexture)) return 0x8CD5;
+        return 0x8CD7;
+    }
+    return glDispatch<uint32_t, uint32_t>("glCheckFramebufferStatus", target);
+}
 GL_PASSTHROUGH1(unsigned char, glIsFramebuffer, uint32_t, framebuffer)
 
 // glBindFramebuffer is hand-written because it must mirror the binding into
@@ -1108,10 +1532,14 @@ GL_PASSTHROUGH1(unsigned char, glIsFramebuffer, uint32_t, framebuffer)
 extern "C" void glBindFramebuffer(uint32_t target, uint32_t framebuffer) {
     ensureGLInit();
     auto fn = reinterpret_cast<void (*)(uint32_t, uint32_t)>(g_glBridge.getGLProcAddress("glBindFramebuffer"));
-    if (fn) {
-        fn(target, framebuffer);
+    if (fn) fn(target, framebuffer);
+    if (target == 0x8D40) {
+        g_glBridge.state().boundFramebuffer = framebuffer;
+        if (metalModeEnabled() && framebuffer) {
+            std::lock_guard<std::mutex> lock(g_resourceMutex);
+            g_framebuffers.try_emplace(framebuffer, ExperimentalFramebuffer{});
+        }
     }
-    g_glBridge.state().boundFramebuffer = framebuffer;
 }
 
 // ---------------------------------------------------------------------------

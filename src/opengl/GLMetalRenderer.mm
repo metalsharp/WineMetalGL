@@ -32,6 +32,7 @@
 #include <metalsharp/GLMetalRenderer.h>
 #include <metalsharp/GLShaderTracker.h>
 #include <metalsharp/OpenGLBridge.h>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -42,6 +43,10 @@ namespace metalsharp {
 struct GLMetalRenderer::Impl {
     // Last created pipeline state
     id<MTLRenderPipelineState> currentPipeline = nil;
+    id<MTLDepthStencilState> currentDepthStencilState = nil;
+    id<MTLComputePipelineState> currentComputePipeline = nil;
+    id<MTLComputeCommandEncoder> currentComputeEncoder = nil;
+    id<MTLCommandBuffer> currentComputeCommandBuffer = nil;
 
     // Buffer tracking (vertex buffers and uniform buffers).
     // Uniform buffers live alongside vertex buffers under a separate handle
@@ -70,9 +75,12 @@ struct GLMetalRenderer::Impl {
     // Current render pass descriptor
     MTLRenderPassDescriptor* currentPassDescriptor = nil;
     id<MTLTexture> colorTarget = nil;
+    id<MTLTexture> depthTarget = nil;
     CAMetalLayer* metalLayer = nil;
     id<CAMetalDrawable> currentDrawable = nil;
     bool drawableBacked = false;
+    MTLClearColor clearColor = MTLClearColorMake(0, 0, 0, 1);
+    double clearDepth = 1.0;
     id<MTLBuffer> currentIndexBuffer = nil;
     size_t currentIndexOffset = 0;
 
@@ -124,6 +132,21 @@ bool GLMetalRenderer::isDrawableBacked() const {
     return m_impl->drawableBacked;
 }
 
+bool GLMetalRenderer::createComputePipeline(const GLShaderState& computeShader) {
+    if (!m_device || computeShader.msl.empty()) return false;
+    NSError* error = nil;
+    NSString* source = [NSString stringWithUTF8String:computeShader.msl.c_str()];
+    id<MTLLibrary> library = [m_device newLibraryWithSource:source options:nil error:&error];
+    if (!library) { if (error) NSLog(@"Compute shader compile: %@", error); return false; }
+    id<MTLFunction> function = [library newFunctionWithName:@"kernel_main"];
+    if (!function) return false;
+    id<MTLComputePipelineState> pipeline = [m_device newComputePipelineStateWithFunction:function error:&error];
+    if (!pipeline) { if (error) NSLog(@"Compute pipeline create: %@", error); return false; }
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->currentComputePipeline = pipeline;
+    return true;
+}
+
 bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader,
                                      const GLState& glState) {
     if (!m_device)
@@ -158,12 +181,53 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
     // Default color attachment
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
 
-    // Blend state from GL state
+    // Blend state from GL state. Unsupported factors fall back to the
+    // conservative GL default (one, zero) rather than silently selecting a
+    // different blend equation.
     if (glState.blendEnabled) {
+        auto blendFactor = [](uint32_t factor) {
+            switch (factor) {
+            case 0: return MTLBlendFactorZero;
+            case 1: return MTLBlendFactorOne;
+            case 0x0300: return MTLBlendFactorSourceColor;
+            case 0x0301: return MTLBlendFactorOneMinusSourceColor;
+            case 0x0302: return MTLBlendFactorSourceAlpha;
+            case 0x0303: return MTLBlendFactorOneMinusSourceAlpha;
+            case 0x0304: return MTLBlendFactorDestinationAlpha;
+            case 0x0305: return MTLBlendFactorOneMinusDestinationAlpha;
+            case 0x0306: return MTLBlendFactorDestinationColor;
+            case 0x0307: return MTLBlendFactorOneMinusDestinationColor;
+            case 0x0308: return MTLBlendFactorSourceAlphaSaturated;
+            default: return MTLBlendFactorOne;
+            }
+        };
         desc.colorAttachments[0].blendingEnabled = YES;
-        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
-        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorZero;
-        // Phase 3c: proper GL→Metal blend mapping in later refinement
+        desc.colorAttachments[0].sourceRGBBlendFactor = blendFactor(glState.blendSrcRGB);
+        desc.colorAttachments[0].destinationRGBBlendFactor = blendFactor(glState.blendDstRGB);
+        desc.colorAttachments[0].sourceAlphaBlendFactor = blendFactor(glState.blendSrcRGB);
+        desc.colorAttachments[0].destinationAlphaBlendFactor = blendFactor(glState.blendDstRGB);
+    }
+
+    if (glState.depthTestEnabled) {
+        auto depthFunc = [](uint32_t func) {
+            switch (func) {
+            case 0x0200: return MTLCompareFunctionNever;
+            case 0x0201: return MTLCompareFunctionLess;
+            case 0x0202: return MTLCompareFunctionEqual;
+            case 0x0203: return MTLCompareFunctionLessEqual;
+            case 0x0204: return MTLCompareFunctionGreater;
+            case 0x0205: return MTLCompareFunctionNotEqual;
+            case 0x0206: return MTLCompareFunctionGreaterEqual;
+            case 0x0207: return MTLCompareFunctionAlways;
+            default: return MTLCompareFunctionLess;
+            }
+        };
+        MTLDepthStencilDescriptor* depth = [[MTLDepthStencilDescriptor alloc] init];
+        depth.depthCompareFunction = depthFunc(glState.depthFunc);
+        depth.depthWriteEnabled = glState.depthWriteEnabled;
+        std::lock_guard<std::mutex> depthLock(m_impl->mutex);
+        m_impl->currentDepthStencilState = [m_device newDepthStencilStateWithDescriptor:depth];
+        desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     }
 
     // Phase 3d: apply pending vertex layout (if any) to the descriptor.
@@ -205,6 +269,8 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
 void GLMetalRenderer::usePipeline() {
     if (m_impl->currentEncoder && m_impl->currentPipeline) {
         [m_impl->currentEncoder setRenderPipelineState:m_impl->currentPipeline];
+        if (m_impl->currentDepthStencilState)
+            [m_impl->currentEncoder setDepthStencilState:m_impl->currentDepthStencilState];
     }
 }
 
@@ -295,6 +361,21 @@ void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
     }
 }
 
+void GLMetalRenderer::drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances)
+{
+    if (!m_impl->currentEncoder || !count || !instances) return;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        for (const auto& attribute : m_impl->vertexAttributes) {
+            auto it = m_impl->buffers.find(attribute.bufferHandle);
+            if (it != m_impl->buffers.end())
+                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
+        }
+    }
+    [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(primitiveType)
+                               vertexStart:first vertexCount:count instanceCount:instances];
+}
+
 void GLMetalRenderer::drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset)
 {
     if (!m_impl->currentEncoder || !m_impl->currentIndexBuffer || !count)
@@ -320,7 +401,36 @@ void GLMetalRenderer::drawElements(uint32_t primitiveType, uint32_t count, uint3
                                 indexBufferOffset:m_impl->currentIndexOffset + offset];
 }
 
+void GLMetalRenderer::drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
+                                             size_t offset, uint32_t instances)
+{
+    if (!m_impl->currentEncoder || !m_impl->currentIndexBuffer || !count || !instances) return;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        for (const auto& attribute : m_impl->vertexAttributes) {
+            auto it = m_impl->buffers.find(attribute.bufferHandle);
+            if (it != m_impl->buffers.end())
+                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
+        }
+    }
+    MTLIndexType mtlIndexType;
+    switch (indexType) {
+    case 0x1403: mtlIndexType = MTLIndexTypeUInt16; break;
+    case 0x1405: mtlIndexType = MTLIndexTypeUInt32; break;
+    default: return;
+    }
+    [m_impl->currentEncoder drawIndexedPrimitives:metalPrimitiveType(primitiveType)
+                                       indexCount:count indexType:mtlIndexType
+                                      indexBuffer:m_impl->currentIndexBuffer
+                                indexBufferOffset:m_impl->currentIndexOffset + offset
+                                    instanceCount:instances];
+}
+
 void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
+    beginRenderPassToTexture(0, width, height, true);
+}
+
+void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear) {
     if (!m_device)
         return;
 
@@ -328,12 +438,14 @@ void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
     id<MTLTexture> texture = nil;
     id<CAMetalDrawable> drawable = nil;
 
-    if (m_impl->metalLayer) {
+    if (textureHandle) {
+        auto it = m_impl->textures.find(textureHandle);
+        if (it != m_impl->textures.end()) texture = it->second;
+    } else if (m_impl->metalLayer) {
         /* CAMetalLayer drawableSize is maintained by the Wine view. A
          * zero-size/minimized layer has no drawable; retrying on the next
          * frame is preferable to encoding into a stale surface. */
-        if (width && height)
-            m_impl->metalLayer.drawableSize = CGSizeMake(width, height);
+        if (width && height) m_impl->metalLayer.drawableSize = CGSizeMake(width, height);
         drawable = [m_impl->metalLayer nextDrawable];
         texture = drawable.texture;
     }
@@ -347,14 +459,26 @@ void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
         texDesc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
         texture = [m_device newTextureWithDescriptor:texDesc];
     }
-    if (!texture)
-        return;
+    if (!texture) return;
+    if (!width) width = (uint32_t)texture.width;
+    if (!height) height = (uint32_t)texture.height;
 
     MTLRenderPassDescriptor* passDesc = [MTLRenderPassDescriptor renderPassDescriptor];
     passDesc.colorAttachments[0].texture = texture;
-    passDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
-    passDesc.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+    passDesc.colorAttachments[0].loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
+    passDesc.colorAttachments[0].clearColor = m_impl->clearColor;
     passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    MTLTextureDescriptor* depthDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                                                             width:width height:height mipmapped:NO];
+    depthDesc.usage = MTLTextureUsageRenderTarget;
+    m_impl->depthTarget = [m_device newTextureWithDescriptor:depthDesc];
+    if (m_impl->depthTarget) {
+        passDesc.depthAttachment.texture = m_impl->depthTarget;
+        passDesc.depthAttachment.loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
+        passDesc.depthAttachment.clearDepth = m_impl->clearDepth;
+        passDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    }
 
     id<MTLCommandBuffer> cmdBuf = [m_commandQueue commandBuffer];
     m_impl->colorTarget = texture;
@@ -391,13 +515,53 @@ void GLMetalRenderer::finish() {
     if (m_impl->currentCommandBuffer) {
         [m_impl->currentCommandBuffer commit];
         [m_impl->currentCommandBuffer waitUntilCompleted];
-        if (m_impl->currentCommandBuffer.status != MTLCommandBufferStatusCompleted) {
-            NSLog(@"MetalSharp OpenGL command buffer failed: %@",
-                  m_impl->currentCommandBuffer.error);
-        }
+        if (m_impl->currentCommandBuffer.status != MTLCommandBufferStatusCompleted)
+            NSLog(@"MetalSharp OpenGL command buffer failed: %@", m_impl->currentCommandBuffer.error);
         m_impl->currentCommandBuffer = nil;
         m_impl->currentDrawable = nil;
     }
+    if (m_impl->currentComputeCommandBuffer) {
+        [m_impl->currentComputeCommandBuffer commit];
+        [m_impl->currentComputeCommandBuffer waitUntilCompleted];
+        if (m_impl->currentComputeCommandBuffer.status != MTLCommandBufferStatusCompleted)
+            NSLog(@"MetalSharp OpenGL compute command buffer failed: %@", m_impl->currentComputeCommandBuffer.error);
+        m_impl->currentComputeCommandBuffer = nil;
+        m_impl->currentComputeEncoder = nil;
+    }
+}
+
+void GLMetalRenderer::beginComputePass() {
+    if (!m_device) return;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->currentComputeCommandBuffer = [m_commandQueue commandBuffer];
+    m_impl->currentComputeEncoder = [m_impl->currentComputeCommandBuffer computeCommandEncoder];
+    if (m_impl->currentComputeEncoder && m_impl->currentComputePipeline)
+        [m_impl->currentComputeEncoder setComputePipelineState:m_impl->currentComputePipeline];
+}
+
+void GLMetalRenderer::bindComputeBuffer(uint64_t bufferHandle, uint32_t index) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!m_impl->currentComputeEncoder) return;
+    auto it = m_impl->buffers.find(bufferHandle);
+    if (it != m_impl->buffers.end()) [m_impl->currentComputeEncoder setBuffer:it->second offset:0 atIndex:index];
+}
+
+void GLMetalRenderer::dispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!m_impl->currentComputeEncoder || !x || !y || !z) return;
+    MTLSize grid = MTLSizeMake(x, y, z);
+    [m_impl->currentComputeEncoder dispatchThreads:grid threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    [m_impl->currentComputeEncoder endEncoding];
+    m_impl->currentComputeEncoder = nil;
+}
+
+bool GLMetalRenderer::readBuffer(uint64_t bufferHandle, size_t offset, size_t size, void* data) {
+    if (!data) return false;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->buffers.find(bufferHandle);
+    if (it == m_impl->buffers.end() || offset + size > it->second.length) return false;
+    std::memcpy(data, static_cast<const uint8_t*>(it->second.contents) + offset, size);
+    return true;
 }
 
 bool GLMetalRenderer::readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data) {
@@ -540,7 +704,7 @@ uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const v
                                                                                        width:width
                                                                                       height:height
                                                                                    mipmapped:NO];
-    texDesc.usage = MTLTextureUsageShaderRead;
+    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
     id<MTLTexture> texture = [m_device newTextureWithDescriptor:texDesc];
     if (!texture)
         return 0;
@@ -560,11 +724,27 @@ uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const v
 void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     auto it = m_impl->textures.find(textureHandle);
-    if (it == m_impl->textures.end())
-        return;
-    if (m_impl->currentEncoder) {
-        [m_impl->currentEncoder setFragmentTexture:it->second atIndex:index];
-    }
+    if (it == m_impl->textures.end()) return;
+    if (m_impl->currentEncoder) [m_impl->currentEncoder setFragmentTexture:it->second atIndex:index];
+}
+
+void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
+                                   uint32_t wrapS, uint32_t wrapT) {
+    if (!m_impl->currentEncoder || !m_device) return;
+    MTLSamplerDescriptor* descriptor = [[MTLSamplerDescriptor alloc] init];
+    descriptor.minFilter = (minFilter == 0x2600) ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+    descriptor.magFilter = (magFilter == 0x2600) ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+    auto wrap = [](uint32_t value) {
+        switch (value) {
+        case 0x812F: return MTLSamplerAddressModeClampToEdge;
+        case 0x8370: return MTLSamplerAddressModeMirrorRepeat;
+        default: return MTLSamplerAddressModeRepeat;
+        }
+    };
+    descriptor.sAddressMode = wrap(wrapS);
+    descriptor.tAddressMode = wrap(wrapT);
+    id<MTLSamplerState> sampler = [m_device newSamplerStateWithDescriptor:descriptor];
+    if (sampler) [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:index];
 }
 
 void GLMetalRenderer::setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height) {
@@ -581,14 +761,20 @@ void GLMetalRenderer::setViewport(int32_t x, int32_t y, uint32_t width, uint32_t
 }
 
 void GLMetalRenderer::setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) {
-    if (!m_impl->currentEncoder)
-        return;
+    if (!m_impl->currentEncoder) return;
     MTLScissorRect rect;
-    rect.x = x;
-    rect.y = y;
-    rect.width = width;
-    rect.height = height;
+    rect.x = x; rect.y = y; rect.width = width; rect.height = height;
     [m_impl->currentEncoder setScissorRect:rect];
+}
+
+void GLMetalRenderer::setClearColor(float r, float g, float b, float a) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->clearColor = MTLClearColorMake(r, g, b, a);
+}
+
+void GLMetalRenderer::setClearDepth(float depth) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->clearDepth = depth;
 }
 
 } // namespace metalsharp

@@ -22,6 +22,10 @@ OpenGLBridge::OpenGLBridge() : m_impl(new Impl()) {
     // GLState is value-initialized by its default member initializers, but
     // keep an explicit zero here so the contract is clear in the .mm too.
     memset(&m_state, 0, sizeof(m_state));
+    m_state.clearColor[3] = 1.0f;
+    m_state.clearDepth = 1.0f;
+    m_state.depthWriteEnabled = true;
+    m_state.depthFunc = 0x0201;
 }
 
 OpenGLBridge::~OpenGLBridge() {

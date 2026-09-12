@@ -75,6 +75,7 @@ class GLMetalRenderer {
     /// @return true on success; false if shader compilation or pipeline
     /// creation failed.
     bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState);
+    bool createComputePipeline(const GLShaderState& computeShader);
 
     /// Bind the current pipeline state for drawing.
     void usePipeline();
@@ -93,6 +94,9 @@ class GLMetalRenderer {
     /// bindIndexBuffer(). `indexType` is GL_UNSIGNED_BYTE/SHORT/INT.
     void bindIndexBuffer(uint64_t bufferHandle, size_t offset);
     void drawElements(uint32_t primitiveType, uint32_t count, uint32_t indexType, size_t offset);
+    void drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances);
+    void drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
+                               size_t offset, uint32_t instances);
 
     /// Begin a render pass on the default framebuffer (FBO 0).
     /// If setMetalLayer() was called, the pass targets the current
@@ -100,6 +104,11 @@ class GLMetalRenderer {
     /// off-screen/FBO operation.
     /// @param width,height fallback framebuffer dimensions
     void beginRenderPass(uint32_t width, uint32_t height);
+
+    /// Begin a pass targeting a Metal texture owned by an OpenGL FBO.
+    /// `textureHandle == 0` selects the current CAMetalDrawable/offscreen
+    /// default target. The texture must have render-target usage.
+    void beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear);
 
     /// End the current render pass and present.
     void endRenderPass();
@@ -109,6 +118,12 @@ class GLMetalRenderer {
 
     /// Commit and wait for GPU to finish (glFinish equivalent).
     void finish();
+
+    /// Begin/dispatch a compute workload for a compute-only OpenGL program.
+    void beginComputePass();
+    void bindComputeBuffer(uint64_t bufferHandle, uint32_t index);
+    void dispatchCompute(uint32_t x, uint32_t y, uint32_t z);
+    bool readBuffer(uint64_t bufferHandle, size_t offset, size_t size, void* data);
 
     /// Attach the native CAMetalLayer owned by the Wine window. The layer is
     /// retained by the renderer until it is replaced or cleared. Passing
@@ -153,11 +168,20 @@ class GLMetalRenderer {
     /// @param index          fragment texture slot index
     void bindTexture(uint64_t textureHandle, uint32_t index);
 
+    /// Bind a sampler state using OpenGL enum values for min/mag filters and
+    /// S/T wrap modes.
+    void bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
+                     uint32_t wrapS, uint32_t wrapT);
+
     /// Set the encoder viewport (glViewport equivalent).
     void setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height);
 
     /// Set the encoder scissor rectangle (glScissor equivalent).
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height);
+
+    /// Set the clear color/depth used by the next render pass.
+    void setClearColor(float r, float g, float b, float a);
+    void setClearDepth(float depth);
 
   private:
     struct Impl;

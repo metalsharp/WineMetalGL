@@ -48,6 +48,16 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -DWINEMETALGL_GLSL450 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_metal.c" -o "$RUN_ROOT/gl45-32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_resources.c" -o "$RUN_ROOT/resources64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_resources.c" -o "$RUN_ROOT/resources32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_clear_metal.c" -o "$RUN_ROOT/clear64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_clear_metal.c" -o "$RUN_ROOT/clear32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_instanced.c" -o "$RUN_ROOT/instanced64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_instanced.c" -o "$RUN_ROOT/instanced32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_compute.c" -o "$RUN_ROOT/compute64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_compute.c" -o "$RUN_ROOT/compute32.exe" -lopengl32 -luser32 -lgdi32
 
 export WINEPREFIX="$PREFIX" WINEARCH=wow64 WINEMETALGL=1 WINEDEBUG=${WINEDEBUG:-+wgl}
 "${TIMEOUT[@]}" "$WINE" wineboot -u >"$RUN_ROOT/wineboot.log" 2>&1
@@ -73,6 +83,16 @@ run_shader "$RUN_ROOT/gl45-64.exe"
 run_shader "$RUN_ROOT/gl45-32.exe"
 run_shader "$RUN_ROOT/resources64.exe"
 run_shader "$RUN_ROOT/resources32.exe"
+run_shader "$RUN_ROOT/texture64.exe"
+run_shader "$RUN_ROOT/texture32.exe"
+run_shader "$RUN_ROOT/fbo64.exe"
+run_shader "$RUN_ROOT/fbo32.exe"
+run_shader "$RUN_ROOT/clear64.exe"
+run_shader "$RUN_ROOT/clear32.exe"
+run_shader "$RUN_ROOT/instanced64.exe"
+run_shader "$RUN_ROOT/instanced32.exe"
+run_shader "$RUN_ROOT/compute64.exe"
+run_shader "$RUN_ROOT/compute32.exe"
 grep -q OPENGL_GL330_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl33-64.exe.stdout"
 grep -q OPENGL_GL330_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl33-32.exe.stdout"
 grep -q OPENGL_GL450_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl45-64.exe.stdout"
@@ -81,6 +101,16 @@ grep -q 'WineMetalGL CAMetalLayer present path' "$RUN_ROOT/gl33-64.exe.stdout"
 grep -q 'WineMetalGL CAMetalLayer present path' "$RUN_ROOT/gl33-32.exe.stdout"
 grep -q WINEMETALGL_GL33_RESOURCES_OK "$RUN_ROOT/resources64.exe.stdout"
 grep -q WINEMETALGL_GL33_RESOURCES_OK "$RUN_ROOT/resources32.exe.stdout"
+grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture64.exe.stdout"
+grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture32.exe.stdout"
+grep -q WINEMETALGL_FBO_OK "$RUN_ROOT/fbo64.exe.stdout"
+grep -q WINEMETALGL_FBO_OK "$RUN_ROOT/fbo32.exe.stdout"
+grep -q WINEMETALGL_CLEAR_OK "$RUN_ROOT/clear64.exe.stdout"
+grep -q WINEMETALGL_CLEAR_OK "$RUN_ROOT/clear32.exe.stdout"
+grep -q WINEMETALGL_INSTANCED_OK "$RUN_ROOT/instanced64.exe.stdout"
+grep -q WINEMETALGL_INSTANCED_OK "$RUN_ROOT/instanced32.exe.stdout"
+grep -q WINEMETALGL_COMPUTE_OK "$RUN_ROOT/compute64.exe.stdout"
+grep -q WINEMETALGL_COMPUTE_OK "$RUN_ROOT/compute32.exe.stdout"
 
 echo WINEMETALGL_WOW64_X86_64_OK
 echo WINEMETALGL_WOW64_I386_OK
@@ -92,3 +122,8 @@ echo WINEMETALGL_READBACK_OK
 echo WINEMETALGL_GLSL330_OK
 echo WINEMETALGL_GLSL450_OK
 echo WINEMETALGL_GL33_RESOURCES_OK
+echo WINEMETALGL_GL33_TEXTURE_OK
+echo WINEMETALGL_FBO_OK
+echo WINEMETALGL_CLEAR_OK
+echo WINEMETALGL_INSTANCED_OK
+echo WINEMETALGL_COMPUTE_OK
