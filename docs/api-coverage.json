@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.7.0",
+  "release": "1.8.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -35,7 +35,7 @@
         "glGenTextures", "glBindTexture", "glActiveTexture", "glTexImage2D",
         "glTexSubImage2D", "glTexImage3D", "glTexParameteri", "glGenSamplers", "glBindSampler", "glSamplerParameteri", "glGenFramebuffers",
         "glBindFramebuffer", "glFramebufferTexture2D", "glCheckFramebufferStatus", "glBlitFramebuffer",
-        "glClear", "glClearColor", "glDepthFunc", "glDepthMask", "glFenceSync", "glClientWaitSync", "glDeleteSync"
+        "glClear", "glClearColor", "glDepthFunc", "glDepthMask", "glGenQueries", "glBeginQuery", "glEndQuery", "glGetQueryObjectuiv", "glFenceSync", "glClientWaitSync", "glDeleteSync"
       ],
       "forwarded": ["glGenRenderbuffers", "glFramebufferRenderbuffer"]
     },
@@ -60,6 +60,7 @@
     "arrays and elements indirect draw",
     "basic fixed-function immediate-mode triangle, texture, and display-list path",
     "sampler object state",
+    "sync/fence and sample-query completion",
     "real CAMetalLayer default-surface presentation",
     "x86_64 guest in WoW64",
     "i386 guest in WoW64"

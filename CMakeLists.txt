@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(WineMetalGL VERSION 1.7.0 LANGUAGES C CXX OBJC OBJCXX)
+project(WineMetalGL VERSION 1.8.0 LANGUAGES C CXX OBJC OBJCXX)
 
 if(NOT APPLE)
     message(FATAL_ERROR "WineMetalGL builds only on macOS.")

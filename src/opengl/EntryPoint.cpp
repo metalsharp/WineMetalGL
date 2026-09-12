@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <chrono>
 #include <metalsharp/GLErrorTracker.h>
 #include <metalsharp/GLMetalRenderer.h>
 #include <metalsharp/GLShaderCache.h>
@@ -66,6 +67,11 @@ std::mutex g_programMutex;
 std::unordered_map<uint32_t, ExperimentalProgram> g_programs;
 std::mutex g_syncMutex;
 std::unordered_set<void*> g_syncs;
+struct ExperimentalQuery { uint32_t target = 0; bool active = false; uint64_t value = 0; };
+std::mutex g_queryMutex;
+std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
+uint32_t g_nextQuery = 1;
+uint32_t g_activeQuery = 0;
 
 struct ExperimentalBuffer {
     uint64_t metalHandle = 0;
@@ -1564,6 +1570,33 @@ extern "C" unsigned char glIsSync(void* sync) {
     return glDispatch<unsigned char, void*>("glIsSync", sync);
 }
 GL_PASSTHROUGH2(void, glHint, uint32_t, target, uint32_t, mode)
+
+extern "C" void glGenQueries(int32_t n, uint32_t* ids) {
+    if (!metalModeEnabled()) { glDispatch<void,int32_t,uint32_t*>("glGenQueries",n,ids); return; }
+    if (!ids) return; std::lock_guard<std::mutex> lock(g_queryMutex); for (int32_t i=0;i<n;++i) { ids[i]=g_nextQuery++; g_queries.emplace(ids[i],ExperimentalQuery{}); }
+}
+extern "C" void glDeleteQueries(int32_t n, const uint32_t* ids) {
+    if (!metalModeEnabled()) { glDispatch<void,int32_t,const uint32_t*>("glDeleteQueries",n,ids); return; }
+    if (!ids) return; std::lock_guard<std::mutex> lock(g_queryMutex); for (int32_t i=0;i<n;++i) g_queries.erase(ids[i]);
+}
+extern "C" unsigned char glIsQuery(uint32_t id) {
+    if (!metalModeEnabled()) return glDispatch<unsigned char,uint32_t>("glIsQuery",id);
+    std::lock_guard<std::mutex> lock(g_queryMutex); return g_queries.count(id) != 0;
+}
+extern "C" void glBeginQuery(uint32_t target, uint32_t id) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t,uint32_t>("glBeginQuery",target,id); return; }
+    std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); if(it==g_queries.end()||g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} it->second.target=target;it->second.active=true;it->second.value=0;g_activeQuery=id;
+}
+extern "C" void glEndQuery(uint32_t target) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glEndQuery",target); return; }
+    std::lock_guard<std::mutex> lock(g_queryMutex); if(!g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} auto it=g_queries.find(g_activeQuery); if(it!=g_queries.end()){it->second.active=false;it->second.value=target==0x8914?1:static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());} g_activeQuery=0;
+}
+extern "C" void glGetQueryObjectuiv(uint32_t id, uint32_t pname, uint32_t* params) {
+    if (!params) return; if (!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t*>("glGetQueryObjectuiv",id,pname,params);return;} std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); *params=it==g_queries.end()?0:static_cast<uint32_t>(it->second.value);
+}
+extern "C" void glGetQueryObjectui64v(uint32_t id, uint32_t pname, uint64_t* params) {
+    if (!params) return; if (!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint64_t*>("glGetQueryObjectui64v",id,pname,params);return;} std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); *params=it==g_queries.end()?0:it->second.value;
+}
 
 // ---------------------------------------------------------------------------
 // Display lists (GL 1.0)
