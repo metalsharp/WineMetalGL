@@ -752,6 +752,21 @@ bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint3
     return true;
 }
 
+bool GLMetalRenderer::blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height) {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto source = m_impl->textures.find(sourceHandle), destination = m_impl->textures.find(destinationHandle);
+    if (source == m_impl->textures.end() || destination == m_impl->textures.end()) return false;
+    if (width > source->second.width || height > source->second.height || width > destination->second.width || height > destination->second.height) return false;
+    id<MTLCommandBuffer> commandBuffer = [m_commandQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+    if (!commandBuffer || !blit) return false;
+    [blit copyFromTexture:source->second sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+               sourceSize:MTLSizeMake(width,height,1) toTexture:destination->second destinationSlice:0 destinationLevel:0
+       destinationOrigin:MTLOriginMake(0,0,0)];
+    [blit endEncoding]; [commandBuffer commit]; [commandBuffer waitUntilCompleted];
+    return commandBuffer.status == MTLCommandBufferStatusCompleted;
+}
+
 void GLMetalRenderer::setVertexLayout(uint32_t stride, const uint32_t* offsets, const uint32_t* formats,
                                       uint32_t count) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

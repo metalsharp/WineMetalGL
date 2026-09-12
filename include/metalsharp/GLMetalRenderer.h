@@ -146,6 +146,7 @@ class GLMetalRenderer {
     /// conversion required by glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE).
     bool readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
+    bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height);
 
     /// Set the vertex descriptor stride and per-attribute layout.
     /// @param stride   byte stride of a single vertex

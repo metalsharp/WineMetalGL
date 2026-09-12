@@ -59,6 +59,8 @@ struct GLState {
     // Current bound objects
     uint32_t boundTexture2D = 0;
     uint32_t boundFramebuffer = 0;
+    uint32_t boundReadFramebuffer = 0;
+    uint32_t boundDrawFramebuffer = 0;
     uint32_t boundArrayBuffer = 0;
     uint32_t boundElementArrayBuffer = 0;
 

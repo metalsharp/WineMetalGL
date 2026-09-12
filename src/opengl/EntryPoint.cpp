@@ -243,8 +243,9 @@ bool beginExperimentalDraw(uint32_t program) {
     uint32_t passWidth = width, passHeight = height;
     {
         std::lock_guard<std::mutex> resourceLock(g_resourceMutex);
-        if (g_glBridge.state().boundFramebuffer) {
-            auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+        const uint32_t drawFramebuffer = g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer;
+        if (drawFramebuffer) {
+            auto fbo = g_framebuffers.find(drawFramebuffer);
             if (fbo == g_framebuffers.end() || (!fbo->second.colorTexture && !fbo->second.renderbuffer && !fbo->second.colorHandle)) return false;
             if (fbo->second.colorTexture) {
                 auto texture = g_textures.find(fbo->second.colorTexture);
@@ -1747,7 +1748,8 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1908 && type == 0x1401) {
             uint64_t textureHandle = 0;
             { std::lock_guard<std::mutex> lock(g_resourceMutex);
-              auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+              const uint32_t readFramebuffer = g_glBridge.state().boundReadFramebuffer ? g_glBridge.state().boundReadFramebuffer : g_glBridge.state().boundFramebuffer;
+              auto fbo = g_framebuffers.find(readFramebuffer);
               if (fbo != g_framebuffers.end()) {
                   if (fbo->second.colorTexture) { auto texture = g_textures.find(fbo->second.colorTexture); if (texture != g_textures.end()) textureHandle = texture->second.metalHandle; }
                   else textureHandle = fbo->second.colorHandle;
@@ -1887,7 +1889,7 @@ extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uin
         "glFramebufferTexture2D", target, attachment, textarget, texture, level);
     if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && textarget == 0x0DE1) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        auto& fbo = g_framebuffers[g_glBridge.state().boundFramebuffer];
+        auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         fbo.colorTexture = texture;
         auto image = g_textures.find(texture);
         if (image != g_textures.end()) { fbo.colorHandle = image->second.metalHandle; fbo.width = image->second.width; fbo.height = image->second.height; }
@@ -1918,7 +1920,7 @@ extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, 
     glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t>("glFramebufferRenderbuffer", target, attachment, renderbuffertarget, renderbuffer);
     if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && renderbuffertarget == 0x8D41) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        auto rb = g_renderbuffers.find(renderbuffer); auto& fbo = g_framebuffers[g_glBridge.state().boundFramebuffer];
+        auto rb = g_renderbuffers.find(renderbuffer); auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         fbo.renderbuffer = renderbuffer; fbo.colorHandle = rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle;
         if (rb != g_renderbuffers.end()) { fbo.width = rb->second.width; fbo.height = rb->second.height; }
     }
@@ -1926,14 +1928,31 @@ extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, 
 extern "C" uint32_t glCheckFramebufferStatus(uint32_t target) {
     if (metalModeEnabled() && target == 0x8D40) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        if (!g_glBridge.state().boundFramebuffer) return 0x8CD5;
-        auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
+        const uint32_t framebuffer = target == 0x8CA8 ? g_glBridge.state().boundReadFramebuffer :
+                                     target == 0x8CA9 ? g_glBridge.state().boundDrawFramebuffer :
+                                     g_glBridge.state().boundFramebuffer;
+        if (!framebuffer) return 0x8CD5;
+        auto fbo = g_framebuffers.find(framebuffer);
         if (fbo != g_framebuffers.end() && fbo->second.colorHandle) return 0x8CD5;
         return 0x8CD7;
     }
     return glDispatch<uint32_t, uint32_t>("glCheckFramebufferStatus", target);
 }
 GL_PASSTHROUGH1(unsigned char, glIsFramebuffer, uint32_t, framebuffer)
+extern "C" void glBlitFramebuffer(int32_t srcX0, int32_t srcY0, int32_t srcX1, int32_t srcY1,
+                                   int32_t dstX0, int32_t dstY0, int32_t dstX1, int32_t dstY1,
+                                   uint32_t mask, uint32_t filter) {
+    if (metalModeEnabled() && srcX0 == 0 && srcY0 == 0 && dstX0 == 0 && dstY0 == 0 &&
+        srcX1 == dstX1 && srcY1 == dstY1 && srcX1 > 0 && srcY1 > 0) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto src = g_framebuffers.find(g_glBridge.state().boundReadFramebuffer);
+        auto dst = g_framebuffers.find(g_glBridge.state().boundDrawFramebuffer);
+        if (src != g_framebuffers.end() && dst != g_framebuffers.end() && src->second.colorHandle && dst->second.colorHandle &&
+            g_metalRenderer.blitTexture(src->second.colorHandle, dst->second.colorHandle, srcX1, srcY1)) return;
+    }
+    glDispatch<void, int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t>(
+        "glBlitFramebuffer", srcX0,srcY0,srcX1,srcY1,dstX0,dstY0,dstX1,dstY1,mask,filter);
+}
 
 // glBindFramebuffer is hand-written because it must mirror the binding into
 // GLState so subsequent framebuffer attachment calls can observe which
@@ -1945,10 +1964,13 @@ extern "C" void glBindFramebuffer(uint32_t target, uint32_t framebuffer) {
     if (fn) fn(target, framebuffer);
     if (target == 0x8D40) {
         g_glBridge.state().boundFramebuffer = framebuffer;
-        if (metalModeEnabled() && framebuffer) {
-            std::lock_guard<std::mutex> lock(g_resourceMutex);
-            g_framebuffers.try_emplace(framebuffer, ExperimentalFramebuffer{});
-        }
+        g_glBridge.state().boundReadFramebuffer = framebuffer;
+        g_glBridge.state().boundDrawFramebuffer = framebuffer;
+    } else if (target == 0x8CA8) g_glBridge.state().boundReadFramebuffer = framebuffer;
+    else if (target == 0x8CA9) g_glBridge.state().boundDrawFramebuffer = framebuffer;
+    if (metalModeEnabled() && framebuffer) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        g_framebuffers.try_emplace(framebuffer, ExperimentalFramebuffer{});
     }
 }
 

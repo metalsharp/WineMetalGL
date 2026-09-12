@@ -1,4 +1,4 @@
-# WineMetalGL 1.2.0 validation
+# WineMetalGL 1.3.0 validation
 
 Validation date: 2026-09-12
 
@@ -33,7 +33,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Program uniform/attribute interface reflection for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.
 - Texture upload, sampler state, and GLSL texture sampling.
-- Color-texture and renderbuffer FBO attachment, completeness, and readback.
+- Color-texture and renderbuffer FBO attachment, completeness, readback, and blit.
 - Instanced drawing with a Metal depth attachment.
 - Compute shader dispatch with SSBO writeback on both guests.
 - Uniform-buffer object binding and reflection.
@@ -58,6 +58,7 @@ WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
 WINEMETALGL_GL33_TEXTURE_OK
 WINEMETALGL_FBO_OK
+WINEMETALGL_BLIT_OK
 WINEMETALGL_RENDERBUFFER_OK
 WINEMETALGL_SYNC_OK
 WINEMETALGL_UBO_OK
