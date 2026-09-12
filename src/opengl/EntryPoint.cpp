@@ -1780,7 +1780,7 @@ extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
 
 extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
     glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
-    if (target == 0x0DE1 && g_activeTextureUnit < g_textureUnits.size()) {
+    if ((target == 0x0DE1 || target == 0x9100) && g_activeTextureUnit < g_textureUnits.size()) {
         g_textureUnits[g_activeTextureUnit] = texture;
         g_glBridge.state().boundTexture2D = texture;
     }
@@ -1887,7 +1887,7 @@ extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uin
                                         uint32_t texture, int32_t level) {
     glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t, int32_t>(
         "glFramebufferTexture2D", target, attachment, textarget, texture, level);
-    if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && textarget == 0x0DE1) {
+    if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && (textarget == 0x0DE1 || textarget == 0x9100)) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         fbo.colorTexture = texture;
@@ -1915,6 +1915,18 @@ extern "C" void glRenderbufferStorage(uint32_t target, uint32_t internalformat, 
         auto& rb = g_renderbuffers[g_boundRenderbuffer];
         rb.metalHandle = g_metalRenderer.createTexture(width, height, pixels.data()); rb.width = width; rb.height = height;
     }
+}
+extern "C" void glRenderbufferStorageMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height) {
+    if (metalModeEnabled() && target == 0x8D41) { glRenderbufferStorage(target, internalformat, width, height); return; }
+    glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t>("glRenderbufferStorageMultisample", target, samples, internalformat, width, height);
+}
+extern "C" void glTexImage2DMultisample(uint32_t target, int32_t samples, uint32_t internalformat,
+                                         int32_t width, int32_t height, unsigned char fixedsamplelocations) {
+    if (metalModeEnabled() && target == 0x9100 && width > 0 && height > 0) {
+        glTexImage2D(0x0DE1, 0, internalformat, width, height, 0, 0x1908, 0x1401, nullptr);
+        return;
+    }
+    glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t, unsigned char>("glTexImage2DMultisample", target, samples, internalformat, width, height, fixedsamplelocations);
 }
 extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, uint32_t renderbuffertarget, uint32_t renderbuffer) {
     glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t>("glFramebufferRenderbuffer", target, attachment, renderbuffertarget, renderbuffer);

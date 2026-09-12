@@ -54,6 +54,8 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_renderbuffer.c" -o "$RUN_ROOT/renderbuffer64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_renderbuffer.c" -o "$RUN_ROOT/renderbuffer32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_multisample.c" -o "$RUN_ROOT/multisample64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_multisample.c" -o "$RUN_ROOT/multisample32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_sync.c" -o "$RUN_ROOT/sync64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_sync.c" -o "$RUN_ROOT/sync32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_ubo.c" -o "$RUN_ROOT/ubo64.exe" -lopengl32 -luser32 -lgdi32
@@ -103,6 +105,8 @@ run_shader "$RUN_ROOT/fbo64.exe"
 run_shader "$RUN_ROOT/fbo32.exe"
 run_shader "$RUN_ROOT/renderbuffer64.exe"
 run_shader "$RUN_ROOT/renderbuffer32.exe"
+run_shader "$RUN_ROOT/multisample64.exe"
+run_shader "$RUN_ROOT/multisample32.exe"
 run_shader "$RUN_ROOT/sync64.exe"
 run_shader "$RUN_ROOT/sync32.exe"
 run_shader "$RUN_ROOT/ubo64.exe"
@@ -137,6 +141,8 @@ grep -q WINEMETALGL_BLIT_OK "$RUN_ROOT/fbo64.exe.stdout"
 grep -q WINEMETALGL_BLIT_OK "$RUN_ROOT/fbo32.exe.stdout"
 grep -q WINEMETALGL_RENDERBUFFER_OK "$RUN_ROOT/renderbuffer64.exe.stdout"
 grep -q WINEMETALGL_RENDERBUFFER_OK "$RUN_ROOT/renderbuffer32.exe.stdout"
+grep -q WINEMETALGL_MULTISAMPLE_OK "$RUN_ROOT/multisample64.exe.stdout"
+grep -q WINEMETALGL_MULTISAMPLE_OK "$RUN_ROOT/multisample32.exe.stdout"
 grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync64.exe.stdout"
 grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync32.exe.stdout"
 grep -q WINEMETALGL_UBO_OK "$RUN_ROOT/ubo64.exe.stdout"
@@ -170,6 +176,7 @@ echo WINEMETALGL_GL33_TEXTURE_OK
 echo WINEMETALGL_FBO_OK
 echo WINEMETALGL_BLIT_OK
 echo WINEMETALGL_RENDERBUFFER_OK
+echo WINEMETALGL_MULTISAMPLE_OK
 echo WINEMETALGL_SYNC_OK
 echo WINEMETALGL_UBO_OK
 echo WINEMETALGL_FIXED_TEXTURE_OK

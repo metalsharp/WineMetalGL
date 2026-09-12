@@ -1,4 +1,4 @@
-# WineMetalGL 1.3.0 staged artifacts
+# WineMetalGL 1.4.0 staged artifacts
 
 These artifacts are ABI-coupled to the WineForge/Wine 11.17 build used by the
 release probes. They target only x86_64 macOS 15 hosts and x86_64/i386 Windows
