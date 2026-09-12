@@ -50,7 +50,12 @@ The sidecar is loaded beside the x86_64 Unix `winemac.so`:
 
 ```sh
 ./scripts/stage-wine.sh /absolute/path/to/wine-build
+./scripts/stage-host-libs.sh /absolute/path/to/wine-runtime
 ```
+
+`stage-host-libs.sh` stages the x86_64 FreeType/libpng compression closure
+used by Wine's native font loader. If the closure remains outside the
+runtime, set `WINEMETALGL_HOST_LIB_DIR` and add it to `DYLD_LIBRARY_PATH`.
 
 The Wine source used for the release is WineForge Wine 11.17 with the
 CrossOver integration applied by the MetalSharp build. The driver and sidecar
@@ -61,6 +66,7 @@ Runtime controls:
 - `WINEMETALGL=0` disables the sidecar.
 - `WINEMETALGL=1` enables sidecar loading.
 - `WINEMETALGL_EXPERIMENTAL=1` enables Metal-owned shader/resource draws.
+- `WINEMETALGL_HOST_LIB_DIR` selects the native host dependency closure.
 
 ## Wine probes
 
