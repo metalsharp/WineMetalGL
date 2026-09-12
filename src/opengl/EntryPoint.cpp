@@ -81,7 +81,14 @@ struct ExperimentalTexture {
 };
 struct ExperimentalFramebuffer {
     uint32_t colorTexture = 0;
+    uint32_t renderbuffer = 0;
+    uint64_t colorHandle = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
 };
+struct ExperimentalRenderbuffer { uint64_t metalHandle = 0; uint32_t width = 0, height = 0; };
+std::unordered_map<uint32_t, ExperimentalRenderbuffer> g_renderbuffers;
+uint32_t g_boundRenderbuffer = 0;
 std::mutex g_resourceMutex;
 std::unordered_map<uint32_t, ExperimentalTexture> g_textures;
 std::unordered_map<uint32_t, ExperimentalFramebuffer> g_framebuffers;
@@ -219,12 +226,19 @@ bool beginExperimentalDraw(uint32_t program) {
         std::lock_guard<std::mutex> resourceLock(g_resourceMutex);
         if (g_glBridge.state().boundFramebuffer) {
             auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
-            if (fbo == g_framebuffers.end() || !fbo->second.colorTexture) return false;
-            auto texture = g_textures.find(fbo->second.colorTexture);
-            if (texture == g_textures.end()) return false;
-            colorTexture = texture->second.metalHandle;
-            passWidth = texture->second.width;
-            passHeight = texture->second.height;
+            if (fbo == g_framebuffers.end() || (!fbo->second.colorTexture && !fbo->second.renderbuffer && !fbo->second.colorHandle)) return false;
+            if (fbo->second.colorTexture) {
+                auto texture = g_textures.find(fbo->second.colorTexture);
+                if (texture == g_textures.end()) return false;
+                colorTexture = texture->second.metalHandle;
+                passWidth = texture->second.width;
+                passHeight = texture->second.height;
+            } else {
+                colorTexture = fbo->second.colorHandle;
+                passWidth = fbo->second.width;
+                passHeight = fbo->second.height;
+            }
+            if (!colorTexture) return false;
         }
     }
     g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1],
@@ -1610,7 +1624,10 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
             uint64_t textureHandle = 0;
             { std::lock_guard<std::mutex> lock(g_resourceMutex);
               auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
-              if (fbo != g_framebuffers.end()) { auto texture = g_textures.find(fbo->second.colorTexture); if (texture != g_textures.end()) textureHandle = texture->second.metalHandle; } }
+              if (fbo != g_framebuffers.end()) {
+                  if (fbo->second.colorTexture) { auto texture = g_textures.find(fbo->second.colorTexture); if (texture != g_textures.end()) textureHandle = texture->second.metalHandle; }
+                  else textureHandle = fbo->second.colorHandle;
+              } }
             read = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), data) :
                 g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), data);
         }
@@ -1721,11 +1738,6 @@ extern "C" void glCopyTexSubImage2D(uint32_t target, int32_t level, int32_t xoff
 // ---------------------------------------------------------------------------
 // Renderbuffer objects (GL 3.0 / EXT)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(void, glGenRenderbuffers, int32_t, n, uint32_t*, renderbuffers)
-GL_PASSTHROUGH2(void, glDeleteRenderbuffers, int32_t, n, const uint32_t*, renderbuffers)
-GL_PASSTHROUGH2(void, glBindRenderbuffer, uint32_t, target, uint32_t, renderbuffer)
-GL_PASSTHROUGH4(void, glRenderbufferStorage, uint32_t, target, uint32_t, internalformat, int32_t, width, int32_t,
-                height)
 GL_PASSTHROUGH1(unsigned char, glIsRenderbuffer, uint32_t, renderbuffer)
 
 // ---------------------------------------------------------------------------
@@ -1751,17 +1763,48 @@ extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uin
         "glFramebufferTexture2D", target, attachment, textarget, texture, level);
     if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && textarget == 0x0DE1) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        g_framebuffers[g_glBridge.state().boundFramebuffer].colorTexture = texture;
+        auto& fbo = g_framebuffers[g_glBridge.state().boundFramebuffer];
+        fbo.colorTexture = texture;
+        auto image = g_textures.find(texture);
+        if (image != g_textures.end()) { fbo.colorHandle = image->second.metalHandle; fbo.width = image->second.width; fbo.height = image->second.height; }
     }
 }
-GL_PASSTHROUGH4(void, glFramebufferRenderbuffer, uint32_t, target, uint32_t, attachment, uint32_t, renderbuffertarget,
-                uint32_t, renderbuffer)
+extern "C" void glGenRenderbuffers(int32_t n, uint32_t* renderbuffers) {
+    glDispatch<void, int32_t, uint32_t*>("glGenRenderbuffers", n, renderbuffers);
+    if (metalModeEnabled() && renderbuffers) { std::lock_guard<std::mutex> lock(g_resourceMutex); for (int32_t i=0;i<n;++i) g_renderbuffers.emplace(renderbuffers[i], ExperimentalRenderbuffer{}); }
+}
+extern "C" void glDeleteRenderbuffers(int32_t n, const uint32_t* renderbuffers) {
+    if (renderbuffers) { std::lock_guard<std::mutex> lock(g_resourceMutex); for (int32_t i=0;i<n;++i) g_renderbuffers.erase(renderbuffers[i]); }
+    glDispatch<void, int32_t, const uint32_t*>("glDeleteRenderbuffers", n, renderbuffers);
+}
+extern "C" void glBindRenderbuffer(uint32_t target, uint32_t renderbuffer) {
+    glDispatch<void, uint32_t, uint32_t>("glBindRenderbuffer", target, renderbuffer);
+    if (target == 0x8D41) g_boundRenderbuffer = renderbuffer;
+}
+extern "C" void glRenderbufferStorage(uint32_t target, uint32_t internalformat, int32_t width, int32_t height) {
+    glDispatch<void, uint32_t, uint32_t, int32_t, int32_t>("glRenderbufferStorage", target, internalformat, width, height);
+    if (metalModeEnabled() && target == 0x8D41 && g_boundRenderbuffer && width > 0 && height > 0) {
+        std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4u, 0);
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto& rb = g_renderbuffers[g_boundRenderbuffer];
+        rb.metalHandle = g_metalRenderer.createTexture(width, height, pixels.data()); rb.width = width; rb.height = height;
+    }
+}
+extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, uint32_t renderbuffertarget, uint32_t renderbuffer) {
+    glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t>("glFramebufferRenderbuffer", target, attachment, renderbuffertarget, renderbuffer);
+    if (metalModeEnabled() && target == 0x8D40 && attachment == 0x8CE0 && renderbuffertarget == 0x8D41) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto rb = g_renderbuffers.find(renderbuffer); auto& fbo = g_framebuffers[g_glBridge.state().boundFramebuffer];
+        fbo.renderbuffer = renderbuffer; fbo.colorHandle = rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle;
+        if (rb != g_renderbuffers.end()) { fbo.width = rb->second.width; fbo.height = rb->second.height; }
+    }
+}
 extern "C" uint32_t glCheckFramebufferStatus(uint32_t target) {
     if (metalModeEnabled() && target == 0x8D40) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         if (!g_glBridge.state().boundFramebuffer) return 0x8CD5;
         auto fbo = g_framebuffers.find(g_glBridge.state().boundFramebuffer);
-        if (fbo != g_framebuffers.end() && g_textures.count(fbo->second.colorTexture)) return 0x8CD5;
+        if (fbo != g_framebuffers.end() && fbo->second.colorHandle) return 0x8CD5;
         return 0x8CD7;
     }
     return glDispatch<uint32_t, uint32_t>("glCheckFramebufferStatus", target);

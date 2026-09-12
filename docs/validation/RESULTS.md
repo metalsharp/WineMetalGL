@@ -1,4 +1,4 @@
-# WineMetalGL 0.6.0 validation
+# WineMetalGL 0.7.0 validation
 
 Validation date: 2026-09-12
 
@@ -32,7 +32,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 4.50 Metal compile/link/draw/readback.
 - Indexed GL 3.3-style draw with a VBO, IBO, vertex attribute, and uniform.
 - Texture upload, sampler state, and GLSL texture sampling.
-- Color-texture FBO attachment, completeness, and readback.
+- Color-texture and renderbuffer FBO attachment, completeness, and readback.
 - Instanced drawing with a Metal depth attachment.
 - Compute shader dispatch with SSBO writeback on both guests.
 - Compute `imageStore` to a 2D RGBA8 texture with FBO readback.
@@ -55,6 +55,7 @@ WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
 WINEMETALGL_GL33_TEXTURE_OK
 WINEMETALGL_FBO_OK
+WINEMETALGL_RENDERBUFFER_OK
 WINEMETALGL_CLEAR_OK
 WINEMETALGL_INSTANCED_OK
 WINEMETALGL_COMPUTE_OK

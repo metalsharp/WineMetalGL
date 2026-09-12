@@ -52,6 +52,8 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_renderbuffer.c" -o "$RUN_ROOT/renderbuffer64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_renderbuffer.c" -o "$RUN_ROOT/renderbuffer32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_clear_metal.c" -o "$RUN_ROOT/clear64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_clear_metal.c" -o "$RUN_ROOT/clear32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_instanced.c" -o "$RUN_ROOT/instanced64.exe" -lopengl32 -luser32 -lgdi32
@@ -93,6 +95,8 @@ run_shader "$RUN_ROOT/texture64.exe"
 run_shader "$RUN_ROOT/texture32.exe"
 run_shader "$RUN_ROOT/fbo64.exe"
 run_shader "$RUN_ROOT/fbo32.exe"
+run_shader "$RUN_ROOT/renderbuffer64.exe"
+run_shader "$RUN_ROOT/renderbuffer32.exe"
 run_shader "$RUN_ROOT/clear64.exe"
 run_shader "$RUN_ROOT/clear32.exe"
 run_shader "$RUN_ROOT/instanced64.exe"
@@ -117,6 +121,8 @@ grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture64.exe.stdout"
 grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture32.exe.stdout"
 grep -q WINEMETALGL_FBO_OK "$RUN_ROOT/fbo64.exe.stdout"
 grep -q WINEMETALGL_FBO_OK "$RUN_ROOT/fbo32.exe.stdout"
+grep -q WINEMETALGL_RENDERBUFFER_OK "$RUN_ROOT/renderbuffer64.exe.stdout"
+grep -q WINEMETALGL_RENDERBUFFER_OK "$RUN_ROOT/renderbuffer32.exe.stdout"
 grep -q WINEMETALGL_CLEAR_OK "$RUN_ROOT/clear64.exe.stdout"
 grep -q WINEMETALGL_CLEAR_OK "$RUN_ROOT/clear32.exe.stdout"
 grep -q WINEMETALGL_INSTANCED_OK "$RUN_ROOT/instanced64.exe.stdout"
@@ -142,6 +148,7 @@ echo WINEMETALGL_GLSL450_OK
 echo WINEMETALGL_GL33_RESOURCES_OK
 echo WINEMETALGL_GL33_TEXTURE_OK
 echo WINEMETALGL_FBO_OK
+echo WINEMETALGL_RENDERBUFFER_OK
 echo WINEMETALGL_CLEAR_OK
 echo WINEMETALGL_INSTANCED_OK
 echo WINEMETALGL_COMPUTE_OK

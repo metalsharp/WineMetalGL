@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "0.6.0",
+  "release": "0.7.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -51,7 +51,7 @@
     "GLSL 4.50 vertex/fragment translation",
     "indexed GL 3.3-style draw with VBO/IBO, vertex attribute, and uniform",
     "texture sampling with sampler parameters",
-    "color-texture FBO attachment and readback",
+    "color-texture and renderbuffer FBO attachment/readback",
     "instanced draw with depth attachment",
     "compute shader dispatch with SSBO writeback",
     "compute imageStore with 2D rgba8 writeback",
