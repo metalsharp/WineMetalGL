@@ -78,6 +78,8 @@ struct ExperimentalTexture {
     uint64_t metalHandle = 0;
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t depth = 1;
+    uint32_t target = 0x0DE1;
     uint32_t minFilter = 0x2601; /* GL_LINEAR */
     uint32_t magFilter = 0x2601;
     uint32_t wrapS = 0x2901; /* GL_REPEAT */
@@ -1742,6 +1744,22 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
     glDispatch<void, uint32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t, const void*>(
         "glTexImage2D", target, level, internalFormat, w, h, border, format, type, data);
 }
+extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFormat, int32_t width, int32_t height,
+                              int32_t depth, int32_t border, uint32_t format, uint32_t type, const void* data) {
+    const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && format == 0x1908 && type == 0x1401 && textureName) {
+        size_t bytes = static_cast<size_t>(width) * height * depth * 4u;
+        std::vector<uint8_t> rgba(bytes, 0);
+        if (data) std::memcpy(rgba.data(), data, bytes);
+        uint64_t handle = target == 0x806F ? g_metalRenderer.createTexture3D(width, height, depth, rgba.data()) : g_metalRenderer.createTexture(width * depth, height, rgba.data());
+        if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.pixels = std::move(rgba);
+        return;
+    }
+    glDispatch<void, uint32_t,int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t,const void*>("glTexImage3D", target,level,internalFormat,width,height,depth,border,format,type,data);
+}
+
 extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t format, uint32_t type, void* data) {
     const uint32_t program = g_glBridge.state().currentProgram;
     if (metalModeEnabled() && (isExperimentalProgram(program) || !program)) {
@@ -1781,7 +1799,7 @@ extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
 
 extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
     glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
-    if ((target == 0x0DE1 || target == 0x9100) && g_activeTextureUnit < g_textureUnits.size()) {
+    if ((target == 0x0DE1 || target == 0x9100 || target == 0x806F || target == 0x8C1A) && g_activeTextureUnit < g_textureUnits.size()) {
         g_textureUnits[g_activeTextureUnit] = texture;
         g_glBridge.state().boundTexture2D = texture;
     }

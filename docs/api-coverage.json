@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.5.0",
+  "release": "1.6.0",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -33,7 +33,7 @@
         "glGetUniformLocation", "glDrawArraysInstanced", "glDrawElementsInstanced",
         "glGenVertexArrays", "glBindVertexArray", "glVertexAttribDivisor",
         "glGenTextures", "glBindTexture", "glActiveTexture", "glTexImage2D",
-        "glTexSubImage2D", "glTexParameteri", "glGenSamplers", "glBindSampler", "glSamplerParameteri", "glGenFramebuffers",
+        "glTexSubImage2D", "glTexImage3D", "glTexParameteri", "glGenSamplers", "glBindSampler", "glSamplerParameteri", "glGenFramebuffers",
         "glBindFramebuffer", "glFramebufferTexture2D", "glCheckFramebufferStatus", "glBlitFramebuffer",
         "glClear", "glClearColor", "glDepthFunc", "glDepthMask", "glFenceSync", "glClientWaitSync", "glDeleteSync"
       ],
@@ -51,6 +51,7 @@
     "GLSL 4.50 vertex/fragment translation",
     "indexed GL 3.3-style draw with VBO/IBO, vertex attribute, and uniform",
     "texture sampling with sampler parameters",
+    "3D texture sampling",
     "color-texture/renderbuffer FBO attachment, readback, blit, and multisample fallback",
     "instanced draw with depth attachment",
     "compute shader dispatch with SSBO writeback",

@@ -60,6 +60,8 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_sync.c" -o "$RUN_ROOT/sync32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_ubo.c" -o "$RUN_ROOT/ubo64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_ubo.c" -o "$RUN_ROOT/ubo32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture3d.c" -o "$RUN_ROOT/texture3d64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture3d.c" -o "$RUN_ROOT/texture3d32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed_texture.c" -o "$RUN_ROOT/fixed-texture64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed_texture.c" -o "$RUN_ROOT/fixed-texture32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_clear_metal.c" -o "$RUN_ROOT/clear64.exe" -lopengl32 -luser32 -lgdi32
@@ -111,6 +113,8 @@ run_shader "$RUN_ROOT/sync64.exe"
 run_shader "$RUN_ROOT/sync32.exe"
 run_shader "$RUN_ROOT/ubo64.exe"
 run_shader "$RUN_ROOT/ubo32.exe"
+run_shader "$RUN_ROOT/texture3d64.exe"
+run_shader "$RUN_ROOT/texture3d32.exe"
 run_shader "$RUN_ROOT/fixed-texture64.exe"
 run_shader "$RUN_ROOT/fixed-texture32.exe"
 run_shader "$RUN_ROOT/clear64.exe"
@@ -149,6 +153,8 @@ grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync64.exe.stdout"
 grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync32.exe.stdout"
 grep -q WINEMETALGL_UBO_OK "$RUN_ROOT/ubo64.exe.stdout"
 grep -q WINEMETALGL_UBO_OK "$RUN_ROOT/ubo32.exe.stdout"
+grep -q WINEMETALGL_TEXTURE3D_OK "$RUN_ROOT/texture3d64.exe.stdout"
+grep -q WINEMETALGL_TEXTURE3D_OK "$RUN_ROOT/texture3d32.exe.stdout"
 grep -q WINEMETALGL_FIXED_TEXTURE_OK "$RUN_ROOT/fixed-texture64.exe.stdout"
 grep -q WINEMETALGL_FIXED_TEXTURE_OK "$RUN_ROOT/fixed-texture32.exe.stdout"
 grep -q WINEMETALGL_CLEAR_OK "$RUN_ROOT/clear64.exe.stdout"
@@ -181,6 +187,7 @@ echo WINEMETALGL_RENDERBUFFER_OK
 echo WINEMETALGL_MULTISAMPLE_OK
 echo WINEMETALGL_SYNC_OK
 echo WINEMETALGL_UBO_OK
+echo WINEMETALGL_TEXTURE3D_OK
 echo WINEMETALGL_FIXED_TEXTURE_OK
 echo WINEMETALGL_CLEAR_OK
 echo WINEMETALGL_INSTANCED_OK

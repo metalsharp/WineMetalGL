@@ -172,6 +172,7 @@ class GLMetalRenderer {
     /// @param data         BGRA8 pixel data, tightly packed
     /// @return non-zero texture handle on success
     uint64_t createTexture(uint32_t width, uint32_t height, const void* data);
+    uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
 
     /// Bind a texture at the given fragment shader index.
     /// @param textureHandle  handle returned by createTexture
