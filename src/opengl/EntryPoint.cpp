@@ -197,6 +197,8 @@ float g_fixedLightAmbients[8][4] = {{0.2f,0.2f,0.2f,1.0f}};
 float g_fixedLightDiffuses[8][4] = {{1.0f,1.0f,1.0f,1.0f}};
 float g_fixedLightSpeculars[8][4] = {{1.0f,1.0f,1.0f,1.0f}};
 bool g_fixedTextureEnabled = false;
+std::array<bool, metalsharp::kMaxTextureUnits> g_fixedTextureEnabledUnits{};
+float g_fixedTexcoords[metalsharp::kMaxTextureUnits][2] = {};
 metalsharp::FixedTextureEnvironment g_fixedTextureEnv;
 bool g_fixedFogEnabled = false;
 uint32_t g_fixedFogMode = 0x2601; /* GL_LINEAR */
@@ -666,15 +668,15 @@ extern "C" void glBegin(uint32_t mode) {
     glDispatch<void, uint32_t>("glBegin", mode);
 }
 static std::vector<float> clipFixedVertices(const std::vector<float>& vertices, uint32_t primitive) {
-    bool active=false;for(bool enabled:g_fixedClipEnabled)if(enabled){active=true;break;}if(!active||vertices.size()%9||g_fixedClipDistances.size()<vertices.size()/9)return vertices;
-    struct ClipVertex { std::array<float,9> value; std::array<float,6> distance; };
-    auto makeVertex=[&](size_t index){ClipVertex vertex{};std::memcpy(vertex.value.data(),vertices.data()+index*9,sizeof(vertex.value));vertex.distance=g_fixedClipDistances[index];return vertex;};
-    auto interpolate=[](const ClipVertex& a,const ClipVertex& b,float t){ClipVertex result{};for(int i=0;i<9;++i)result.value[i]=a.value[i]+(b.value[i]-a.value[i])*t;for(int i=0;i<6;++i)result.distance[i]=a.distance[i]+(b.distance[i]-a.distance[i])*t;return result;};
+    bool active=false;for(bool enabled:g_fixedClipEnabled)if(enabled){active=true;break;}if(!active||vertices.size()%11||g_fixedClipDistances.size()<vertices.size()/11)return vertices;
+    struct ClipVertex { std::array<float,11> value; std::array<float,6> distance; };
+    auto makeVertex=[&](size_t index){ClipVertex vertex{};std::memcpy(vertex.value.data(),vertices.data()+index*11,sizeof(vertex.value));vertex.distance=g_fixedClipDistances[index];return vertex;};
+    auto interpolate=[](const ClipVertex& a,const ClipVertex& b,float t){ClipVertex result{};for(int i=0;i<11;++i)result.value[i]=a.value[i]+(b.value[i]-a.value[i])*t;for(int i=0;i<6;++i)result.distance[i]=a.distance[i]+(b.distance[i]-a.distance[i])*t;return result;};
     auto clipPolygon=[&](std::vector<ClipVertex> polygon){for(int plane=0;plane<6&& !polygon.empty();++plane)if(g_fixedClipEnabled[plane]){std::vector<ClipVertex> clipped;ClipVertex previous=polygon.back();float previousDistance=previous.distance[plane];for(const auto& current:polygon){float currentDistance=current.distance[plane];bool previousInside=previousDistance>=0,currentInside=currentDistance>=0;if(previousInside!=currentInside){float denominator=previousDistance-currentDistance;float t=denominator!=0?previousDistance/denominator:0;clipped.push_back(interpolate(previous,current,t));}if(currentInside)clipped.push_back(current);previous=current;previousDistance=currentDistance;}polygon.swap(clipped);}return polygon;};
     std::vector<float> output;auto append=[&](const ClipVertex& vertex){output.insert(output.end(),vertex.value.begin(),vertex.value.end());};
-    if(primitive==0){for(size_t i=0;i<vertices.size()/9;++i){auto vertex=makeVertex(i);bool inside=true;for(int plane=0;plane<6;++plane)if(g_fixedClipEnabled[plane]&&vertex.distance[plane]<0)inside=false;if(inside)append(vertex);}return output;}
-    if(primitive==1){for(size_t i=0;i+1<vertices.size()/9;i+=2){auto line=clipPolygon({makeVertex(i),makeVertex(i+1)});for(const auto& vertex:line)append(vertex);}return output;}
-    if(primitive==4){for(size_t i=0;i+2<vertices.size()/9;i+=3){auto polygon=clipPolygon({makeVertex(i),makeVertex(i+1),makeVertex(i+2)});for(size_t j=1;j+1<polygon.size();++j){append(polygon[0]);append(polygon[j]);append(polygon[j+1]);}}return output;}
+    if(primitive==0){for(size_t i=0;i<vertices.size()/11;++i){auto vertex=makeVertex(i);bool inside=true;for(int plane=0;plane<6;++plane)if(g_fixedClipEnabled[plane]&&vertex.distance[plane]<0)inside=false;if(inside)append(vertex);}return output;}
+    if(primitive==1){for(size_t i=0;i+1<vertices.size()/11;i+=2){auto line=clipPolygon({makeVertex(i),makeVertex(i+1)});for(const auto& vertex:line)append(vertex);}return output;}
+    if(primitive==4){for(size_t i=0;i+2<vertices.size()/11;i+=3){auto polygon=clipPolygon({makeVertex(i),makeVertex(i+1),makeVertex(i+2)});for(size_t j=1;j+1<polygon.size();++j){append(polygon[0]);append(polygon[j]);append(polygon[j+1]);}}return output;}
     return vertices;
 }
 extern "C" void glEnd(void) {
@@ -684,15 +686,15 @@ extern "C" void glEnd(void) {
         if (g_transformFeedbackActive && g_boundTransformFeedbackBuffer && !g_fixedVertices.empty()) {
             uint64_t handle = 0;
             { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(g_boundTransformFeedbackBuffer); if (it != g_buffers.end()) handle = it->second.metalHandle; }
-            if (handle) g_metalRenderer.updateBuffer(handle, g_transformFeedbackBufferOffset, g_fixedVertices.data(), g_fixedVertices.size() * sizeof(float));
+            if (handle) {std::vector<float> tfPacked;tfPacked.reserve((g_fixedVertices.size()/11)*7);for(size_t vertex=0;vertex<g_fixedVertices.size()/11;++vertex)tfPacked.insert(tfPacked.end(),g_fixedVertices.begin()+vertex*11,g_fixedVertices.begin()+vertex*11+7);g_metalRenderer.updateBuffer(handle, g_transformFeedbackBufferOffset, tfPacked.data(), tfPacked.size() * sizeof(float));}
         }
         const uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
         const uint32_t height = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
         g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
-        uint64_t textureHandle = 0; uint32_t minFilter=0x2601, magFilter=0x2601, wrapS=0x2901, wrapT=0x2901;
-        if (g_fixedTextureEnabled) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture=g_textures.find(g_textureUnits[0]); if(texture!=g_textures.end()){textureHandle=texture->second.metalHandle;minFilter=texture->second.minFilter;magFilter=texture->second.magFilter;wrapS=texture->second.wrapS;wrapT=texture->second.wrapT;} }
+        uint64_t textureHandle = 0, textureHandle1=0; uint32_t minFilter=0x2601, magFilter=0x2601, wrapS=0x2901, wrapT=0x2901;
+        if (g_fixedTextureEnabledUnits[0]) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture=g_textures.find(g_textureUnits[0]); if(texture!=g_textures.end()){textureHandle=texture->second.metalHandle;minFilter=texture->second.minFilter;magFilter=texture->second.magFilter;wrapS=texture->second.wrapS;wrapT=texture->second.wrapT;} if(g_fixedTextureEnabledUnits.size()>1&&g_fixedTextureEnabledUnits[1]){auto texture1=g_textures.find(g_textureUnits[1]);if(texture1!=g_textures.end())textureHandle1=texture1->second.metalHandle;} }
         std::vector<float> clippedVertices=clipFixedVertices(g_fixedVertices,g_fixedPrimitive);
-        if(!clippedVertices.empty())g_metalRenderer.drawFixedFunction(clippedVertices.data(), clippedVertices.size() / 9, g_fixedPrimitive, width, height, textureHandle, minFilter, magFilter, wrapS, wrapT, g_fixedAlphaEnabled, g_fixedAlphaFunc, g_fixedAlphaRef, g_fixedTextureEnv, g_glBridge.state());
+        if(!clippedVertices.empty())g_metalRenderer.drawFixedFunction(clippedVertices.data(), clippedVertices.size() / 11, g_fixedPrimitive, width, height, textureHandle, textureHandle1, minFilter, magFilter, wrapS, wrapT, g_fixedAlphaEnabled, g_fixedAlphaFunc, g_fixedAlphaRef, g_fixedTextureEnv, g_glBridge.state());
         return;
     }
     glDispatch<void>("glEnd");
@@ -781,7 +783,7 @@ extern "C" void glEnable(uint32_t cap) {
     if (cap == 0x0B50) g_fixedLighting = true;
     if (cap == 0x0B60) g_fixedFogEnabled = true;
     if (cap >= 0x4000 && cap < 0x4008) { g_fixedLights[cap - 0x4000] = true; g_fixedLight0 = g_fixedLights[0]; }
-    if (cap == 0x0DE1) g_fixedTextureEnabled = true;
+    if (cap == 0x0DE1) {g_fixedTextureEnabled=true;if(g_activeTextureUnit<g_fixedTextureEnabledUnits.size())g_fixedTextureEnabledUnits[g_activeTextureUnit]=true;}
     if (cap == 0x0C60) g_fixedTexGenS = true;
     if (cap == 0x0C61) g_fixedTexGenT = true;
     if (cap >= 0x3000 && cap < 0x3006) g_fixedClipEnabled[cap - 0x3000] = true;
@@ -800,7 +802,7 @@ extern "C" void glDisable(uint32_t cap) {
     if (cap == 0x0B50) g_fixedLighting = false;
     if (cap == 0x0B60) g_fixedFogEnabled = false;
     if (cap >= 0x4000 && cap < 0x4008) { g_fixedLights[cap - 0x4000] = false; g_fixedLight0 = g_fixedLights[0]; }
-    if (cap == 0x0DE1) g_fixedTextureEnabled = false;
+    if (cap == 0x0DE1) {g_fixedTextureEnabled=false;if(g_activeTextureUnit<g_fixedTextureEnabledUnits.size())g_fixedTextureEnabledUnits[g_activeTextureUnit]=false;}
     if (cap == 0x0C60) g_fixedTexGenS = false;
     if (cap == 0x0C61) g_fixedTexGenT = false;
     if (cap >= 0x3000 && cap < 0x3006) g_fixedClipEnabled[cap - 0x3000] = false;
@@ -2467,16 +2469,17 @@ static void fixedVertex(float x, float y, float z, float w) {
         float tex[2] = {g_fixedTexcoord[0],g_fixedTexcoord[1]};
         if (g_fixedTexGenS) tex[0]=fixedTexGenCoordinate(g_fixedTexGenModeS,g_fixedTexGenPlaneS,x,y,z,eye,false);
         if (g_fixedTexGenT) tex[1]=fixedTexGenCoordinate(g_fixedTexGenModeT,g_fixedTexGenPlaneT,x,y,z,eye,true);
-        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3], tex[0], tex[1]});
+        g_fixedVertices.insert(g_fixedVertices.end(), {output[0], output[1], output[2], color[0], color[1], color[2], color[3], tex[0], tex[1], g_fixedTexcoords[1][0], g_fixedTexcoords[1][1]});
     }
 }
 extern "C" void glVertex2f(float x, float y) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,0,1}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, 0.0f, 1.0f); else glDispatch<void, float, float>("glVertex2f", x, y); }
 extern "C" void glVertex3f(float x, float y, float z) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,z,1}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, z, 1.0f); else glDispatch<void, float, float, float>("glVertex3f", x, y, z); }
 extern "C" void glVertex4f(float x, float y, float z, float w) { if (g_listCompiling) { recordFixed(FixedCommandKind::Vertex, 0, {x,y,z,w}); if (!g_listExecute) return; } if (g_fixedRecording) fixedVertex(x, y, z, w); else glDispatch<void, float, float, float, float>("glVertex4f", x, y, z, w); }
-extern "C" void glTexCoord1f(float s) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,0}); if (!g_listExecute) return; } if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=0; return; } glDispatch<void,float>("glTexCoord1f",s); }
-extern "C" void glTexCoord2f(float s,float t) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,t}); if (!g_listExecute) return; } if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; return; } glDispatch<void,float,float>("glTexCoord2f",s,t); }
+extern "C" void glTexCoord1f(float s) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,0}); if (!g_listExecute) return; } if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=0;if(g_activeTextureUnit<g_fixedTextureEnabledUnits.size()){g_fixedTexcoords[g_activeTextureUnit][0]=s;g_fixedTexcoords[g_activeTextureUnit][1]=0;} return; } glDispatch<void,float>("glTexCoord1f",s); }
+extern "C" void glTexCoord2f(float s,float t) { if (g_listCompiling) { recordFixed(FixedCommandKind::TexCoord,0,{s,t}); if (!g_listExecute) return; } if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t;if(g_activeTextureUnit<g_fixedTextureEnabledUnits.size()){g_fixedTexcoords[g_activeTextureUnit][0]=s;g_fixedTexcoords[g_activeTextureUnit][1]=t;} return; } glDispatch<void,float,float>("glTexCoord2f",s,t); }
 extern "C" void glTexCoord3f(float s,float t,float r) { if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; return; } glDispatch<void,float,float,float>("glTexCoord3f",s,t,r); }
-extern "C" void glTexCoord4f(float s,float t,float r,float q) { if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t; return; } glDispatch<void,float,float,float,float>("glTexCoord4f",s,t,r,q); }
+extern "C" void glTexCoord4f(float s,float t,float r,float q) { if (metalModeEnabled()) { g_fixedTexcoord[0]=s; g_fixedTexcoord[1]=t;if(g_activeTextureUnit<g_fixedTextureEnabledUnits.size()){g_fixedTexcoords[g_activeTextureUnit][0]=s;g_fixedTexcoords[g_activeTextureUnit][1]=t;} return; } glDispatch<void,float,float,float,float>("glTexCoord4f",s,t,r,q); }
+extern "C" void glMultiTexCoord2f(uint32_t target,float s,float t) { if(metalModeEnabled()&&target>=0x84C0&&target<0x84C0+g_fixedTextureEnabledUnits.size()){uint32_t unit=target-0x84C0;g_fixedTexcoords[unit][0]=s;g_fixedTexcoords[unit][1]=t;if(unit==0){g_fixedTexcoord[0]=s;g_fixedTexcoord[1]=t;}return;}glDispatch<void,uint32_t,float,float>("glMultiTexCoord2f",target,s,t); }
 extern "C" void glTexGeni(uint32_t coord,uint32_t pname,int32_t param) { glDispatch<void,uint32_t,uint32_t,int32_t>("glTexGeni",coord,pname,param);if(!metalModeEnabled())return;if(coord==0x2000&&pname==0x2500)g_fixedTexGenModeS=static_cast<uint32_t>(param);else if(coord==0x2001&&pname==0x2500)g_fixedTexGenModeT=static_cast<uint32_t>(param); }
 extern "C" void glTexGenf(uint32_t coord,uint32_t pname,float param) { glDispatch<void,uint32_t,uint32_t,float>("glTexGenf",coord,pname,param);if(!metalModeEnabled())return;if(coord==0x2000&&pname==0x2500)g_fixedTexGenModeS=static_cast<uint32_t>(param);else if(coord==0x2001&&pname==0x2500)g_fixedTexGenModeT=static_cast<uint32_t>(param); }
 extern "C" void glTexGenfv(uint32_t coord,uint32_t pname,const float* params) { glDispatch<void,uint32_t,uint32_t,const float*>("glTexGenfv",coord,pname,params);if(!metalModeEnabled()||!params)return;if(coord==0x2000&&pname==0x2501)std::memcpy(g_fixedTexGenPlaneS,params,sizeof(g_fixedTexGenPlaneS));else if(coord==0x2001&&pname==0x2501)std::memcpy(g_fixedTexGenPlaneT,params,sizeof(g_fixedTexGenPlaneT));else if(coord==0x2000&&pname==0x2502)std::memcpy(g_fixedTexGenPlaneS,params,sizeof(g_fixedTexGenPlaneS));else if(coord==0x2001&&pname==0x2502)std::memcpy(g_fixedTexGenPlaneT,params,sizeof(g_fixedTexGenPlaneT)); }

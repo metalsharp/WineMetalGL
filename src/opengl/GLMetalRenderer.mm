@@ -483,7 +483,7 @@ void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
 }
 
 void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
-                                          uint32_t width, uint32_t height, uint64_t textureHandle,
+                                          uint32_t width, uint32_t height, uint64_t textureHandle, uint64_t textureHandle1,
                                           uint32_t minFilter, uint32_t magFilter, uint32_t wrapS, uint32_t wrapT,
                                           bool alphaTest, uint32_t alphaFunc, float alphaRef, const FixedTextureEnvironment& textureEnv, const GLState& glState)
 {
@@ -494,9 +494,9 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
         if (!pipeline) {
             static const char source[] =
                 "#include <metal_stdlib>\nusing namespace metal;\n"
-                "struct In { float3 p [[attribute(0)]]; float4 c [[attribute(1)]]; float2 uv [[attribute(2)]]; };\n"
-                "struct Out { float4 p [[position]]; float4 c; float2 uv; float pointSize [[point_size]]; };\n"
-                "vertex Out fixed_vertex(In i [[stage_in]], constant float& pointSize [[buffer(3)]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; o.pointSize=pointSize; return o; }\n"
+                "struct In { float3 p [[attribute(0)]]; float4 c [[attribute(1)]]; float2 uv [[attribute(2)]]; float2 uv1 [[attribute(3)]]; };\n"
+                "struct Out { float4 p [[position]]; float4 c; float2 uv; float2 uv1; float pointSize [[point_size]]; };\n"
+                "vertex Out fixed_vertex(In i [[stage_in]], constant float& pointSize [[buffer(3)]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; o.uv1=i.uv1; o.pointSize=pointSize; return o; }\n"
                 "struct Alpha { float ref; uint func; };\n"
                 "struct TextureEnv { uint mode; uint combineRGB; uint combineAlpha; uint sourceRGB[3]; uint operandRGB[3]; uint sourceAlpha[3]; uint operandAlpha[3]; uint padding; float4 constantColor; float rgbScale; float alphaScale; };\n"
                 "bool alpha_pass(float a, constant Alpha& x) { if(x.func==0x0200) return false; if(x.func==0x0201) return a<x.ref; if(x.func==0x0202) return a==x.ref; if(x.func==0x0203) return a<=x.ref; if(x.func==0x0204) return a>x.ref; if(x.func==0x0205) return a!=x.ref; if(x.func==0x0206) return a>=x.ref; return true; }\n"
@@ -506,7 +506,7 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
                 "float3 combine_rgb(constant TextureEnv& e,float4 tex,float4 primary) { float4 a=env_source(e.sourceRGB[0],tex,primary,e.constantColor),b=env_source(e.sourceRGB[1],tex,primary,e.constantColor),d=env_source(e.sourceRGB[2],tex,primary,e.constantColor); float3 x=env_rgb(a,e.operandRGB[0]),y=env_rgb(b,e.operandRGB[1]),z=env_rgb(d,e.operandRGB[2]); float3 result; if(e.combineRGB==0x1e01)result=x; else if(e.combineRGB==0x0104)result=x+y; else if(e.combineRGB==0x84E7)result=x-y; else if(e.combineRGB==0x8577)result=x+y-0.5; else if(e.combineRGB==0x8574)result=x*y+(1.0-x)*z; else if(e.combineRGB==0x86AE||e.combineRGB==0x86AF)result=float3(dot(x*2.0-1.0,y*2.0-1.0)); else result=x*y; return clamp(result*e.rgbScale,0.0,1.0); }\n"
                 "float combine_alpha(constant TextureEnv& e,float4 tex,float4 primary) { float4 a=env_source(e.sourceAlpha[0],tex,primary,e.constantColor),b=env_source(e.sourceAlpha[1],tex,primary,e.constantColor),d=env_source(e.sourceAlpha[2],tex,primary,e.constantColor); float x=env_alpha(a,e.operandAlpha[0]),y=env_alpha(b,e.operandAlpha[1]),z=env_alpha(d,e.operandAlpha[2]); float result=e.combineAlpha==0x1e01?x:e.combineAlpha==0x0104?x+y:e.combineAlpha==0x84E7?x-y:e.combineAlpha==0x8577?x+y-0.5:e.combineAlpha==0x8574?x*y+(1.0-x)*z:x*y; return clamp(result*e.alphaScale,0.0,1.0); }\n"
                 "fragment float4 fixed_fragment(Out i [[stage_in]], constant Alpha& a [[buffer(1)]]) { if(!alpha_pass(i.c.a,a)) discard_fragment(); return i.c; }\n"
-                "fragment float4 fixed_tex_fragment(Out i [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]], constant Alpha& a [[buffer(1)]], constant TextureEnv& env [[buffer(2)]]) { float4 t=tex.sample(samp,i.uv); float4 c=i.c; if(env.mode==0x1e01)c=t; else if(env.mode==0x2101)c=float4(mix(i.c.rgb,t.rgb,t.a),i.c.a); else if(env.mode==0x0be2)c=float4(mix(i.c.rgb,env.constantColor.rgb,t.rgb),i.c.a*t.a); else if(env.mode==0x0104)c=i.c+t; else if(env.mode==0x8570)c=float4(combine_rgb(env,t,i.c),combine_alpha(env,t,i.c)); else c=i.c*t; if(!alpha_pass(c.a,a)) discard_fragment(); return c; }\n";
+                "fragment float4 fixed_tex_fragment(Out i [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]], texture2d<float> tex1 [[texture(1)]], sampler samp1 [[sampler(1)]], constant Alpha& a [[buffer(1)]], constant TextureEnv& env [[buffer(2)]], constant uint& textureCount [[buffer(3)]]) { float4 t=tex.sample(samp,i.uv); float4 c=i.c; if(env.mode==0x1e01)c=t; else if(env.mode==0x2101)c=float4(mix(i.c.rgb,t.rgb,t.a),i.c.a); else if(env.mode==0x0be2)c=float4(mix(i.c.rgb,env.constantColor.rgb,t.rgb),i.c.a*t.a); else if(env.mode==0x0104)c=i.c+t; else if(env.mode==0x8570)c=float4(combine_rgb(env,t,i.c),combine_alpha(env,t,i.c)); else c=i.c*t; if(textureCount>1)c*=tex1.sample(samp1,i.uv1); if(!alpha_pass(c.a,a)) discard_fragment(); return c; }\n";
             NSError* error = nil;
             NSString* text = [NSString stringWithUTF8String:source];
             id<MTLLibrary> library = [m_device newLibraryWithSource:text options:nil error:&error];
@@ -516,7 +516,7 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
             descriptor.fragmentFunction = [library newFunctionWithName:textureHandle ? @"fixed_tex_fragment" : @"fixed_fragment"];
             if (!descriptor.vertexFunction || !descriptor.fragmentFunction) { if (error) NSLog(@"Fixed pipeline functions missing: %@", error); return; }
             descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-            descriptor.vertexDescriptor.layouts[0].stride = sizeof(float) * 9;
+            descriptor.vertexDescriptor.layouts[0].stride = sizeof(float) * 11;
             descriptor.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
             descriptor.vertexDescriptor.attributes[0].format = MTLVertexFormatFloat3;
             descriptor.vertexDescriptor.attributes[0].offset = 0; descriptor.vertexDescriptor.attributes[0].bufferIndex = 0;
@@ -525,6 +525,9 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
             descriptor.vertexDescriptor.attributes[2].format = MTLVertexFormatFloat2;
             descriptor.vertexDescriptor.attributes[2].offset = sizeof(float) * 7;
             descriptor.vertexDescriptor.attributes[2].bufferIndex = 0;
+            descriptor.vertexDescriptor.attributes[3].format = MTLVertexFormatFloat2;
+            descriptor.vertexDescriptor.attributes[3].offset = sizeof(float) * 9;
+            descriptor.vertexDescriptor.attributes[3].bufferIndex = 0;
             if (glState.blendEnabled) {
                 auto blendFactor = [](uint32_t factor) {
                     switch (factor) {
@@ -577,8 +580,8 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentEncoder) return;
     std::vector<float> expandedLineVertices;const float* drawVertices=vertices;size_t drawVertexCount=vertexCount;uint32_t drawPrimitive=primitiveType;
-    if(primitiveType==0x0001&&glState.lineWidth>1.0f&&vertexCount>=2){float half=glState.lineWidth*0.5f;for(size_t i=0;i+1<vertexCount;i+=2){const float* a=vertices+i*9;const float* b=vertices+(i+1)*9;float dx=b[0]-a[0],dy=b[1]-a[1],length=std::sqrt(dx*dx+dy*dy);if(length<1e-6f)continue;float nx=-dy/length*(half/(width?width:64))*2.0f,ny=dx/length*(half/(height?height:64))*2.0f;float quad[4][9];std::memcpy(quad[0],a,sizeof(quad[0]));std::memcpy(quad[1],a,sizeof(quad[1]));std::memcpy(quad[2],b,sizeof(quad[2]));std::memcpy(quad[3],b,sizeof(quad[3]));quad[0][0]+=nx;quad[0][1]+=ny;quad[1][0]-=nx;quad[1][1]-=ny;quad[2][0]+=nx;quad[2][1]+=ny;quad[3][0]-=nx;quad[3][1]-=ny;for(int index:{0,1,2,2,1,3})expandedLineVertices.insert(expandedLineVertices.end(),quad[index],quad[index]+9);}if(!expandedLineVertices.empty()){drawVertices=expandedLineVertices.data();drawVertexCount=expandedLineVertices.size()/9;drawPrimitive=0x0004;}}
-    id<MTLBuffer> buffer = [m_device newBufferWithBytes:drawVertices length:drawVertexCount * 9 * sizeof(float)
+    if(primitiveType==0x0001&&glState.lineWidth>1.0f&&vertexCount>=2){float half=glState.lineWidth*0.5f;for(size_t i=0;i+1<vertexCount;i+=2){const float* a=vertices+i*11;const float* b=vertices+(i+1)*11;float dx=b[0]-a[0],dy=b[1]-a[1],length=std::sqrt(dx*dx+dy*dy);if(length<1e-6f)continue;float nx=-dy/length*(half/(width?width:64))*2.0f,ny=dx/length*(half/(height?height:64))*2.0f;float quad[4][11];std::memcpy(quad[0],a,sizeof(quad[0]));std::memcpy(quad[1],a,sizeof(quad[1]));std::memcpy(quad[2],b,sizeof(quad[2]));std::memcpy(quad[3],b,sizeof(quad[3]));quad[0][0]+=nx;quad[0][1]+=ny;quad[1][0]-=nx;quad[1][1]-=ny;quad[2][0]+=nx;quad[2][1]+=ny;quad[3][0]-=nx;quad[3][1]-=ny;for(int index:{0,1,2,2,1,3})expandedLineVertices.insert(expandedLineVertices.end(),quad[index],quad[index]+11);}if(!expandedLineVertices.empty()){drawVertices=expandedLineVertices.data();drawVertexCount=expandedLineVertices.size()/11;drawPrimitive=0x0004;}}
+    id<MTLBuffer> buffer = [m_device newBufferWithBytes:drawVertices length:drawVertexCount * 11 * sizeof(float)
                                                 options:MTLResourceStorageModeShared];
     [m_impl->currentEncoder setRenderPipelineState:pipeline];
     [m_impl->currentEncoder setCullMode:glState.cullEnabled ? (glState.cullFace == 0x0404 ? MTLCullModeFront : MTLCullModeBack) : MTLCullModeNone];
@@ -596,13 +599,16 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
         if (textureEnvBuffer) [m_impl->currentEncoder setFragmentBuffer:textureEnvBuffer offset:0 atIndex:2];
         auto texture = m_impl->textures.find(textureHandle);
         if (texture != m_impl->textures.end()) [m_impl->currentEncoder setFragmentTexture:texture->second atIndex:0];
+        auto texture1 = m_impl->textures.find(textureHandle1 ? textureHandle1 : textureHandle);
+        if (texture1 != m_impl->textures.end()) [m_impl->currentEncoder setFragmentTexture:texture1->second atIndex:1];
+        uint32_t textureCount=textureHandle1?2:1;id<MTLBuffer> textureCountBuffer=[m_device newBufferWithBytes:&textureCount length:sizeof(textureCount) options:MTLResourceStorageModeShared];if(textureCountBuffer)[m_impl->currentEncoder setFragmentBuffer:textureCountBuffer offset:0 atIndex:3];
         MTLSamplerDescriptor* samplerDescriptor = [[MTLSamplerDescriptor alloc] init];
         samplerDescriptor.minFilter = minFilter == 0x2600 ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
         samplerDescriptor.magFilter = magFilter == 0x2600 ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
         samplerDescriptor.sAddressMode = wrapS == 0x812F ? MTLSamplerAddressModeClampToEdge : MTLSamplerAddressModeRepeat;
         samplerDescriptor.tAddressMode = wrapT == 0x812F ? MTLSamplerAddressModeClampToEdge : MTLSamplerAddressModeRepeat;
         id<MTLSamplerState> sampler = [m_device newSamplerStateWithDescriptor:samplerDescriptor];
-        if (sampler) [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:0];
+        if (sampler) {[m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:0];[m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:1];}
     }
     [m_impl->currentEncoder setVertexBuffer:buffer offset:0 atIndex:0];
     [m_impl->currentEncoder setViewport:(MTLViewport){0, 0, (double)(width ? width : 64), (double)(height ? height : 64), 0, 1}];
