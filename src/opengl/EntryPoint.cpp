@@ -165,7 +165,7 @@ bool g_transformFeedbackActive = false;
 uint32_t g_transformFeedbackProgram = 0;
 bool g_transformFeedbackPositionVarying = false;
 std::vector<std::string> g_transformFeedbackVaryings;
-struct ExperimentalVertexAttribute { bool set=false; int32_t size=0; uint32_t type=0; uint32_t stride=0; uint32_t buffer=0; size_t offset=0; };
+struct ExperimentalVertexAttribute { bool set=false; int32_t size=0; uint32_t type=0; uint32_t stride=0; uint32_t buffer=0; size_t offset=0; bool normalized=false; };
 std::array<ExperimentalVertexAttribute, metalsharp::kMaxVertexAttribs> g_experimentalVertexAttributes{};
 struct ExperimentalVertexBinding { uint32_t buffer=0; size_t offset=0; uint32_t stride=0; };
 std::array<ExperimentalVertexBinding, metalsharp::kMaxVertexAttribs> g_vertexBindings{};
@@ -1452,15 +1452,15 @@ extern "C" void glVertexAttribBinding(uint32_t attribindex, uint32_t bindinginde
 extern "C" void glVertexBindingDivisor(uint32_t bindingindex, uint32_t divisor) { glDispatch<void,uint32_t,uint32_t>("glVertexBindingDivisor",bindingindex,divisor); if(bindingindex<g_attributeDivisors.size())g_attributeDivisors[bindingindex]=divisor; }
 extern "C" void glVertexAttribFormat(uint32_t attribindex, int32_t size, uint32_t type, unsigned char normalized, uint32_t relativeoffset) {
     glDispatch<void,uint32_t,int32_t,uint32_t,unsigned char,uint32_t>("glVertexAttribFormat",attribindex,size,type,normalized,relativeoffset);
-    if (metalModeEnabled() && attribindex<g_experimentalVertexAttributes.size()) { uint32_t binding=g_attribBindings[attribindex]; auto b=g_vertexBindings[binding]; if(b.buffer) { uint64_t h=0; {std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(b.buffer);if(it!=g_buffers.end())h=it->second.metalHandle;} if(h){g_metalRenderer.setVertexAttribute(attribindex,size,type,normalized!=0,b.stride,h,b.offset+relativeoffset);g_experimentalVertexAttributes[attribindex]={true,size,type,b.stride,b.buffer,b.offset+relativeoffset};} } }
+    if (metalModeEnabled() && attribindex<g_experimentalVertexAttributes.size()) { uint32_t binding=g_attribBindings[attribindex]; auto b=g_vertexBindings[binding]; if(b.buffer) { uint64_t h=0; {std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(b.buffer);if(it!=g_buffers.end())h=it->second.metalHandle;} if(h){g_metalRenderer.setVertexAttribute(attribindex,size,type,normalized!=0,b.stride,h,b.offset+relativeoffset);g_experimentalVertexAttributes[attribindex]={true,size,type,b.stride,b.buffer,b.offset+relativeoffset,normalized!=0};} } }
 }
 extern "C" void glVertexAttribIFormat(uint32_t attribindex, int32_t size, uint32_t type, uint32_t relativeoffset) { glVertexAttribFormat(attribindex,size,type,0,relativeoffset); }
 GL_PASSTHROUGH2(void, glVertexAttrib1f, uint32_t, index, float, v0)
 GL_PASSTHROUGH3(void, glVertexAttrib2f, uint32_t, index, float, v0, float, v1)
 GL_PASSTHROUGH4(void, glVertexAttrib3f, uint32_t, index, float, v0, float, v1, float, v2)
 GL_PASSTHROUGH5(void, glVertexAttrib4f, uint32_t, index, float, v0, float, v1, float, v2, float, v3)
-GL_PASSTHROUGH3(void, glGetVertexAttribiv, uint32_t, index, uint32_t, pname, int32_t*, params)
-GL_PASSTHROUGH3(void, glGetVertexAttribPointerv, uint32_t, index, uint32_t, pname, void**, pointer)
+extern "C" void glGetVertexAttribiv(uint32_t index,uint32_t pname,int32_t* params) { if(!params)return;if(metalModeEnabled()&&index<g_experimentalVertexAttributes.size()){auto& attribute=g_experimentalVertexAttributes[index];if(pname==0x8622)*params=attribute.set;else if(pname==0x8623)*params=attribute.size;else if(pname==0x8624)*params=attribute.stride;else if(pname==0x8625)*params=attribute.type;else if(pname==0x886A)*params=attribute.normalized;else if(pname==0x889F)*params=attribute.buffer;else if(pname==0x88FE)*params=g_attributeDivisors[index];else if(pname==0x88FD)*params=(attribute.type==0x1404||attribute.type==0x1405);else {*params=0;}return;}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetVertexAttribiv",index,pname,params); }
+extern "C" void glGetVertexAttribPointerv(uint32_t index,uint32_t pname,void** pointer) { if(!pointer)return;if(metalModeEnabled()&&index<g_experimentalVertexAttributes.size()){*pointer=reinterpret_cast<void*>(g_experimentalVertexAttributes[index].offset);return;}glDispatch<void,uint32_t,uint32_t,void**>("glGetVertexAttribPointerv",index,pname,pointer); }
 extern "C" void glVertexAttribDivisor(uint32_t index, uint32_t divisor) {
     glDispatch<void, uint32_t, uint32_t>("glVertexAttribDivisor", index, divisor);
     if (index < g_attributeDivisors.size()) g_attributeDivisors[index] = divisor;

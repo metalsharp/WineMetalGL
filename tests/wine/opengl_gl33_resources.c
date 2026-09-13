@@ -36,7 +36,7 @@ typedef void (WINAPI *PFNGLBINDBUFFERPROC)(GLenum, GLuint);
 typedef void (WINAPI *PFNGLBUFFERDATAPROC)(GLenum, intptr_t, const void *, GLenum); typedef void (WINAPI *PFNGLGETBUFFERSUBDATAPROC)(GLenum,intptr_t,intptr_t,void*);
 typedef void (WINAPI *PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
 typedef void (WINAPI *PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
-typedef void (WINAPI *PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);
+typedef void (WINAPI *PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);typedef void(WINAPI *PFNGLGETVERTEXATTRIBIVPROC)(GLuint,GLenum,GLint*);typedef void(WINAPI *PFNGLGETVERTEXATTRIBPOINTERVPROC)(GLuint,GLenum,void**);
 typedef void (WINAPI *PFNGLDRAWELEMENTSPROC)(GLenum, GLsizei, GLenum, const void *);
 typedef void (WINAPI *PFNGLDRAWELEMENTSBASEVERTEXPROC)(GLenum, GLsizei, GLenum, const void *, GLint);
 typedef void (WINAPI *PFNGLBINDVERTEXBUFFERPROC)(GLuint,GLuint,intptr_t,GLsizei); typedef void (WINAPI *PFNGLVERTEXATTRIBBINDINGPROC)(GLuint,GLuint); typedef void (WINAPI *PFNGLVERTEXATTRIBFORMATPROC)(GLuint,GLint,GLenum,GLboolean,GLuint);
@@ -94,7 +94,7 @@ int main(void)
     PFNGLBUFFERDATAPROC buffer_data; PFNGLGETBUFFERSUBDATAPROC get_buffer_sub_data;
     PFNGLDELETEBUFFERSPROC delete_buffers;
     PFNGLENABLEVERTEXATTRIBARRAYPROC enable_attrib;
-    PFNGLVERTEXATTRIBPOINTERPROC attrib_pointer;
+    PFNGLVERTEXATTRIBPOINTERPROC attrib_pointer; PFNGLGETVERTEXATTRIBIVPROC get_attrib_iv; PFNGLGETVERTEXATTRIBPOINTERVPROC get_attrib_pointer;
     PFNGLDRAWELEMENTSPROC draw_elements; PFNGLDRAWELEMENTSBASEVERTEXPROC draw_elements_base; PFNGLBINDVERTEXBUFFERPROC bind_vertex_buffer; PFNGLVERTEXATTRIBBINDINGPROC attrib_binding; PFNGLVERTEXATTRIBFORMATPROC attrib_format;
 
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -128,7 +128,7 @@ int main(void)
     LOAD(PFNGLBUFFERDATAPROC, buffer_data, "glBufferData"); LOAD(PFNGLGETBUFFERSUBDATAPROC, get_buffer_sub_data, "glGetBufferSubData");
     LOAD(PFNGLDELETEBUFFERSPROC, delete_buffers, "glDeleteBuffers");
     LOAD(PFNGLENABLEVERTEXATTRIBARRAYPROC, enable_attrib, "glEnableVertexAttribArray");
-    LOAD(PFNGLVERTEXATTRIBPOINTERPROC, attrib_pointer, "glVertexAttribPointer");
+    LOAD(PFNGLVERTEXATTRIBPOINTERPROC, attrib_pointer, "glVertexAttribPointer"); LOAD(PFNGLGETVERTEXATTRIBIVPROC,get_attrib_iv,"glGetVertexAttribiv"); LOAD(PFNGLGETVERTEXATTRIBPOINTERVPROC,get_attrib_pointer,"glGetVertexAttribPointerv");
     LOAD(PFNGLDRAWELEMENTSPROC, draw_elements, "glDrawElements"); LOAD(PFNGLDRAWELEMENTSBASEVERTEXPROC, draw_elements_base, "glDrawElementsBaseVertex"); LOAD(PFNGLBINDVERTEXBUFFERPROC, bind_vertex_buffer, "glBindVertexBuffer"); LOAD(PFNGLVERTEXATTRIBBINDINGPROC, attrib_binding, "glVertexAttribBinding"); LOAD(PFNGLVERTEXATTRIBFORMATPROC, attrib_format, "glVertexAttribFormat");
 
     vertex_shader = create_shader(GL_VERTEX_SHADER); fragment_shader = create_shader(GL_FRAGMENT_SHADER);
@@ -149,7 +149,7 @@ int main(void)
 
     gen_buffers(1, &vbo); bind_buffer(GL_ARRAY_BUFFER, vbo); buffer_data(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     gen_buffers(1, &ibo); bind_buffer(GL_ELEMENT_ARRAY_BUFFER, ibo); buffer_data(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0); bind_vertex_buffer(0,vbo,0,2*sizeof(float)); attrib_binding(0,0); attrib_format(0,2,GL_FLOAT,GL_FALSE,0);
+    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0); bind_vertex_buffer(0,vbo,0,2*sizeof(float)); attrib_binding(0,0); attrib_format(0,2,GL_FLOAT,GL_FALSE,0); GLint attrib_enabled=0,attrib_stride=0;void* attrib_offset=(void*)-1;get_attrib_iv(0,0x8622,&attrib_enabled);get_attrib_iv(0,0x8624,&attrib_stride);get_attrib_pointer(0,0x8645,&attrib_offset);if(!attrib_enabled||attrib_stride!=2*(int)sizeof(float)||attrib_offset!=(void*)0)return 22;printf("WINEMETALGL_VERTEX_ATTRIB_QUERY_OK\\n");
     glViewport(0, 0, 64, 64); draw_elements_base(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, (const void *)0, 1);
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("GL33 resources readback rgba=%u,%u,%u,%u error=0x%x\n", pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());
