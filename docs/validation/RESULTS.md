@@ -26,7 +26,7 @@ The runner created one fresh `WINEARCH=wow64` prefix and sequentially ran
 x86_64 and i386 Windows fixtures. Both guests passed:
 
 - `opengl32.dll` and WGL loading.
-- Window DC, pixel format, context creation, extension discovery, per-context state across concurrent threads, and post-creation display-list sharing.
+- Window DC, pixel format, context creation, extension discovery, per-context state across concurrent threads, post-creation display-list sharing, and shared sidecar object visibility.
 - GLSL 1.10/1.20 simple vertex/fragment translation, Metal draw/readback, compatibility FBO/readback, and shading-language version reporting.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
 - Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
@@ -67,6 +67,7 @@ WINEMETALGL_WGL_MULTI_CONTEXT_OK
 WINEMETALGL_WGL_CONTEXT_STATE_OK
 WINEMETALGL_WGL_CONTEXT_THREADS_OK
 WINEMETALGL_WGL_SHARE_LISTS_OK
+WINEMETALGL_WGL_SHARED_OBJECTS_OK
 WINEMETALGL_PROGRAM_PIPELINE_OK
 WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK
 WINEMETALGL_INTERFACE_REJECT_OK

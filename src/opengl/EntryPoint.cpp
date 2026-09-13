@@ -987,7 +987,7 @@ extern "C" void* glMapBufferRange(uint32_t target, int64_t offset, int64_t lengt
     return base ? static_cast<uint8_t*>(base) + offset : nullptr;
 }
 GL_PASSTHROUGH3(void, glFlushMappedBufferRange, uint32_t, target, int64_t, offset, int64_t, length)
-GL_PASSTHROUGH1(unsigned char, glIsBuffer, uint32_t, buffer)
+extern "C" unsigned char glIsBuffer(uint32_t buffer) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_bufferMutex);return g_buffers.count(buffer)!=0;}return glDispatch<unsigned char,uint32_t>("glIsBuffer",buffer); }
 
 // glBindBuffer is hand-written because it must mirror the binding into
 // GLState so subsequent draw calls / VAO setup can observe which buffer
@@ -1278,6 +1278,7 @@ extern "C" void glDeleteSamplers(int32_t n, const uint32_t* samplers) {
     if (samplers) { std::lock_guard<std::mutex> lock(g_resourceMutex); for (int32_t i = 0; i < n; ++i) g_samplers.erase(samplers[i]); }
     glDispatch<void, int32_t, const uint32_t*>("glDeleteSamplers", n, samplers);
 }
+extern "C" unsigned char glIsSampler(uint32_t sampler) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);return g_samplers.count(sampler)!=0;}return glDispatch<unsigned char,uint32_t>("glIsSampler",sampler); }
 extern "C" void glBindSampler(uint32_t unit, uint32_t sampler) {
     glDispatch<void, uint32_t, uint32_t>("glBindSampler", unit, sampler);
     if (metalModeEnabled() && unit < g_samplerUnits.size()) g_samplerUnits[unit] = sampler;
@@ -2920,7 +2921,7 @@ extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_
 }
 extern "C" void glGetTexParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&(target==0x0DE0||target==0x0DE1||target==0x84F5||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else if(pname>=0x8E42&&pname<=0x8E45)*params=static_cast<int32_t>(it->second.swizzle[pname-0x8E42]);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params); }
 extern "C" void glGetTexParameterfv(uint32_t target,uint32_t pname,float* params) { if(params&&metalModeEnabled()&&(target==0x0DE0||target==0x0DE1||target==0x84F5||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params); }
-GL_PASSTHROUGH1(unsigned char, glIsTexture, uint32_t, texture)
+extern "C" unsigned char glIsTexture(uint32_t texture) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);return g_textures.count(texture)!=0;}return glDispatch<unsigned char,uint32_t>("glIsTexture",texture); }
 
 // glCopyTexImage2D and glCopyTexSubImage2D update tracked Metal textures
 // from the same readback source used by glReadPixels.
@@ -2966,7 +2967,7 @@ extern "C" void glCopyTexSubImage2D(uint32_t target, int32_t level, int32_t xoff
 // ---------------------------------------------------------------------------
 // Renderbuffer objects (GL 3.0 / EXT)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH1(unsigned char, glIsRenderbuffer, uint32_t, renderbuffer)
+extern "C" unsigned char glIsRenderbuffer(uint32_t renderbuffer) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);return g_renderbuffers.count(renderbuffer)!=0;}return glDispatch<unsigned char,uint32_t>("glIsRenderbuffer",renderbuffer); }
 extern "C" void glGetRenderbufferParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&target==0x8D41){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_renderbuffers.find(g_boundRenderbuffer);if(it!=g_renderbuffers.end()){if(pname==0x8D42)*params=it->second.width;else if(pname==0x8D43)*params=it->second.height;else if(pname==0x8D44)*params=it->second.internalFormat;else if(pname==0x8D57)*params=it->second.sampleCount;else {*params=0;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetRenderbufferParameteriv",target,pname,params); }
 
 // ---------------------------------------------------------------------------
@@ -3075,7 +3076,7 @@ extern "C" uint32_t glCheckFramebufferStatus(uint32_t target) {
     }
     return glDispatch<uint32_t, uint32_t>("glCheckFramebufferStatus", target);
 }
-GL_PASSTHROUGH1(unsigned char, glIsFramebuffer, uint32_t, framebuffer)
+extern "C" unsigned char glIsFramebuffer(uint32_t framebuffer) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);return g_framebuffers.count(framebuffer)!=0;}return glDispatch<unsigned char,uint32_t>("glIsFramebuffer",framebuffer); }
 extern "C" void glBlitFramebuffer(int32_t srcX0, int32_t srcY0, int32_t srcX1, int32_t srcY1,
                                    int32_t dstX0, int32_t dstY0, int32_t dstX1, int32_t dstY1,
                                    uint32_t mask, uint32_t filter) {
