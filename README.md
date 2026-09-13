@@ -46,7 +46,9 @@ one Mach-O architecture: `x86_64`.
 
 ## Wine integration
 
-The sidecar is loaded beside the x86_64 Unix `winemac.so`:
+The sidecar is loaded as one ABI-coupled unit with the x86_64 Unix
+`opengl32.so`, `winemac.so`, and `win32u.so`, plus the x86_64/i386 guest
+`opengl32.dll` files:
 
 ```sh
 ./scripts/stage-wine.sh /absolute/path/to/wine-build
@@ -57,9 +59,10 @@ The sidecar is loaded beside the x86_64 Unix `winemac.so`:
 used by Wine's native font loader. If the closure remains outside the
 runtime, set `WINEMETALGL_HOST_LIB_DIR` and add it to `DYLD_LIBRARY_PATH`.
 
-The Wine source used for the release is WineForge Wine 11.17 with the
-CrossOver integration applied by the MetalSharp build. The driver and sidecar
-are one ABI unit; do not copy either into an unrelated Wine build.
+The Wine source used for the candidate is WineForge Wine 11.17 with the
+CrossOver integration applied by the MetalSharp build. The guest DLLs, Unix
+`opengl32.so`, `winemac.so`, `win32u.so`, and sidecar are one ABI unit; do not
+copy any of them into an unrelated Wine build.
 
 Runtime controls:
 
