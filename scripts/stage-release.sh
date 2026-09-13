@@ -25,7 +25,10 @@ if test "$output" = /; then
     printf '%s\n' 'refusing to stage over /' >&2
     exit 1
 fi
-rm -rf "$output"
+if test -e "$output"; then
+    printf 'output already exists; refusing to replace it: %s\n' "$output" >&2
+    exit 1
+fi
 mkdir -p "$output/artifacts/guest/i386" "$output/artifacts/guest/x86_64" \
     "$output/artifacts/host-x86_64" "$output/artifacts/wine-driver"
 
