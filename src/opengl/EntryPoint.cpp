@@ -2491,6 +2491,9 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
     if (metalModeEnabled() && target == 0x0DE1 && level == 0 && w > 0 && h > 0 && textureName) {
+        const bool scalarUint = internalFormat == 0x8236 && format == 0x8D94 && type == 0x1405;
+        const bool scalarFloat = internalFormat == 0x822E && format == 0x1903 && type == 0x1406;
+        if (scalarUint || scalarFloat) { std::vector<uint8_t> raw(static_cast<size_t>(w)*h*4,0),unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=static_cast<size_t>(w)*h*4;if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(source)std::memcpy(raw.data(),source,raw.size());ExperimentalTexture uploadTexture;uploadTexture.width=w;uploadTexture.height=h;uploadTexture.internalFormat=internalFormat;uploadTexture.pixels=raw;uint64_t handle=createTextureFromCanonical(uploadTexture);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.pixels=std::move(raw);return; }
         const bool depthTexture = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC || internalFormat == 0x88F0 || internalFormat == 0x8D48;
         if (depthTexture) {
             uint64_t handle = g_metalRenderer.createDepthStencilTarget(static_cast<uint32_t>(w), static_cast<uint32_t>(h), static_cast<uint32_t>(internalFormat));
@@ -2527,6 +2530,8 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         }
     }
     if (metalModeEnabled() && target == 0x0DE1 && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
+        uint64_t scalarHandle=0;int32_t scalarFormat=0;uint32_t scalarWidth=0,scalarHeight=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto scalar=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(scalar!=g_textures.end()){scalarHandle=scalar->second.metalHandle;scalarFormat=scalar->second.internalFormat;scalarWidth=scalar->second.width;scalarHeight=scalar->second.height;}}
+        if(scalarHandle&&((scalarFormat==0x8236&&format==0x8D94&&type==0x1405)||(scalarFormat==0x822E&&format==0x1903&&type==0x1406))&&g_metalRenderer.readTextureScalar32(scalarHandle,0,0,scalarWidth,scalarHeight,pixels))return;
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);
         if (it != g_textures.end()) {
             std::vector<uint8_t> rgba(static_cast<size_t>(it->second.width) * it->second.height * 4);

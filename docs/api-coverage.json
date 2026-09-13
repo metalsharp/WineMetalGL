@@ -40,7 +40,7 @@
       "forwarded": ["glGenRenderbuffers", "glGetRenderbufferParameteriv", "glFramebufferRenderbuffer", "glRenderbufferStorageMultisample", "glTexImage2DMultisample"]
     },
     "shader_stages": {
-      "implemented": ["vertex", "fragment", "compute (buffer binding and dispatch)", "SPIR-V shader binary ingestion", "MetalSharp program-binary serialization and restoration", "image load/store (2D rgba8)", "basic triangle and quad tessellation evaluation draw", "simple triangle geometry pass-through emulation", "fixed-function single-texture combine modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha)", "fixed-function object/eye-linear, sphere-map, and normal-map texture-coordinate generation", "polygon offset and depth-clamp raster state", "multisample color textures/renderbuffers with Metal resolve and readback", "debug message insertion/logging, callbacks, groups, and object labels", "limited pass-through shader transform-feedback capture"],
+      "implemented": ["vertex", "fragment", "compute (buffer binding and dispatch)", "SPIR-V shader binary ingestion", "MetalSharp program-binary serialization and restoration", "image load/store (2D rgba8 and r32ui)", "basic triangle and quad tessellation evaluation draw", "simple triangle geometry pass-through emulation", "fixed-function single-texture combine modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha)", "fixed-function object/eye-linear, sphere-map, and normal-map texture-coordinate generation", "polygon offset and depth-clamp raster state", "multisample color textures/renderbuffers with Metal resolve and readback", "debug message insertion/logging, callbacks, groups, and object labels", "limited pass-through shader transform-feedback capture"],
       "compiler_only": ["tessellation control translation"],
       "rejected": ["geometry", "full tessellation-control", "mesh", "task", "ray-tracing"]
     }
@@ -77,7 +77,7 @@
   "not_advertised": [
     "complete Khronos OpenGL 4.6 conformance",
     "general geometry/full tessellation-control and general shader transform-feedback emulation",
-    "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond 2D rgba8",
+    "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond validated 2D rgba8/r32ui",
     "complete texture/sampler/FBO format matrix"
   ]
 }
