@@ -68,6 +68,8 @@ struct GLMetalRenderer::Impl {
 
     // Texture tracking. Maps handle → MTLTexture.
     std::unordered_map<uint64_t, id<MTLTexture>> textures;
+    std::unordered_map<uint64_t, uint64_t> resolveTextures;
+    std::unordered_map<uint64_t, uint32_t> textureSampleCounts;
     uint64_t nextTextureHandle = 1;
 
     // Active render command encoder
@@ -186,7 +188,7 @@ bool GLMetalRenderer::createTessellationPipeline(const GLShaderState& evaluation
 }
 
 bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader,
-                                     const GLState& glState) {
+                                     const GLState& glState, uint32_t rasterSampleCount) {
     if (!m_device)
         return false;
     if (vertexShader.msl.empty() || fragmentShader.msl.empty())
@@ -215,6 +217,7 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
     MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
     desc.vertexFunction = [vLib newFunctionWithName:@"vertex_main"];
     desc.fragmentFunction = [fLib newFunctionWithName:@"fragment_main"];
+    desc.rasterSampleCount = std::max<NSUInteger>(1, rasterSampleCount);
 
     // Default color attachment
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -713,11 +716,16 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
 
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     id<MTLTexture> texture = nil;
+    id<MTLTexture> resolveTexture = nil;
+    uint32_t colorSampleCount = 1;
     id<CAMetalDrawable> drawable = nil;
 
     if (textureHandle) {
         auto it = m_impl->textures.find(textureHandle);
         if (it != m_impl->textures.end()) texture = it->second;
+        auto samples = m_impl->textureSampleCounts.find(textureHandle);if(samples!=m_impl->textureSampleCounts.end())colorSampleCount=samples->second;
+        auto resolve = m_impl->resolveTextures.find(textureHandle);
+        if (resolve != m_impl->resolveTextures.end()) { auto resolved = m_impl->textures.find(resolve->second); if(resolved!=m_impl->textures.end())resolveTexture=resolved->second; }
     } else if (m_impl->metalLayer) {
         /* CAMetalLayer drawableSize is maintained by the Wine view. A
          * zero-size/minimized layer has no drawable; retrying on the next
@@ -745,7 +753,8 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
     passDesc.colorAttachments[0].slice = colorSlice;
     passDesc.colorAttachments[0].loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
     passDesc.colorAttachments[0].clearColor = m_impl->clearColor;
-    passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    if (resolveTexture) { passDesc.colorAttachments[0].resolveTexture=resolveTexture; passDesc.colorAttachments[0].resolveSlice=colorSlice; passDesc.colorAttachments[0].storeAction=MTLStoreActionMultisampleResolve; }
+    else passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     m_impl->depthTarget = nil;
     id<MTLTexture> stencilTarget = nil;
@@ -755,6 +764,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
     if (stencilTextureHandle) { auto stencil = m_impl->textures.find(stencilTextureHandle); if (stencil != m_impl->textures.end()) stencilTarget = stencil->second; }
     if (!m_impl->depthTarget) {
         MTLTextureDescriptor* depthDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float_Stencil8 width:width height:height mipmapped:NO];
+        if(colorSampleCount>1){depthDesc.textureType=MTLTextureType2DMultisample;depthDesc.sampleCount=colorSampleCount;}
         depthDesc.usage = MTLTextureUsageRenderTarget;
         m_impl->depthTarget = [m_device newTextureWithDescriptor:depthDesc];
     }
@@ -778,7 +788,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
     }
 
     id<MTLCommandBuffer> cmdBuf = [m_commandQueue commandBuffer];
-    m_impl->colorTarget = texture;
+    m_impl->colorTarget = resolveTexture ? resolveTexture : texture;
     m_impl->currentDrawable = drawable;
     m_impl->drawableBacked = drawable != nil;
     m_impl->currentCommandBuffer = cmdBuf;
@@ -938,7 +948,7 @@ static float metalHalfToFloat(uint16_t value) { uint32_t sign=(value>>15)&1,e=(v
 bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y,
                                        uint32_t width, uint32_t height, void* data, uint32_t slice) {
     if (!data || !width || !height) return false;
-    std::lock_guard<std::mutex> lock(m_impl->mutex); auto it=m_impl->textures.find(textureHandle); if(it==m_impl->textures.end())return false; id<MTLTexture> texture=it->second; if(x+width>texture.width||y+height>texture.height||slice>=texture.arrayLength)return false;
+    std::lock_guard<std::mutex> lock(m_impl->mutex); auto resolvedHandle=m_impl->resolveTextures.find(textureHandle);if(resolvedHandle!=m_impl->resolveTextures.end())textureHandle=resolvedHandle->second;auto it=m_impl->textures.find(textureHandle); if(it==m_impl->textures.end())return false; id<MTLTexture> texture=it->second; if(x+width>texture.width||y+height>texture.height||slice>=texture.arrayLength)return false;
     const bool r8=texture.pixelFormat==MTLPixelFormatR8Unorm,rg8=texture.pixelFormat==MTLPixelFormatRG8Unorm,rgba16=texture.pixelFormat==MTLPixelFormatRGBA16Float,rgba32=texture.pixelFormat==MTLPixelFormatRGBA32Float; const size_t bpp=r8?1:rg8?2:rgba16?8:rgba32?16:4; const NSUInteger bytesPerRow=(static_cast<NSUInteger>(width)*bpp+255)&~static_cast<NSUInteger>(255),bufferSize=bytesPerRow*static_cast<NSUInteger>(height); id<MTLBuffer> staging=[m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(!staging||!commandBuffer||!blit)return false;[blit copyFromTexture:texture sourceSlice:slice sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bufferSize];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];if(commandBuffer.status!=MTLCommandBufferStatusCompleted)return false;
     uint8_t* rgbaOut=static_cast<uint8_t*>(data);const uint8_t* bytes=static_cast<const uint8_t*>(staging.contents);const bool bgra=texture.pixelFormat==MTLPixelFormatBGRA8Unorm||texture.pixelFormat==MTLPixelFormatBGRA8Unorm_sRGB;for(uint32_t row=0;row<height;++row)for(uint32_t column=0;column<width;++column){size_t src=static_cast<size_t>(row)*bytesPerRow+static_cast<size_t>(column)*bpp,dst=(static_cast<size_t>(row)*width+column)*4;float value[4]={0,0,0,1};if(r8)value[0]=bytes[src]/255.0f;else if(rg8){value[0]=bytes[src]/255.0f;value[1]=bytes[src+1]/255.0f;}else if(rgba16){const uint16_t* v=reinterpret_cast<const uint16_t*>(bytes+src);value[0]=metalHalfToFloat(v[0]);value[1]=metalHalfToFloat(v[1]);value[2]=metalHalfToFloat(v[2]);value[3]=metalHalfToFloat(v[3]);}else if(rgba32)std::memcpy(value,bytes+src,sizeof(value));else if(bgra){value[0]=bytes[src+2]/255.0f;value[1]=bytes[src+1]/255.0f;value[2]=bytes[src]/255.0f;value[3]=bytes[src+3]/255.0f;}else{for(int c=0;c<4;++c)value[c]=bytes[src+c]/255.0f;}for(int c=0;c<4;++c)rgbaOut[dst+c]=static_cast<uint8_t>(std::clamp(value[c],0.0f,1.0f)*255.0f+0.5f);}
     return true;
@@ -946,6 +956,7 @@ bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint3
 
 bool GLMetalRenderer::blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto sourceResolve=m_impl->resolveTextures.find(sourceHandle);if(sourceResolve!=m_impl->resolveTextures.end())sourceHandle=sourceResolve->second;auto destinationResolve=m_impl->resolveTextures.find(destinationHandle);if(destinationResolve!=m_impl->resolveTextures.end())destinationHandle=destinationResolve->second;
     auto source = m_impl->textures.find(sourceHandle), destination = m_impl->textures.find(destinationHandle);
     if (source == m_impl->textures.end() || destination == m_impl->textures.end()) return false;
     if (width > source->second.width || height > source->second.height || width > destination->second.width || height > destination->second.height) return false;
@@ -1100,6 +1111,14 @@ uint64_t GLMetalRenderer::createTexture2DArray(uint32_t width, uint32_t height, 
     uint64_t handle = m_impl->nextTextureHandle++;
     m_impl->textures[handle] = texture;
     return handle;
+}
+
+uint64_t GLMetalRenderer::createMultisampleTexture2D(uint32_t width,uint32_t height,uint32_t glInternalFormat,uint32_t samples) {
+    if(!m_device||!width||!height||samples<2)return createTextureFormat(width,height,glInternalFormat,nullptr,false);
+    MTLPixelFormat format=(glInternalFormat==0x8C43)?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;uint32_t selected=samples;if(![m_device supportsTextureSampleCount:selected]){selected=samples>=4&&[m_device supportsTextureSampleCount:4]?4:[m_device supportsTextureSampleCount:2]?2:1;}if(selected<2)return createTextureFormat(width,height,glInternalFormat,nullptr,false);
+    MTLTextureDescriptor* multisample=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];multisample.textureType=MTLTextureType2DMultisample;multisample.sampleCount=selected;multisample.usage=MTLTextureUsageRenderTarget;id<MTLTexture> msaa=[m_device newTextureWithDescriptor:multisample];if(!msaa)return 0;
+    MTLTextureDescriptor* resolve=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];resolve.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;id<MTLTexture> resolved=[m_device newTextureWithDescriptor:resolve];if(!resolved)return 0;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++,resolveHandle=m_impl->nextTextureHandle++;m_impl->textures[handle]=msaa;m_impl->textures[resolveHandle]=resolved;m_impl->resolveTextures[handle]=resolveHandle;m_impl->textureSampleCounts[handle]=selected;return handle;
 }
 
 void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {

@@ -41,7 +41,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, vertex attribute, and uniform, plus direct and indirect multi-draw.
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, advanced texture/sampler state and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, completeness, and blit.
-- Multisample texture/renderbuffer fallback and readback.
+- Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
 - Instanced drawing with Metal depth/stencil attachments.
 - Direct/indirect compute dispatch with ranged SSBO writeback and storage-block reflection on both guests.
 - Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
@@ -107,6 +107,7 @@ WINEMETALGL_FBO_ARRAY_LAYER_OK
 WINEMETALGL_BLIT_OK
 WINEMETALGL_RENDERBUFFER_OK
 WINEMETALGL_MULTISAMPLE_OK
+WINEMETALGL_MULTISAMPLE_STORAGE_OK
 WINEMETALGL_SYNC_OK
 WINEMETALGL_QUERY_OK
 WINEMETALGL_TESSELLATION_COMPILE_OK

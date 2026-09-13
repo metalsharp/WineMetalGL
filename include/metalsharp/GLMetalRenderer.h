@@ -84,7 +84,7 @@ class GLMetalRenderer {
     /// The shader must have valid MSL in its GLShaderState::msl field.
     /// @return true on success; false if shader compilation or pipeline
     /// creation failed.
-    bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState);
+    bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState, uint32_t rasterSampleCount = 1);
     bool createComputePipeline(const GLShaderState& computeShader);
     bool createTessellationPipeline(const GLShaderState& evaluationShader, const GLShaderState& fragmentShader, const GLState& glState, bool quad = false);
 
@@ -193,6 +193,7 @@ class GLMetalRenderer {
     uint64_t createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
+    uint64_t createMultisampleTexture2D(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
     uint64_t createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat);
 
     /// Bind a texture at the given fragment shader index.
