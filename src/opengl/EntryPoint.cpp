@@ -2888,7 +2888,7 @@ extern "C" void glTexEnviv(uint32_t target, uint32_t pname, const int32_t* param
 extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_t pname, int32_t* params) {
     if (metalModeEnabled() && params && level == 0 && g_activeTextureUnit < g_textureUnits.size()) {
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);
-        if (it != g_textures.end() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x806F || target == 0x8C1A || target == 0x9100)) {
+        if (it != g_textures.end() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x8513 || (target >= 0x8515 && target <= 0x851A) || target == 0x806F || target == 0x8C1A || target == 0x9100)) {
             if (pname == 0x1000) *params=static_cast<int32_t>(it->second.width); else if (pname == 0x1001) *params=static_cast<int32_t>(it->second.height); else if (pname == 0x8071) *params=static_cast<int32_t>(it->second.depth); else if (pname == 0x9106) *params=static_cast<int32_t>(it->second.sampleCount); else if (pname == 0x9107) *params=it->second.sampleCount>1; else if (pname == 0x1003) *params=it->second.internalFormat; else { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } return;
         }
     }
