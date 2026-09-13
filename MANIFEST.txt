@@ -68,6 +68,7 @@ tests/wine/opengl_runtime.c
 tests/wine/opengl_runtime_probe.c
 tests/wine/opengl_sync.c
 tests/wine/opengl_texture_integer.c
+tests/wine/opengl_texture_r32ui.c
 tests/wine/opengl_texture3d.c
 tests/wine/opengl_texture_array.c
 tests/wine/opengl_ubo.c
