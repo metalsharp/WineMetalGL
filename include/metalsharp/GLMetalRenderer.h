@@ -167,7 +167,12 @@ class GLMetalRenderer {
     bool readDepth32(uint64_t depthTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readStencil8(uint64_t stencilTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data, uint32_t slice = 0);
-    bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height);
+    bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height, uint32_t sourceX = 0, uint32_t sourceY = 0, uint32_t destinationX = 0, uint32_t destinationY = 0);
+    bool clearColorTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float red, float green, float blue, float alpha);
+    bool clearDefaultColorRegion(uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t regionWidth, uint32_t regionHeight, float red, float green, float blue, float alpha);
+    uint64_t defaultColorTextureHandle() const;
+    bool clearDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float depth);
+    bool readDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float* data);
 
     /// Set the vertex descriptor stride and per-attribute layout.
     /// @param stride   byte stride of a single vertex

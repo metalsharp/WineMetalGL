@@ -84,6 +84,9 @@ struct GLMetalRenderer::Impl {
     // Current render pass descriptor
     MTLRenderPassDescriptor* currentPassDescriptor = nil;
     id<MTLTexture> colorTarget = nil;
+    id<MTLTexture> defaultColorTarget = nil;
+    uint32_t defaultColorWidth = 0, defaultColorHeight = 0;
+    uint64_t defaultColorHandle = 0;
     id<MTLTexture> depthTarget = nil;
     CAMetalLayer* metalLayer = nil;
     id<CAMetalDrawable> currentDrawable = nil;
@@ -768,7 +771,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
     passDesc.colorAttachments[0].slice = colorSlice;
     passDesc.colorAttachments[0].loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
     passDesc.colorAttachments[0].clearColor = m_impl->clearColor;
-    if (resolveTexture) { passDesc.colorAttachments[0].resolveTexture=resolveTexture; passDesc.colorAttachments[0].resolveSlice=colorSlice; passDesc.colorAttachments[0].storeAction=MTLStoreActionMultisampleResolve; }
+    if (resolveTexture) { passDesc.colorAttachments[0].resolveTexture=resolveTexture; passDesc.colorAttachments[0].resolveSlice=colorSlice; passDesc.colorAttachments[0].storeAction=MTLStoreActionStoreAndMultisampleResolve; }
     else passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     m_impl->depthTarget = nil;
@@ -971,20 +974,179 @@ bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint3
 
 bool GLMetalRenderer::readTextureScalar32(uint64_t textureHandle,uint32_t x,uint32_t y,uint32_t width,uint32_t height,void* data) { if(!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||it->second.pixelFormat!=MTLPixelFormatR32Uint&&it->second.pixelFormat!=MTLPixelFormatR32Float)return false;id<MTLTexture> texture=it->second;if(x+width>texture.width||y+height>texture.height)return false;NSUInteger rowBytes=(static_cast<NSUInteger>(width)*4+255)&~static_cast<NSUInteger>(255);id<MTLBuffer> staging=[m_device newBufferWithLength:rowBytes*height options:MTLResourceStorageModeShared];id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(!staging||!command||!blit)return false;[blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:rowBytes destinationBytesPerImage:rowBytes*height];[blit endEncoding];[command commit];[command waitUntilCompleted];if(command.status!=MTLCommandBufferStatusCompleted)return false;for(uint32_t row=0;row<height;++row)std::memcpy(static_cast<uint8_t*>(data)+static_cast<size_t>(row)*width*4,static_cast<const uint8_t*>(staging.contents)+static_cast<size_t>(row)*rowBytes,static_cast<size_t>(width)*4);return true; }
 
-bool GLMetalRenderer::blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height) {
+bool GLMetalRenderer::blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height, uint32_t sourceX, uint32_t sourceY, uint32_t destinationX, uint32_t destinationY) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     auto sourceResolve=m_impl->resolveTextures.find(sourceHandle);if(sourceResolve!=m_impl->resolveTextures.end())sourceHandle=sourceResolve->second;auto destinationResolve=m_impl->resolveTextures.find(destinationHandle);if(destinationResolve!=m_impl->resolveTextures.end())destinationHandle=destinationResolve->second;
     auto source = m_impl->textures.find(sourceHandle), destination = m_impl->textures.find(destinationHandle);
     if (source == m_impl->textures.end() || destination == m_impl->textures.end()) return false;
-    if (width > source->second.width || height > source->second.height || width > destination->second.width || height > destination->second.height) return false;
+    if (sourceX + width > source->second.width || sourceY + height > source->second.height || destinationX + width > destination->second.width || destinationY + height > destination->second.height) return false;
+    if (source->second.textureType == MTLTextureType2D && destination->second.textureType == MTLTextureType2D) {
+        auto bytesPerPixel = [](MTLPixelFormat format) -> size_t {
+            if (format == MTLPixelFormatR8Unorm || format == MTLPixelFormatR8Uint) return 1;
+            if (format == MTLPixelFormatRG8Unorm || format == MTLPixelFormatRG8Uint) return 2;
+            if (format == MTLPixelFormatR32Float) return 4;
+            if (format == MTLPixelFormatRGBA16Float) return 8;
+            return format == MTLPixelFormatBGRA8Unorm || format == MTLPixelFormatBGRA8Unorm_sRGB || format == MTLPixelFormatRGBA8Unorm || format == MTLPixelFormatRGBA8Unorm_sRGB || format == MTLPixelFormatRGBA8Uint ? 4 : 0;
+        };
+        const size_t sourceBpp = bytesPerPixel(source->second.pixelFormat), destinationBpp = bytesPerPixel(destination->second.pixelFormat);
+        if (sourceBpp && destinationBpp) {
+            std::vector<uint8_t> sourcePixels(static_cast<size_t>(width) * height * sourceBpp), destinationPixels(static_cast<size_t>(width) * height * destinationBpp);
+            [source->second getBytes:sourcePixels.data() bytesPerRow:static_cast<size_t>(width) * sourceBpp fromRegion:MTLRegionMake2D(sourceX,sourceY,width,height) mipmapLevel:0];
+
+            auto read = [&](const uint8_t* pixel, MTLPixelFormat format) { std::array<uint8_t,4> value = {0,0,0,255}; if(format == MTLPixelFormatR8Unorm || format == MTLPixelFormatR8Uint) value[0]=pixel[0]; else if(format == MTLPixelFormatRG8Unorm || format == MTLPixelFormatRG8Uint) { value[0]=pixel[0]; value[1]=pixel[1]; } else if(format == MTLPixelFormatBGRA8Unorm || format == MTLPixelFormatBGRA8Unorm_sRGB) { value={pixel[2],pixel[1],pixel[0],pixel[3]}; } else if(format == MTLPixelFormatR32Float) { float f; std::memcpy(&f,pixel,sizeof(f)); value[0]=static_cast<uint8_t>(std::clamp(f,0.0f,1.0f)*255.0f+0.5f); } else { value={pixel[0],pixel[1],pixel[2],pixel[3]}; } return value; };
+            auto write = [&](uint8_t* pixel, MTLPixelFormat format, const std::array<uint8_t,4>& value) { if(format == MTLPixelFormatR8Unorm || format == MTLPixelFormatR8Uint) pixel[0]=value[0]; else if(format == MTLPixelFormatRG8Unorm || format == MTLPixelFormatRG8Uint) { pixel[0]=value[0]; pixel[1]=value[1]; } else if(format == MTLPixelFormatBGRA8Unorm || format == MTLPixelFormatBGRA8Unorm_sRGB) { pixel[0]=value[2]; pixel[1]=value[1]; pixel[2]=value[0]; pixel[3]=value[3]; } else { std::memcpy(pixel,value.data(),std::min<size_t>(destinationBpp,4)); } };
+            for (uint32_t row = 0; row < height; ++row) for (uint32_t column = 0; column < width; ++column) write(destinationPixels.data() + (static_cast<size_t>(row) * width + column) * destinationBpp, destination->second.pixelFormat, read(sourcePixels.data() + (static_cast<size_t>(row) * width + column) * sourceBpp, source->second.pixelFormat));
+            [destination->second replaceRegion:MTLRegionMake2D(destinationX,destinationY,width,height) mipmapLevel:0 withBytes:destinationPixels.data() bytesPerRow:static_cast<size_t>(width) * destinationBpp];
+            return true;
+        }
+    }
     id<MTLCommandBuffer> commandBuffer = [m_commandQueue commandBuffer];
     id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
     if (!commandBuffer || !blit) return false;
-    [blit copyFromTexture:source->second sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+    [blit copyFromTexture:source->second sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(sourceX,sourceY,0)
                sourceSize:MTLSizeMake(width,height,1) toTexture:destination->second destinationSlice:0 destinationLevel:0
-       destinationOrigin:MTLOriginMake(0,0,0)];
+       destinationOrigin:MTLOriginMake(destinationX,destinationY,0)];
     [blit endEncoding]; [commandBuffer commit]; [commandBuffer waitUntilCompleted];
     return commandBuffer.status == MTLCommandBufferStatusCompleted;
+}
+
+bool GLMetalRenderer::clearColorTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+                                         float red, float green, float blue, float alpha) {
+    if (!width || !height) return true;
+    MTLPixelFormat targetFormat = MTLPixelFormatInvalid;
+    uint32_t sampleCount = 1;
+    bool multisample = false;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        auto it = m_impl->textures.find(textureHandle);
+        if (it == m_impl->textures.end() || x + width > it->second.width || y + height > it->second.height) return false;
+        targetFormat = it->second.pixelFormat;
+        multisample = it->second.textureType == MTLTextureType2DMultisample;
+        auto samples = m_impl->textureSampleCounts.find(textureHandle);
+        if (samples != m_impl->textureSampleCounts.end()) sampleCount = samples->second;
+    }
+    if (multisample) {
+        static const char source[] = "#include <metal_stdlib>\nusing namespace metal;\n"
+                                      "vertex float4 clear_vertex(uint id [[vertex_id]]) { float4 p[4] = {float4(-1,-1,0,1),float4(-1,1,0,1),float4(1,-1,0,1),float4(1,1,0,1)}; return p[id]; }\n"
+                                      "fragment float4 clear_fragment(constant float4& color [[buffer(0)]]) { return color; }\n";
+        NSError* error = nil;
+        id<MTLLibrary> library = [m_device newLibraryWithSource:[NSString stringWithUTF8String:source] options:nil error:&error];
+        id<MTLFunction> vertex = [library newFunctionWithName:@"clear_vertex"];
+        id<MTLFunction> fragment = [library newFunctionWithName:@"clear_fragment"];
+        if (!library || !vertex || !fragment) return false;
+        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = vertex;
+        descriptor.fragmentFunction = fragment;
+        descriptor.rasterSampleCount = sampleCount;
+        descriptor.colorAttachments[0].pixelFormat = targetFormat;
+        descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+        descriptor.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+        id<MTLRenderPipelineState> pipeline = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (!pipeline) return false;
+        beginRenderPassToTexture(textureHandle, 0, 0, false);
+        setViewport(0, 0, static_cast<uint32_t>(m_impl->textures[textureHandle].width), static_cast<uint32_t>(m_impl->textures[textureHandle].height), 0.0, 1.0);
+        setScissor(static_cast<int32_t>(x), static_cast<int32_t>(y), width, height);
+        float color[4] = {red, green, blue, alpha};
+        id<MTLBuffer> colorBuffer = [m_device newBufferWithBytes:color length:sizeof(color) options:MTLResourceStorageModeShared];
+        {
+            std::lock_guard<std::mutex> lock(m_impl->mutex);
+            if (!m_impl->currentEncoder) return false;
+            [m_impl->currentEncoder setRenderPipelineState:pipeline];
+            if (colorBuffer) [m_impl->currentEncoder setFragmentBuffer:colorBuffer offset:0 atIndex:0];
+            [m_impl->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        }
+        endRenderPass();
+        finish();
+        return true;
+    }
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it = m_impl->textures.find(textureHandle);
+    if (it == m_impl->textures.end()) return false;
+    const auto clampByte = [](float value) { return static_cast<uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f); };
+    const uint8_t r = clampByte(red), g = clampByte(green), b = clampByte(blue), a = clampByte(alpha);
+    const MTLPixelFormat format = it->second.pixelFormat;
+    size_t bytesPerPixel = 0;
+    enum class Layout { R8, RG8, RGBA8, BGRA8, R32F, RG16F, RGBA16F } layout;
+    if (format == MTLPixelFormatR8Unorm || format == MTLPixelFormatR8Uint) { bytesPerPixel = 1; layout = Layout::R8; }
+    else if (format == MTLPixelFormatRG8Unorm || format == MTLPixelFormatRG8Uint) { bytesPerPixel = 2; layout = Layout::RG8; }
+    else if (format == MTLPixelFormatBGRA8Unorm || format == MTLPixelFormatBGRA8Unorm_sRGB) { bytesPerPixel = 4; layout = Layout::BGRA8; }
+    else if (format == MTLPixelFormatRGBA8Unorm || format == MTLPixelFormatRGBA8Unorm_sRGB || format == MTLPixelFormatRGBA8Uint) { bytesPerPixel = 4; layout = Layout::RGBA8; }
+    else if (format == MTLPixelFormatR32Float) { bytesPerPixel = sizeof(float); layout = Layout::R32F; }
+    else if (format == MTLPixelFormatRG16Float) { bytesPerPixel = sizeof(uint16_t) * 2; layout = Layout::RG16F; }
+    else if (format == MTLPixelFormatRGBA16Float) { bytesPerPixel = sizeof(uint16_t) * 4; layout = Layout::RGBA16F; }
+    else return false;
+    std::vector<uint8_t> row(static_cast<size_t>(width) * bytesPerPixel);
+    for (uint32_t column = 0; column < width; ++column) {
+        uint8_t* pixel = row.data() + static_cast<size_t>(column) * bytesPerPixel;
+        if (layout == Layout::R8) pixel[0] = r;
+        else if (layout == Layout::RG8) { pixel[0] = r; pixel[1] = g; }
+        else if (layout == Layout::RGBA8) { pixel[0] = r; pixel[1] = g; pixel[2] = b; pixel[3] = a; }
+        else if (layout == Layout::BGRA8) { pixel[0] = b; pixel[1] = g; pixel[2] = r; pixel[3] = a; }
+        else if (layout == Layout::R32F) { float value = std::clamp(red, 0.0f, 1.0f); std::memcpy(pixel, &value, sizeof(value)); }
+        else if (layout == Layout::RG16F) { uint16_t values[2] = {halfFromFloat(red), halfFromFloat(green)}; std::memcpy(pixel, values, sizeof(values)); }
+        else { uint16_t values[4] = {halfFromFloat(red), halfFromFloat(green), halfFromFloat(blue), halfFromFloat(alpha)}; std::memcpy(pixel, values, sizeof(values)); }
+    }
+    for (uint32_t rowIndex = 0; rowIndex < height; ++rowIndex)
+        [it->second replaceRegion:MTLRegionMake2D(x, y + rowIndex, width, 1) mipmapLevel:0 withBytes:row.data() bytesPerRow:row.size()];
+    return true;
+}
+
+bool GLMetalRenderer::clearDefaultColorRegion(uint32_t width, uint32_t height, uint32_t x, uint32_t y,
+                                               uint32_t regionWidth, uint32_t regionHeight, float red, float green,
+                                               float blue, float alpha) {
+    if (!width || !height || x + regionWidth > width || y + regionHeight > height) return false;
+    uint64_t handle = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (!m_impl->defaultColorTarget || m_impl->defaultColorWidth < width || m_impl->defaultColorHeight < height) {
+            const uint32_t newWidth = std::max(width, m_impl->defaultColorWidth), newHeight = std::max(height, m_impl->defaultColorHeight);
+            MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:newWidth height:newHeight mipmapped:NO];
+            descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
+            if (!texture) return false;
+            if (m_impl->defaultColorTarget) {
+                std::vector<uint8_t> oldPixels(static_cast<size_t>(m_impl->defaultColorWidth) * m_impl->defaultColorHeight * 4);
+                [m_impl->defaultColorTarget getBytes:oldPixels.data() bytesPerRow:static_cast<size_t>(m_impl->defaultColorWidth) * 4 fromRegion:MTLRegionMake2D(0,0,m_impl->defaultColorWidth,m_impl->defaultColorHeight) mipmapLevel:0];
+                [texture replaceRegion:MTLRegionMake2D(0,0,m_impl->defaultColorWidth,m_impl->defaultColorHeight) mipmapLevel:0 withBytes:oldPixels.data() bytesPerRow:static_cast<size_t>(m_impl->defaultColorWidth) * 4];
+            }
+            m_impl->defaultColorTarget = texture;
+            m_impl->defaultColorWidth = newWidth;
+            m_impl->defaultColorHeight = newHeight;
+            m_impl->defaultColorHandle = m_impl->nextTextureHandle++;
+            m_impl->textures[m_impl->defaultColorHandle] = texture;
+        }
+        handle = m_impl->defaultColorHandle;
+    }
+    const bool result = clearColorTexture(handle, x, y, regionWidth, regionHeight, red, green, blue, alpha);
+    if (result) { std::lock_guard<std::mutex> lock(m_impl->mutex); m_impl->colorTarget = m_impl->defaultColorTarget; }
+    return result;
+}
+
+uint64_t GLMetalRenderer::defaultColorTextureHandle() const {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->defaultColorHandle;
+}
+
+bool GLMetalRenderer::clearDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float depth) {
+    if (!width || !height) return true;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it=m_impl->textures.find(textureHandle);
+    if (it==m_impl->textures.end() || it->second.pixelFormat!=MTLPixelFormatR32Float || it->second.textureType==MTLTextureType2DMultisample || x+width>it->second.width || y+height>it->second.height) return false;
+    std::vector<float> row(width,std::clamp(depth,0.0f,1.0f));
+    for(uint32_t rowIndex=0;rowIndex<height;++rowIndex)[it->second replaceRegion:MTLRegionMake2D(x,y+rowIndex,width,1) mipmapLevel:0 withBytes:row.data() bytesPerRow:static_cast<size_t>(width)*sizeof(float)];
+    return true;
+}
+
+bool GLMetalRenderer::readDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float* data) {
+    if (!data || !width || !height) return false;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto it=m_impl->textures.find(textureHandle);
+    if(it==m_impl->textures.end() || it->second.pixelFormat!=MTLPixelFormatR32Float || x+width>it->second.width || y+height>it->second.height) return false;
+    const NSUInteger bytesPerRow=(static_cast<NSUInteger>(width)*sizeof(float)+255)&~static_cast<NSUInteger>(255), bufferSize=bytesPerRow*height;
+    id<MTLBuffer> staging=[m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(!staging||!command||!blit)return false;
+    [blit copyFromTexture:it->second sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bufferSize];[blit endEncoding];[command commit];[command waitUntilCompleted];if(command.status!=MTLCommandBufferStatusCompleted)return false;
+    for(uint32_t row=0;row<height;++row)std::memcpy(data+static_cast<size_t>(row)*width,static_cast<const uint8_t*>(staging.contents)+static_cast<size_t>(row)*bytesPerRow,static_cast<size_t>(width)*sizeof(float));
+    return true;
 }
 
 void GLMetalRenderer::setVertexLayout(uint32_t stride, const uint32_t* offsets, const uint32_t* formats,
@@ -1081,11 +1243,11 @@ uint64_t GLMetalRenderer::createTexture1D(uint32_t width,uint32_t glInternalForm
 bool GLMetalRenderer::updateTexture1DLevel(uint64_t textureHandle,uint32_t level,uint32_t width,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level))return false;[it->second replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:level withBytes:data bytesPerRow:bytesPerRow];return true; }
 
 uint64_t GLMetalRenderer::createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped) {
-    if(!m_device||!width||!height)return 0; MTLPixelFormat format=glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x8236?MTLPixelFormatR32Uint:glInternalFormat==0x822E?MTLPixelFormatR32Float:glInternalFormat==0x8D7C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:(format==MTLPixelFormatR32Uint||format==MTLPixelFormatR32Float)?4:format==MTLPixelFormatRGBA8Uint?4:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;
-    MTLTextureDescriptor* descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:mipmapped]; descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget; id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bytesPerPixel];if(mipmapped){id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];}}
+    if(!m_device||!width||!height)return 0; MTLPixelFormat format=glInternalFormat==0x8231?MTLPixelFormatR8Sint:glInternalFormat==0x8232?MTLPixelFormatR8Uint:glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x8237?MTLPixelFormatRG8Sint:glInternalFormat==0x8238?MTLPixelFormatRG8Uint:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x8234?MTLPixelFormatR16Uint:glInternalFormat==0x8233?MTLPixelFormatR16Sint:glInternalFormat==0x823A?MTLPixelFormatRG16Uint:glInternalFormat==0x8239?MTLPixelFormatRG16Sint:glInternalFormat==0x8235?MTLPixelFormatRGBA8Uint:glInternalFormat==0x8236?MTLPixelFormatRGBA8Uint:glInternalFormat==0x823B?MTLPixelFormatRGBA8Uint:glInternalFormat==0x823C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x822E?MTLPixelFormatR32Float:glInternalFormat==0x1902||glInternalFormat==0x81A5||glInternalFormat==0x81A6||glInternalFormat==0x8CAC||glInternalFormat==0x88F0||glInternalFormat==0x8D48?MTLPixelFormatR32Float:glInternalFormat==0x8D8E?MTLPixelFormatRGBA8Sint:glInternalFormat==0x8D7C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x8D88?MTLPixelFormatRGBA16Sint:glInternalFormat==0x8D76?MTLPixelFormatRGBA16Uint:glInternalFormat==0x8D82?MTLPixelFormatRGBA32Sint:glInternalFormat==0x8D70?MTLPixelFormatRGBA32Uint:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm||format==MTLPixelFormatR8Sint||format==MTLPixelFormatR8Uint?1:format==MTLPixelFormatRG8Unorm||format==MTLPixelFormatRG8Sint||format==MTLPixelFormatRG8Uint?2:format==MTLPixelFormatR16Sint||format==MTLPixelFormatR16Uint?2:format==MTLPixelFormatRG16Sint||format==MTLPixelFormatRG16Uint?4:format==MTLPixelFormatR32Float?4:format==MTLPixelFormatRGBA8Uint||format==MTLPixelFormatRGBA8Sint?4:format==MTLPixelFormatRGBA16Uint||format==MTLPixelFormatRGBA16Sint||format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Uint||format==MTLPixelFormatRGBA32Sint||format==MTLPixelFormatRGBA32Float?16:4;
+    MTLTextureDescriptor* descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:mipmapped]; descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget; id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data){std::vector<uint8_t> upload(static_cast<size_t>(width)*height*bytesPerPixel);for(uint32_t row=0;row<height;++row)std::memcpy(upload.data()+static_cast<size_t>(row)*width*bytesPerPixel,static_cast<const uint8_t*>(data)+static_cast<size_t>(height-1-row)*width*bytesPerPixel,static_cast<size_t>(width)*bytesPerPixel);[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:upload.data() bytesPerRow:static_cast<size_t>(width)*bytesPerPixel];}if(mipmapped && format != MTLPixelFormatR8Sint && format != MTLPixelFormatR8Uint && format != MTLPixelFormatRG8Sint && format != MTLPixelFormatRG8Uint && format != MTLPixelFormatR16Sint && format != MTLPixelFormatR16Uint && format != MTLPixelFormatRG16Sint && format != MTLPixelFormatRG16Uint && format != MTLPixelFormatRGBA8Sint && format != MTLPixelFormatRGBA8Uint && format != MTLPixelFormatRGBA16Sint && format != MTLPixelFormatRGBA16Uint && format != MTLPixelFormatRGBA32Sint && format != MTLPixelFormatRGBA32Uint){id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];}}
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
-bool GLMetalRenderer::updateTextureLevel(uint64_t textureHandle,uint32_t level,uint32_t width,uint32_t height,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level)||height>(it->second.height>>level))return false;[it->second replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:level withBytes:data bytesPerRow:bytesPerRow];return true;}
+bool GLMetalRenderer::updateTextureLevel(uint64_t textureHandle,uint32_t level,uint32_t width,uint32_t height,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level)||height>(it->second.height>>level))return false;std::vector<uint8_t> upload(bytesPerRow * static_cast<size_t>(height));for(uint32_t row=0;row<height;++row)std::memcpy(upload.data()+static_cast<size_t>(row)*bytesPerRow,static_cast<const uint8_t*>(data)+static_cast<size_t>(height-1-row)*bytesPerRow,bytesPerRow);[it->second replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:level withBytes:upload.data() bytesPerRow:bytesPerRow];return true;}
 uint64_t GLMetalRenderer::createTextureCube(uint32_t width,uint32_t height,uint32_t glInternalFormat,const void* const* faces) { if(!m_device||!width||!height)return 0;MTLPixelFormat format=glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;MTLTextureDescriptor* descriptor=[MTLTextureDescriptor textureCubeDescriptorWithPixelFormat:format size:width mipmapped:YES];descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;for(uint32_t face=0;face<6;++face)if(faces&&faces[face])[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 slice:face withBytes:faces[face] bytesPerRow:static_cast<size_t>(width)*4 bytesPerImage:static_cast<size_t>(width)*height*4];if(faces){id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(command&&blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[command commit];[command waitUntilCompleted];}}std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
 
 uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped, bool srgb) { return createTextureFormat(width,height,srgb?0x8C43:0x8058,data,mipmapped); }
