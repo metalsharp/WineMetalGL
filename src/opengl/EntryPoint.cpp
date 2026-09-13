@@ -2618,6 +2618,29 @@ extern "C" void glColor4f(float r, float g, float b, float a) {
 // ---------------------------------------------------------------------------
 // Texture upload / readback
 // ---------------------------------------------------------------------------
+static bool metalInternalFormatSupported(uint32_t internalFormat) {
+    switch (internalFormat) {
+    case 0x8058: case 0x881A: case 0x8814: case 0x8C43:
+    case 0x822E: case 0x8236: case 0x8229: case 0x822B:
+    case 0x81A5: case 0x81A6: case 0x8CAC: case 0x88F0: case 0x8D48:
+        return true;
+    default:
+        return false;
+    }
+}
+extern "C" void glGetInternalformativ(uint32_t target, uint32_t internalFormat, uint32_t pname, int32_t bufSize, int32_t* params) {
+    if (!params || bufSize <= 0 || !metalModeEnabled() || (target != 0x0DE1 && target != 0x8D41)) {
+        glDispatch<void,uint32_t,uint32_t,uint32_t,int32_t,int32_t*>("glGetInternalformativ",target,internalFormat,pname,bufSize,params);
+        return;
+    }
+    const bool supported = metalInternalFormatSupported(internalFormat);
+    if (pname == 0x826F || pname == 0x8286 || pname == 0x8289 || pname == 0x829A || pname == 0x82A4 || pname == 0x82A5) params[0] = supported ? 1 : 0;
+    else if (pname == 0x9380) params[0] = supported ? 1 : 0;
+    else if (pname == 0x80A9) params[0] = supported ? 1 : 0;
+    else if (pname == 0x8270) params[0] = static_cast<int32_t>(internalFormat);
+    else params[0] = 0;
+    for (int32_t i = 1; i < bufSize; ++i) params[i] = 0;
+}
 extern "C" void glTexImage1D(uint32_t target,int32_t level,int32_t internalFormat,int32_t width,int32_t border,uint32_t format,uint32_t type,const void* data) { const uint32_t textureName=g_activeTextureUnit<g_textureUnits.size()?g_textureUnits[g_activeTextureUnit]:0;if(metalModeEnabled()&&target==0x0DE0&&level==0&&width>0&&textureName){std::vector<uint8_t> pixels,unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=pixelUploadBytes(width,1,1,format,type,g_glBridge.state().unpackAlignment);if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(!source)pixels.assign(static_cast<size_t>(width)*4,0);else if(!convertPixelsToBGRA(width,1,format,type,source,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}std::vector<uint8_t> storage=encodeTextureStorage(pixels,internalFormat);uint64_t handle=g_metalRenderer.createTexture1D(width,static_cast<uint32_t>(internalFormat),storage.data(),true);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=1;texture.depth=1;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return;}glDispatch<void,uint32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t,const void*>("glTexImage1D",target,level,internalFormat,width,border,format,type,data); }
 
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
