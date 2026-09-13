@@ -103,8 +103,10 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_tess_quad.c" -o "$RUN_ROOT/tess-quad32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry.c" -o "$RUN_ROOT/geometry64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry_points.c" -o "$RUN_ROOT/geometry-points64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry_varying.c" -o "$RUN_ROOT/geometry-varying64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry.c" -o "$RUN_ROOT/geometry32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry_points.c" -o "$RUN_ROOT/geometry-points32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_geometry_varying.c" -o "$RUN_ROOT/geometry-varying32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture3d.c" -o "$RUN_ROOT/texture3d64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture3d.c" -o "$RUN_ROOT/texture3d32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_array.c" -o "$RUN_ROOT/texture-array64.exe" -lopengl32 -luser32 -lgdi32
@@ -226,6 +228,8 @@ run_shader "$RUN_ROOT/geometry64.exe"
 run_shader "$RUN_ROOT/geometry32.exe"
 run_shader "$RUN_ROOT/geometry-points64.exe"
 run_shader "$RUN_ROOT/geometry-points32.exe"
+run_shader "$RUN_ROOT/geometry-varying64.exe"
+run_shader "$RUN_ROOT/geometry-varying32.exe"
 run_shader "$RUN_ROOT/texture3d64.exe"
 run_shader "$RUN_ROOT/texture3d32.exe"
 run_shader "$RUN_ROOT/texture-array64.exe"
@@ -404,6 +408,8 @@ grep -q WINEMETALGL_GEOMETRY_PASSTHROUGH_OK "$RUN_ROOT/geometry64.exe.stdout"
 grep -q WINEMETALGL_GEOMETRY_PASSTHROUGH_OK "$RUN_ROOT/geometry32.exe.stdout"
 grep -q WINEMETALGL_GEOMETRY_POINT_PASSTHROUGH_OK "$RUN_ROOT/geometry-points64.exe.stdout"
 grep -q WINEMETALGL_GEOMETRY_POINT_PASSTHROUGH_OK "$RUN_ROOT/geometry-points32.exe.stdout"
+grep -q WINEMETALGL_GEOMETRY_VARYING_PASSTHROUGH_OK "$RUN_ROOT/geometry-varying64.exe.stdout"
+grep -q WINEMETALGL_GEOMETRY_VARYING_PASSTHROUGH_OK "$RUN_ROOT/geometry-varying32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE3D_OK "$RUN_ROOT/texture3d64.exe.stdout"
 grep -q WINEMETALGL_TEXTURE3D_OK "$RUN_ROOT/texture3d32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_ARRAY_OK "$RUN_ROOT/texture-array64.exe.stdout"
@@ -568,6 +574,7 @@ echo WINEMETALGL_TESSELLATION_FACTORS_OK
 echo WINEMETALGL_TESSELLATION_QUAD_OK
 echo WINEMETALGL_GEOMETRY_PASSTHROUGH_OK
 echo WINEMETALGL_GEOMETRY_POINT_PASSTHROUGH_OK
+echo WINEMETALGL_GEOMETRY_VARYING_PASSTHROUGH_OK
 echo WINEMETALGL_TEXTURE3D_OK
 echo WINEMETALGL_TEXTURE_ARRAY_OK
 echo WINEMETALGL_FIXED_TEXTURE_OK

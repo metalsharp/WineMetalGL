@@ -359,12 +359,12 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
             const size_t storage = line.find("buffer "); const size_t storageBrace = line.find('{', storage == std::string::npos ? 0 : storage);
             if (storage != std::string::npos && storageBrace != std::string::npos) { std::string blockName=line.substr(storage+7,storageBrace-(storage+7)); while(!blockName.empty()&&std::isspace(static_cast<unsigned char>(blockName.back())))blockName.pop_back(); if(!blockName.empty()&&!program.storageBlockIndices.count(blockName)){uint32_t index=static_cast<uint32_t>(program.storageBlockIndices.size());program.storageBlockIndices[blockName]=index;program.storageBlockBindings[index]=0;} }
         }
-        const size_t out = line.find(" out ");
-        const size_t in = line.find(" in ");
-        const bool isOutput = vertexStage && (out != std::string::npos || line.rfind("out ",0)==0);
-        const bool isInput = !vertexStage && (in != std::string::npos || line.rfind("in ",0)==0);
+        const size_t out = line.find("out ");
+        const size_t in = line.find("in ");
+        const bool isOutput = vertexStage && out != std::string::npos;
+        const bool isInput = !vertexStage && in != std::string::npos;
         if (isOutput || isInput) {
-            const size_t position = isOutput ? (out == std::string::npos ? 4 : out + 5) : (in == std::string::npos ? 3 : in + 4);
+            const size_t position = isOutput ? out + 4 : in + 3;
             std::istringstream interface(line.substr(position)); std::string type,name;
             if(interface>>type>>name){size_t terminator=name.find_first_of(";[=");if(terminator!=std::string::npos)name.resize(terminator);if(!name.empty()&&name!="gl_PerVertex"){if(isOutput)program.vertexOutputs[name]=type;else program.fragmentInputs[name]=type;}}
         }
