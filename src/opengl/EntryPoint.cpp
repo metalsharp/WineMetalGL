@@ -108,6 +108,8 @@ uint32_t g_activeQuery = 0;
 struct ExperimentalBuffer {
     uint64_t metalHandle = 0;
     size_t size = 0;
+    uint32_t storageFlags = 0;
+    bool immutable = false;
 };
 std::mutex g_bufferMutex;
 std::unordered_map<uint32_t, ExperimentalBuffer> g_buffers;
@@ -871,7 +873,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
         if (handle) {
             std::lock_guard<std::mutex> lock(g_bufferMutex);
-            g_buffers[name] = {handle, static_cast<size_t>(size)};
+            g_buffers[name] = {handle, static_cast<size_t>(size), 0, false};
             return;
         }
         metalsharp::GLErrorTracker::instance().setError(0x0505);
@@ -882,24 +884,28 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
 
 extern "C" void glGetBufferParameteriv(uint32_t target, uint32_t pname, int32_t* params) {
     const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x9192 ? g_boundQueryBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
-    if (metalModeEnabled() && params && bound && (pname == 0x8764 || pname == 0x8210)) {
+    if (metalModeEnabled() && params && bound && (pname == 0x8764 || pname == 0x821F || pname == 0x8220 || pname == 0x8210)) {
         std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bound);
-        if (it != g_buffers.end()) { *params = pname == 0x8764 ? static_cast<int32_t>(it->second.size) : 0; return; }
+        if (it != g_buffers.end()) { if (pname == 0x8764) *params = static_cast<int32_t>(it->second.size); else if (pname == 0x821F) *params = it->second.immutable ? 1 : 0; else if (pname == 0x8220) *params = static_cast<int32_t>(it->second.storageFlags); else *params = 0; return; }
     }
     glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetBufferParameteriv",target,pname,params);
 }
 extern "C" void glGetBufferParameteri64v(uint32_t target, uint32_t pname, int64_t* params) {
     const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x9192 ? g_boundQueryBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
-    if (metalModeEnabled() && params && bound && pname == 0x8764) { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bound); if(it!=g_buffers.end()){*params=static_cast<int64_t>(it->second.size);return;} }
+    if (metalModeEnabled() && params && bound && (pname == 0x8764 || pname == 0x821F || pname == 0x8220)) { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bound); if(it!=g_buffers.end()){*params=pname==0x8764?static_cast<int64_t>(it->second.size):pname==0x821F?(it->second.immutable?1:0):static_cast<int64_t>(it->second.storageFlags);return;} }
     glDispatch<void,uint32_t,uint32_t,int64_t*>("glGetBufferParameteri64v",target,pname,params);
 }
 extern "C" void glBufferStorage(uint32_t target, int64_t size, const void* data, uint32_t flags) {
     glBufferData(target, size, data, 0x88E4);
+    if (metalModeEnabled()) {
+        const uint32_t name = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
+        if (name) { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(name); if(it!=g_buffers.end()){it->second.storageFlags=flags;it->second.immutable=true;} }
+    }
 }
 extern "C" void glNamedBufferStorage(uint32_t buffer, int64_t size, const void* data, uint32_t flags) {
     if (metalModeEnabled() && buffer && size > 0 && ensureMetalInit()) {
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
-        if (handle) { std::lock_guard<std::mutex> lock(g_bufferMutex); g_buffers[buffer] = {handle, static_cast<size_t>(size)}; return; }
+        if (handle) { std::lock_guard<std::mutex> lock(g_bufferMutex); g_buffers[buffer] = {handle, static_cast<size_t>(size), flags, true}; return; }
         metalsharp::GLErrorTracker::instance().setError(0x0505); return;
     }
     glDispatch<void,uint32_t,int64_t,const void*,uint32_t>("glNamedBufferStorage",buffer,size,data,flags);
