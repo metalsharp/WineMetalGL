@@ -34,6 +34,7 @@ scripts/build.sh
 scripts/probe-native.sh
 scripts/stage-host-libs.sh
 scripts/stage-wine.sh
+scripts/verify-release.sh
 src/opengl/EntryPoint.cpp
 src/opengl/GLErrorTracker.cpp
 src/opengl/GLMetalRenderer.mm

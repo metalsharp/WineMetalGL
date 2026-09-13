@@ -2,8 +2,8 @@
 
 Validation date: 2026-09-13
 
-The candidate artifacts staged from this validation are in
-`/Volumes/AverySSD/VKMT/graphics/winemetalgl-1.9.0-candidate-20260913`.
+The candidate artifacts from this validation were staged separately from the
+published release and were not used to replace it.
 
 ## Host gates
 
