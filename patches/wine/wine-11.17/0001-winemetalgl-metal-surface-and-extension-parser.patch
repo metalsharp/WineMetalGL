@@ -43,7 +43,7 @@ index 6ab3a03..60724c4 100644
      int format;
 
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
-index 696734f..7bf10c5 100644
+index 696734f..4a14e6a 100644
 --- a/dlls/winemac.drv/opengl.c
 +++ b/dlls/winemac.drv/opengl.c
 @@ -69,6 +69,10 @@ struct macdrv_context
@@ -159,7 +159,26 @@ index 696734f..7bf10c5 100644
      for (iptr = attrib_list; iptr && *iptr; iptr += 2)
      {
          int attr = iptr[0];
-@@ -2233,12 +2285,16 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
+@@ -2124,14 +2176,15 @@ static BOOL macdrv_context_create(int format, void *share, const int *attrib_lis
+         }
+     }
+
+-    if (major > gl_info.max_major || (major == gl_info.max_major && minor > gl_info.max_minor))
++    const BOOL metalsharp_experimental = getenv("WINEMETALGL_EXPERIMENTAL") && !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1");
++    if (!metalsharp_experimental && (major > gl_info.max_major || (major == gl_info.max_major && minor > gl_info.max_minor)))
+     {
+         WARN("Profile version %u.%u not supported\n", major, minor);
+         RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
+         return FALSE;
+     }
+-
+-    if ((major == 3 && (minor == 2 || minor == 3)) ||
++    if (metalsharp_experimental && major >= 3) { core = TRUE; profile = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; }
++    else if ((major == 3 && (minor == 2 || minor == 3)) ||
+         (major == 4 && (minor == 0 || minor == 1)))
+     {
+         if (!(flags & WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB))
+@@ -2233,12 +2286,16 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
      if (!private)
      {
          macdrv_make_context_current(NULL, NULL, CGRectNull);
@@ -176,7 +195,7 @@ index 696734f..7bf10c5 100644
          return TRUE;
      }
 
-@@ -2276,6 +2332,8 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
+@@ -2276,6 +2333,8 @@ static BOOL macdrv_make_current(struct opengl_drawable *draw_base, struct opengl
 
      make_context_current(context, FALSE);
      NtCurrentTeb()->glReserved2 = context;
@@ -185,7 +204,7 @@ index 696734f..7bf10c5 100644
 
      return TRUE;
  }
-@@ -2511,6 +2569,13 @@ static BOOL macdrv_pbuffer_updated(HDC hdc, struct opengl_drawable *base, GLenum
+@@ -2511,6 +2570,13 @@ static BOOL macdrv_pbuffer_updated(HDC hdc, struct opengl_drawable *base, GLenum
 
  static void macdrv_init_extensions(struct opengl_funcs *funcs, BOOLEAN extensions[GL_EXTENSION_COUNT])
  {
@@ -199,7 +218,7 @@ index 696734f..7bf10c5 100644
      extensions[WGL_WINE_query_renderer] = 1;
      funcs->p_wglQueryCurrentRendererIntegerWINE = macdrv_wglQueryCurrentRendererIntegerWINE;
      funcs->p_wglQueryCurrentRendererStringWINE = macdrv_wglQueryCurrentRendererStringWINE;
-@@ -2523,6 +2588,8 @@ static void macdrv_init_extensions(struct opengl_funcs *funcs, BOOLEAN extension
+@@ -2523,6 +2589,8 @@ static void macdrv_init_extensions(struct opengl_funcs *funcs, BOOLEAN extension
   */
  UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, const struct opengl_driver_funcs **driver_funcs)
  {
@@ -208,7 +227,7 @@ index 696734f..7bf10c5 100644
      TRACE("()\n");
 
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2624,370 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2625,370 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
 
  #undef LOAD_FUNCPTR
 
@@ -579,7 +598,7 @@ index 696734f..7bf10c5 100644
      dlclose(opengl_handle);
      opengl_handle = NULL;
      return STATUS_NOT_SUPPORTED;
-@@ -2662,6 +3089,9 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2662,6 +3090,9 @@ static BOOL macdrv_context_destroy(void *private)
 
      TRACE("deleting context %p/%p/%p\n", context, context->context, context->cglcontext);
 
@@ -589,7 +608,7 @@ index 696734f..7bf10c5 100644
      macdrv_dispose_opengl_context(context->context);
      free(context);
      return TRUE;
-@@ -2669,13 +3099,31 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2669,13 +3100,31 @@ static BOOL macdrv_context_destroy(void *private)
 
  static void *macdrv_get_proc_address(const char *name)
  {
@@ -621,7 +640,7 @@ index 696734f..7bf10c5 100644
      return dlsym(opengl_handle, name);
  }
 
-@@ -2686,6 +3134,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
+@@ -2686,6 +3135,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
      TRACE("%s context %p/%p/%p\n", debugstr_opengl_drawable(base), context, (context ? context->context : NULL),
            (context ? context->cglcontext : NULL));
 
