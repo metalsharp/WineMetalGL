@@ -27,7 +27,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 
 - `opengl32.dll` and WGL loading.
 - Window DC, pixel format, context creation, extension discovery, and per-context state across concurrent threads.
-- GLSL 1.20 simple vertex/fragment translation, Metal draw/readback, and compatibility FBO/readback.
+- GLSL 1.10/1.20 simple vertex/fragment translation, Metal draw/readback, and compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
 - Tracked polygon offset and depth-clamp raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
 - OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
@@ -74,6 +74,7 @@ WINEMETALGL_MULTI_ELEMENTS_INDIRECT_OK
 WINEMETALGL_METAL_SURFACE_OK
 WINEMETALGL_DEFAULT_FBO_PRESENT_OK
 WINEMETALGL_READBACK_OK
+WINEMETALGL_GLSL110_OK
 WINEMETALGL_GLSL120_OK
 WINEMETALGL_GLSL330_OK
 WINEMETALGL_STATE_QUERY_OK

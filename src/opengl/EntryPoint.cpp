@@ -1562,7 +1562,7 @@ extern "C" void glShaderSource(uint32_t shader, int32_t count, const char** stri
         // through to native GL.
         metalsharp::parseGLSLVersion(source.c_str(), state->glslVersion);
         state->needsCrossCompile = metalsharp::needsCrossCompile(state->glslVersion);
-        if (metalModeEnabled() && metalsharp::packedGLSLVersion(state->glslVersion) == 120 && source.find("gl_Model") == std::string::npos && source.find("gl_Vertex") == std::string::npos && source.find("gl_Normal") == std::string::npos) state->needsCrossCompile = true;
+        if (metalModeEnabled() && (metalsharp::packedGLSLVersion(state->glslVersion) == 110 || metalsharp::packedGLSLVersion(state->glslVersion) == 120) && source.find("gl_Model") == std::string::npos && source.find("gl_Vertex") == std::string::npos && source.find("gl_Normal") == std::string::npos) state->needsCrossCompile = true;
         return; // Don't forward to native GL — we handle compilation.
     }
 #endif
@@ -1688,7 +1688,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         // randomness in glslang or SPIRV-Cross on our code paths.
         std::string sourceForCompiler = state->source; metalsharp::GLSLVersion compilerVersion=state->glslVersion;
         auto replaceToken=[&](const std::string& from,const std::string& to){for(size_t position=0;(position=sourceForCompiler.find(from,position))!=std::string::npos;position+=to.size())sourceForCompiler.replace(position,from.size(),to);};
-        if (metalsharp::packedGLSLVersion(state->glslVersion) == 120) { compilerVersion={4,50,false,true}; replaceToken("#version 120","#version 450 core");replaceToken("attribute", "layout(location=0) in");replaceToken("varying", state->stage==metalsharp::ShaderStage::Vertex?"layout(location=0) out":"layout(location=0) in");if(state->stage==metalsharp::ShaderStage::Pixel){replaceToken("gl_FragColor","metalsharp_FragColor");size_t newline=sourceForCompiler.find('\n');if(newline!=std::string::npos)sourceForCompiler.insert(newline+1,"layout(location=0) out vec4 metalsharp_FragColor;\n");} }
+        if (metalsharp::packedGLSLVersion(state->glslVersion) == 110 || metalsharp::packedGLSLVersion(state->glslVersion) == 120) { compilerVersion={4,50,false,true}; replaceToken("#version 110","#version 450 core");replaceToken("#version 120","#version 450 core");replaceToken("attribute", "layout(location=0) in");replaceToken("varying", state->stage==metalsharp::ShaderStage::Vertex?"layout(location=0) out":"layout(location=0) in");if(state->stage==metalsharp::ShaderStage::Pixel){replaceToken("gl_FragColor","metalsharp_FragColor");size_t newline=sourceForCompiler.find('\n');if(newline!=std::string::npos)sourceForCompiler.insert(newline+1,"layout(location=0) out vec4 metalsharp_FragColor;\n");} }
         replaceToken("sampler2DRect", "sampler2D");
         const std::string* cached =
             metalsharp::GLShaderCache::instance().lookupMSL(sourceForCompiler, static_cast<uint32_t>(state->stage));
