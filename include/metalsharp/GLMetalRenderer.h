@@ -194,7 +194,9 @@ class GLMetalRenderer {
     /// @return non-zero texture handle on success
     uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true, bool srgb = false);
     uint64_t createTexture1D(uint32_t width, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
+    bool updateTexture1DLevel(uint64_t textureHandle, uint32_t level, uint32_t width, const void* data, size_t bytesPerRow);
     uint64_t createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
+    bool updateTextureLevel(uint64_t textureHandle, uint32_t level, uint32_t width, uint32_t height, const void* data, size_t bytesPerRow);
     uint64_t createTextureCube(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* const* faces);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
@@ -206,7 +208,7 @@ class GLMetalRenderer {
     /// Bind a texture at the given fragment shader index.
     /// @param textureHandle  handle returned by createTexture
     /// @param index          fragment texture slot index
-    void bindTexture(uint64_t textureHandle, uint32_t index);
+    void bindTexture(uint64_t textureHandle, uint32_t index, uint32_t baseLevel = 0, uint32_t maxLevel = UINT32_MAX);
     void setTextureSwizzle(uint64_t textureHandle, uint32_t red, uint32_t green, uint32_t blue, uint32_t alpha);
 
     /// Bind a sampler state using OpenGL enum values for min/mag filters and

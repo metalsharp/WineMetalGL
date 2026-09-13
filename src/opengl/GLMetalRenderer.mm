@@ -34,6 +34,7 @@
 #include <metalsharp/OpenGLBridge.h>
 #include <cstring>
 #include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -1077,12 +1078,14 @@ void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, si
 }
 
 uint64_t GLMetalRenderer::createTexture1D(uint32_t width,uint32_t glInternalFormat,const void* data,bool mipmapped) { if(!m_device||!width)return 0;MTLPixelFormat format=glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;size_t bpp=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;MTLTextureDescriptor* descriptor=[[MTLTextureDescriptor alloc] init];descriptor.textureType=MTLTextureType1D;descriptor.pixelFormat=format;descriptor.width=width;descriptor.height=1;descriptor.depth=1;descriptor.mipmapLevelCount=1;descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bpp];std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
+bool GLMetalRenderer::updateTexture1DLevel(uint64_t textureHandle,uint32_t level,uint32_t width,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level))return false;[it->second replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:level withBytes:data bytesPerRow:bytesPerRow];return true; }
 
 uint64_t GLMetalRenderer::createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped) {
     if(!m_device||!width||!height)return 0; MTLPixelFormat format=glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x8236?MTLPixelFormatR32Uint:glInternalFormat==0x822E?MTLPixelFormatR32Float:glInternalFormat==0x8D7C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:(format==MTLPixelFormatR32Uint||format==MTLPixelFormatR32Float)?4:format==MTLPixelFormatRGBA8Uint?4:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;
     MTLTextureDescriptor* descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:mipmapped]; descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget; id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bytesPerPixel];if(mipmapped){id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];}}
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
+bool GLMetalRenderer::updateTextureLevel(uint64_t textureHandle,uint32_t level,uint32_t width,uint32_t height,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level)||height>(it->second.height>>level))return false;[it->second replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:level withBytes:data bytesPerRow:bytesPerRow];return true;}
 uint64_t GLMetalRenderer::createTextureCube(uint32_t width,uint32_t height,uint32_t glInternalFormat,const void* const* faces) { if(!m_device||!width||!height)return 0;MTLPixelFormat format=glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;MTLTextureDescriptor* descriptor=[MTLTextureDescriptor textureCubeDescriptorWithPixelFormat:format size:width mipmapped:YES];descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;for(uint32_t face=0;face<6;++face)if(faces&&faces[face])[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 slice:face withBytes:faces[face] bytesPerRow:static_cast<size_t>(width)*4 bytesPerImage:static_cast<size_t>(width)*height*4];if(faces){id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(command&&blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[command commit];[command waitUntilCompleted];}}std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
 
 uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped, bool srgb) { return createTextureFormat(width,height,srgb?0x8C43:0x8058,data,mipmapped); }
@@ -1143,11 +1146,21 @@ uint64_t GLMetalRenderer::createMultisampleTexture2D(uint32_t width,uint32_t hei
 
 uint64_t GLMetalRenderer::createMultisampleDepthStencilTarget(uint32_t width,uint32_t height,uint32_t glInternalFormat,uint32_t samples) { if(!m_device||!width||!height||samples<2)return createDepthStencilTarget(width,height,glInternalFormat);uint32_t selected=samples;if(![m_device supportsTextureSampleCount:selected])selected=samples>=4&&[m_device supportsTextureSampleCount:4]?4:[m_device supportsTextureSampleCount:2]?2:1;if(selected<2)return createDepthStencilTarget(width,height,glInternalFormat);MTLPixelFormat format=glInternalFormat==0x8D48?MTLPixelFormatStencil8:(glInternalFormat==0x1902||glInternalFormat==0x81A5||glInternalFormat==0x81A6||glInternalFormat==0x8CAC)?MTLPixelFormatDepth32Float:MTLPixelFormatDepth32Float_Stencil8;MTLTextureDescriptor* descriptor=[[MTLTextureDescriptor alloc]init];descriptor.textureType=MTLTextureType2DMultisample;descriptor.pixelFormat=format;descriptor.width=width;descriptor.height=height;descriptor.sampleCount=selected;descriptor.usage=MTLTextureUsageRenderTarget;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;m_impl->textureSampleCounts[handle]=selected;return handle; }
 
-void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
+void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index, uint32_t baseLevel, uint32_t maxLevel) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     auto it = m_impl->textures.find(textureHandle);
-    if (it == m_impl->textures.end()) return;
-    if (m_impl->currentEncoder) [m_impl->currentEncoder setFragmentTexture:it->second atIndex:index];
+    if (it == m_impl->textures.end() || !m_impl->currentEncoder) return;
+    id<MTLTexture> texture = it->second;
+    const NSUInteger levelCount = texture.mipmapLevelCount;
+    if (baseLevel < levelCount && (baseLevel > 0 || maxLevel != UINT32_MAX)) {
+        const NSUInteger lastLevel = maxLevel == UINT32_MAX ? levelCount - 1 : std::min<NSUInteger>(maxLevel, levelCount - 1);
+        if (lastLevel >= baseLevel) {
+            id<MTLTexture> view = [texture newTextureViewWithPixelFormat:texture.pixelFormat textureType:texture.textureType levels:NSMakeRange(baseLevel, lastLevel - baseLevel + 1) slices:NSMakeRange(0, texture.arrayLength)];
+            if (view) texture = view;
+        }
+    }
+    [m_impl->currentEncoder setFragmentTexture:texture atIndex:index];
+    [m_impl->currentEncoder setVertexTexture:texture atIndex:index];
 }
 
 void GLMetalRenderer::setTextureSwizzle(uint64_t textureHandle,uint32_t red,uint32_t green,uint32_t blue,uint32_t alpha) { std::lock_guard<std::mutex> lock(m_impl->mutex);auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end())return;auto map=[](uint32_t value){switch(value){case 0x1903:return MTLTextureSwizzleRed;case 0x1904:return MTLTextureSwizzleGreen;case 0x1905:return MTLTextureSwizzleBlue;case 0x1906:return MTLTextureSwizzleAlpha;case 1:return MTLTextureSwizzleOne;case 0:return MTLTextureSwizzleZero;default:return MTLTextureSwizzleRed;}};MTLTextureSwizzleChannels swizzle={map(red),map(green),map(blue),map(alpha)};id<MTLTexture> view=[it->second newTextureViewWithPixelFormat:it->second.pixelFormat textureType:it->second.textureType levels:NSMakeRange(0,it->second.mipmapLevelCount) slices:NSMakeRange(0,it->second.arrayLength) swizzle:swizzle];if(view)it->second=view; }
@@ -1180,7 +1193,10 @@ void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t m
     }
     if (borderColor) { if(borderColor[3]<=0.0f) descriptor.borderColor=MTLSamplerBorderColorTransparentBlack; else if(borderColor[0]>=1.0f&&borderColor[1]>=1.0f&&borderColor[2]>=1.0f) descriptor.borderColor=MTLSamplerBorderColorOpaqueWhite; else if(borderColor[0]<=0.0f&&borderColor[1]<=0.0f&&borderColor[2]<=0.0f) descriptor.borderColor=MTLSamplerBorderColorOpaqueBlack; }
     id<MTLSamplerState> sampler = [m_device newSamplerStateWithDescriptor:descriptor];
-    if (sampler) [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:index];
+    if (sampler) {
+        [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:index];
+        [m_impl->currentEncoder setVertexSamplerState:sampler atIndex:index];
+    }
 }
 
 uint64_t GLMetalRenderer::createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat) {
