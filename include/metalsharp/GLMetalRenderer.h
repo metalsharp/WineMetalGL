@@ -155,6 +155,7 @@ class GLMetalRenderer {
     /// retained by the renderer until it is replaced or cleared. Passing
     /// nullptr returns the renderer to its deterministic off-screen target.
     void setMetalLayer(void* layer);
+    void setSwapInterval(int interval);
 
     /// Return whether the last render pass used a CAMetalDrawable.
     bool isDrawableBacked() const;

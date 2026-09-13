@@ -3193,6 +3193,7 @@ extern "C" void metalsharp_opengl_set_metal_layer(void* layer) {
     if (ensureMetalInit()) g_metalRenderer.setMetalLayer(layer);
 }
 
+extern "C" void metalsharp_opengl_set_swap_interval(int interval) { if(ensureMetalInit())g_metalRenderer.setSwapInterval(interval); }
 extern "C" int metalsharp_opengl_modern_context_ready(void) {
     return g_modernContextReady && metalModeEnabled();
 }

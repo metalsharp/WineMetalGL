@@ -2,6 +2,7 @@
 #include <GL/gl.h>
 #include <stdio.h>
 typedef struct {HDC dc;HGLRC context;int x;int ok;} ThreadContext;
+typedef BOOL (WINAPI *SwapInterval)(int);
 static DWORD WINAPI context_thread(void *opaque){ThreadContext *ctx=(ThreadContext*)opaque;GLint viewport[4]={0};ctx->ok=wglMakeCurrent(ctx->dc,ctx->context);glViewport(ctx->x,0,8,8);glGetIntegerv(0x0BA2,viewport);ctx->ok=ctx->ok&&viewport[0]==ctx->x&&wglGetCurrentContext()==ctx->context;wglMakeCurrent(NULL,NULL);return 0;}
 int main(void) {
     PIXELFORMATDESCRIPTOR p={0}; HWND w; HDC dc; HGLRC first, second; int pf;
@@ -10,6 +11,8 @@ int main(void) {
     pf=ChoosePixelFormat(dc,&p); if(!pf||!SetPixelFormat(dc,pf,&p))return 12;
     first=wglCreateContext(dc); second=wglCreateContext(dc); if(!first||!second)return 13;
     if(!wglMakeCurrent(dc,first)||wglGetCurrentContext()!=first||wglGetCurrentDC()!=dc)return 14;
+    SwapInterval swap_interval=(SwapInterval)wglGetProcAddress("wglSwapIntervalEXT");if(!swap_interval||!swap_interval(0)||!swap_interval(1))return 14;
+    printf("WINEMETALGL_WGL_SWAP_INTERVAL_OK\n");
     glViewport(1,2,10,11);
     if(!wglMakeCurrent(dc,second)||wglGetCurrentContext()!=second||wglGetCurrentDC()!=dc)return 15;
     glViewport(3,4,20,21);

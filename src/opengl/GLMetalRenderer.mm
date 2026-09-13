@@ -87,6 +87,7 @@ struct GLMetalRenderer::Impl {
     CAMetalLayer* metalLayer = nil;
     id<CAMetalDrawable> currentDrawable = nil;
     bool drawableBacked = false;
+    int swapInterval = 1;
     MTLClearColor clearColor = MTLClearColorMake(0, 0, 0, 1);
     double clearDepth = 1.0;
     uint32_t clearStencil = 0;
@@ -135,6 +136,8 @@ void GLMetalRenderer::setMetalLayer(void* layer) {
         m_impl->drawableBacked = false;
     }
 }
+
+void GLMetalRenderer::setSwapInterval(int interval) { std::lock_guard<std::mutex> lock(m_impl->mutex);m_impl->swapInterval=std::max(0,std::min(4,interval)); }
 
 bool GLMetalRenderer::isDrawableBacked() const {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
@@ -614,7 +617,7 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     [m_impl->currentEncoder setViewport:(MTLViewport){0, 0, (double)(width ? width : 64), (double)(height ? height : 64), 0, 1}];
     [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(drawPrimitive) vertexStart:0 vertexCount:drawVertexCount];
     [m_impl->currentEncoder endEncoding];
-    if (m_impl->currentCommandBuffer && m_impl->currentDrawable) [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable];
+    if (m_impl->currentCommandBuffer && m_impl->currentDrawable) { if(m_impl->swapInterval>0)[m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable afterMinimumDuration:static_cast<CFTimeInterval>(m_impl->swapInterval)/60.0];else [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable]; }
     m_impl->currentEncoder = nil;
     [m_impl->currentCommandBuffer commit];
     [m_impl->currentCommandBuffer waitUntilCompleted];
@@ -812,7 +815,7 @@ void GLMetalRenderer::endRenderPass() {
     if (m_impl->currentEncoder)
         [m_impl->currentEncoder endEncoding];
     if (m_impl->currentCommandBuffer && m_impl->currentDrawable)
-        [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable];
+        if(m_impl->swapInterval>0)[m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable afterMinimumDuration:static_cast<CFTimeInterval>(m_impl->swapInterval)/60.0];else [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable];
     m_impl->currentEncoder = nil;
     // The command buffer stays live so flush()/finish() can commit it.
 }
