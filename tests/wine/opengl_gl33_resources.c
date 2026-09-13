@@ -39,7 +39,7 @@ typedef void (WINAPI *PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
 typedef void (WINAPI *PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);typedef void(WINAPI *PFNGLGETVERTEXATTRIBIVPROC)(GLuint,GLenum,GLint*);typedef void(WINAPI *PFNGLGETVERTEXATTRIBPOINTERVPROC)(GLuint,GLenum,void**);
 typedef void (WINAPI *PFNGLDRAWELEMENTSPROC)(GLenum, GLsizei, GLenum, const void *);
 typedef void (WINAPI *PFNGLDRAWELEMENTSBASEVERTEXPROC)(GLenum, GLsizei, GLenum, const void *, GLint);
-typedef void (WINAPI *PFNGLBINDVERTEXBUFFERPROC)(GLuint,GLuint,intptr_t,GLsizei); typedef void (WINAPI *PFNGLVERTEXATTRIBBINDINGPROC)(GLuint,GLuint); typedef void (WINAPI *PFNGLVERTEXATTRIBFORMATPROC)(GLuint,GLint,GLenum,GLboolean,GLuint);
+typedef void (WINAPI *PFNGLBINDVERTEXBUFFERPROC)(GLuint,GLuint,intptr_t,GLsizei); typedef void (WINAPI *PFNGLBINDVERTEXBUFFERSPROC)(GLuint,GLsizei,const GLuint*,const intptr_t*,const GLsizei*); typedef void (WINAPI *PFNGLVERTEXATTRIBBINDINGPROC)(GLuint,GLuint); typedef void (WINAPI *PFNGLVERTEXATTRIBFORMATPROC)(GLuint,GLint,GLenum,GLboolean,GLuint);
 
 static void *get_proc(const char *name)
 {
@@ -95,7 +95,7 @@ int main(void)
     PFNGLDELETEBUFFERSPROC delete_buffers;
     PFNGLENABLEVERTEXATTRIBARRAYPROC enable_attrib;
     PFNGLVERTEXATTRIBPOINTERPROC attrib_pointer; PFNGLGETVERTEXATTRIBIVPROC get_attrib_iv; PFNGLGETVERTEXATTRIBPOINTERVPROC get_attrib_pointer;
-    PFNGLDRAWELEMENTSPROC draw_elements; PFNGLDRAWELEMENTSBASEVERTEXPROC draw_elements_base; PFNGLBINDVERTEXBUFFERPROC bind_vertex_buffer; PFNGLVERTEXATTRIBBINDINGPROC attrib_binding; PFNGLVERTEXATTRIBFORMATPROC attrib_format;
+    PFNGLDRAWELEMENTSPROC draw_elements; PFNGLDRAWELEMENTSBASEVERTEXPROC draw_elements_base; PFNGLBINDVERTEXBUFFERPROC bind_vertex_buffer; PFNGLBINDVERTEXBUFFERSPROC bind_vertex_buffers; PFNGLVERTEXATTRIBBINDINGPROC attrib_binding; PFNGLVERTEXATTRIBFORMATPROC attrib_format;
 
     setvbuf(stdout, NULL, _IONBF, 0);
     window = CreateWindowA("STATIC", "WineMetalGL GL33 resources", WS_OVERLAPPEDWINDOW,
@@ -129,7 +129,7 @@ int main(void)
     LOAD(PFNGLDELETEBUFFERSPROC, delete_buffers, "glDeleteBuffers");
     LOAD(PFNGLENABLEVERTEXATTRIBARRAYPROC, enable_attrib, "glEnableVertexAttribArray");
     LOAD(PFNGLVERTEXATTRIBPOINTERPROC, attrib_pointer, "glVertexAttribPointer"); LOAD(PFNGLGETVERTEXATTRIBIVPROC,get_attrib_iv,"glGetVertexAttribiv"); LOAD(PFNGLGETVERTEXATTRIBPOINTERVPROC,get_attrib_pointer,"glGetVertexAttribPointerv");
-    LOAD(PFNGLDRAWELEMENTSPROC, draw_elements, "glDrawElements"); LOAD(PFNGLDRAWELEMENTSBASEVERTEXPROC, draw_elements_base, "glDrawElementsBaseVertex"); LOAD(PFNGLBINDVERTEXBUFFERPROC, bind_vertex_buffer, "glBindVertexBuffer"); LOAD(PFNGLVERTEXATTRIBBINDINGPROC, attrib_binding, "glVertexAttribBinding"); LOAD(PFNGLVERTEXATTRIBFORMATPROC, attrib_format, "glVertexAttribFormat");
+    LOAD(PFNGLDRAWELEMENTSPROC, draw_elements, "glDrawElements"); LOAD(PFNGLDRAWELEMENTSBASEVERTEXPROC, draw_elements_base, "glDrawElementsBaseVertex"); LOAD(PFNGLBINDVERTEXBUFFERPROC, bind_vertex_buffer, "glBindVertexBuffer"); LOAD(PFNGLBINDVERTEXBUFFERSPROC, bind_vertex_buffers, "glBindVertexBuffers"); LOAD(PFNGLVERTEXATTRIBBINDINGPROC, attrib_binding, "glVertexAttribBinding"); LOAD(PFNGLVERTEXATTRIBFORMATPROC, attrib_format, "glVertexAttribFormat");
 
     vertex_shader = create_shader(GL_VERTEX_SHADER); fragment_shader = create_shader(GL_FRAGMENT_SHADER);
     { const char *source = vertex_source; shader_source(vertex_shader, 1, &source, NULL); compile_shader(vertex_shader); }
@@ -149,7 +149,7 @@ int main(void)
 
     gen_buffers(1, &vbo); bind_buffer(GL_ARRAY_BUFFER, vbo); buffer_data(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW); if(!map_buffer_range(GL_ARRAY_BUFFER,0,sizeof(vertices),0x0002)||!unmap_buffer(GL_ARRAY_BUFFER))return 23;printf("WINEMETALGL_BUFFER_MAP_RANGE_OK\n"); buffer_storage(GL_ARRAY_BUFFER,sizeof(vertices),vertices,0x0040); float storage_value=0.0f; get_buffer_sub_data(GL_ARRAY_BUFFER,0,sizeof(storage_value),&storage_value); if(storage_value!=0.0f)return 24; printf("WINEMETALGL_BUFFER_STORAGE_OK\n");
     gen_buffers(1, &ibo); bind_buffer(GL_ELEMENT_ARRAY_BUFFER, ibo); buffer_data(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0); bind_vertex_buffer(0,vbo,0,2*sizeof(float)); attrib_binding(0,0); attrib_format(0,2,GL_FLOAT,GL_FALSE,0); GLint attrib_enabled=0,attrib_stride=0;void* attrib_offset=(void*)-1;get_attrib_iv(0,0x8622,&attrib_enabled);get_attrib_iv(0,0x8624,&attrib_stride);get_attrib_pointer(0,0x8645,&attrib_offset);if(!attrib_enabled||attrib_stride!=2*(int)sizeof(float)||attrib_offset!=(void*)0)return 22;printf("WINEMETALGL_VERTEX_ATTRIB_QUERY_OK\\n");
+    enable_attrib(0); attrib_pointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void *)0); bind_vertex_buffer(0,vbo,0,2*sizeof(float)); GLuint multi_vbos[1]={vbo}; intptr_t multi_offsets[1]={0}; GLsizei multi_strides[1]={2*sizeof(float)}; bind_vertex_buffers(0,1,multi_vbos,multi_offsets,multi_strides); printf("WINEMETALGL_MULTI_BIND_VERTEX_BUFFERS_OK\\n"); attrib_binding(0,0); attrib_format(0,2,GL_FLOAT,GL_FALSE,0); GLint attrib_enabled=0,attrib_stride=0;void* attrib_offset=(void*)-1;get_attrib_iv(0,0x8622,&attrib_enabled);get_attrib_iv(0,0x8624,&attrib_stride);get_attrib_pointer(0,0x8645,&attrib_offset);if(!attrib_enabled||attrib_stride!=2*(int)sizeof(float)||attrib_offset!=(void*)0)return 22;printf("WINEMETALGL_VERTEX_ATTRIB_QUERY_OK\\n");
     glViewport(0, 0, 64, 64); draw_elements_base(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, (const void *)0, 1);
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("GL33 resources readback rgba=%u,%u,%u,%u error=0x%x\n", pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());

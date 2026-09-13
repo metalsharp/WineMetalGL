@@ -40,7 +40,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Simple triangle/point geometry pass-through emulation with varying interface handling, including loop-form vertex emission, and limited pass-through shader transform-feedback capture.
 - Fixed-function single/multi-texture environment modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
-- Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, vertex attribute, and uniform, plus direct and indirect multi-draw.
+- Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, multi-bind vertex buffers, vertex attribute, and uniform, plus direct and indirect multi-draw.
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, multi-bind texture/sampler state, advanced texture/sampler state, swizzle state, and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, completeness, and blit.
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
@@ -93,6 +93,8 @@ WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
 WINEMETALGL_BUFFER_MAP_RANGE_OK
 WINEMETALGL_BUFFER_STORAGE_OK
+WINEMETALGL_VERTEX_ATTRIB_QUERY_OK
+WINEMETALGL_MULTI_BIND_VERTEX_BUFFERS_OK
 WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK
 WINEMETALGL_PBO_READBACK_OK
 WINEMETALGL_UNPACK_ALIGNMENT_OK
