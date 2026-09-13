@@ -30,7 +30,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 1.20 compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
 - Tracked polygon offset and depth-clamp raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
-- OpenGL SPIR-V shader-binary ingestion, MSL translation, linking, and draw/readback.
+- OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
@@ -46,7 +46,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Rectangle-texture creation, unnormalized sampling, GLSL translation, and readback.
 - 1D texture creation, subimage updates, GLSL sampling, and readback.
 - Instanced drawing with Metal depth/stencil attachments.
-- Direct/indirect compute dispatch with ranged SSBO writeback and storage-block reflection on both guests.
+- Direct/indirect compute dispatch with ranged SSBO writeback, storage-block reflection, and program-resource interface queries on both guests.
 - Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
 - Uniform-buffer object binding/range offsets and uniform-block name/size reflection.
 - Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
@@ -130,6 +130,7 @@ WINEMETALGL_CLEAR_BUFFER_OK
 WINEMETALGL_INSTANCED_OK
 WINEMETALGL_COMPUTE_OK
 WINEMETALGL_SSBO_REFLECTION_OK
+WINEMETALGL_RESOURCE_REFLECTION_OK
 WINEMETALGL_COMPUTE_RANGE_OK
 WINEMETALGL_COMPUTE_INDIRECT_OK
 WINEMETALGL_IMAGE_OK
@@ -153,6 +154,7 @@ WINEMETALGL_TRANSFORM_SHADER_OK
 WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
 WINEMETALGL_SHADER_BINARY_OK
+WINEMETALGL_SHADER_SPECIALIZE_OK
 WINEMETALGL_PROGRAM_BINARY_OK
 WINEMETALGL_FIXED_TEXTURE_OK
 WINEMETALGL_FIXED_TEXTURE_REPLACE_OK
