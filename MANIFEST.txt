@@ -8,6 +8,7 @@ LICENSES/SPIRV-Cross-Khronos-Free-Use.txt
 LICENSES/Wine-LGPL-2.1.txt
 LICENSES/glslang.txt
 README.md
+SHA256SUMS
 artifacts/README.md
 artifacts/guest/i386/opengl32.dll
 artifacts/guest/x86_64/opengl32.dll
@@ -31,6 +32,7 @@ patches/wine/README.md
 patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch
 scripts/build.sh
 scripts/probe-native.sh
+scripts/stage-host-libs.sh
 scripts/stage-wine.sh
 src/opengl/EntryPoint.cpp
 src/opengl/GLErrorTracker.cpp
@@ -93,6 +95,7 @@ tests/wine/opengl_tess_draw.c
 tests/wine/opengl_tess_quad.c
 tests/wine/opengl_transform_shader.c
 tests/wine/opengl_transform.c
+tests/wine/opengl_transform_varying.c
 tests/wine/probe-opengl-wow64.sh
 vendor/SPIRV-Cross/.clang-format
 vendor/SPIRV-Cross/.github/workflows/main.yml
