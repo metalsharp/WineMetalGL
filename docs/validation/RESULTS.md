@@ -42,7 +42,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, multi-bind vertex buffers, vertex attribute, and uniform, plus direct and indirect multi-draw.
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA8UI/RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, multi-bind texture/sampler state, internal-format queries, advanced texture/sampler state, swizzle state, and parameter queries, normalized, half-float, RGBA32F, depth, RGBA8UI, and R32UI integer GLSL texture sampling, and 2D/3D texture readback.
-- Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil/stencil-texture clear readback, completeness, and blit.
+- Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil/stencil-texture clear readback, completeness, blit, and invalidate/discard calls.
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
 - Cube-map texture creation, sampling, mipmaps, face readback, and x86_64/i386 validation.
 - Rectangle-texture creation, unnormalized sampling, GLSL translation, and readback.
@@ -139,6 +139,7 @@ WINEMETALGL_FBO_STENCIL_READBACK_OK
 WINEMETALGL_FBO_STENCIL_TEXTURE_READBACK_OK
 WINEMETALGL_FBO_ARRAY_LAYER_OK
 WINEMETALGL_BLIT_OK
+WINEMETALGL_INVALIDATE_FBO_OK
 WINEMETALGL_RENDERBUFFER_OK
 WINEMETALGL_MULTISAMPLE_OK
 WINEMETALGL_MULTISAMPLE_STORAGE_OK

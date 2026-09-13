@@ -3183,6 +3183,8 @@ extern "C" void glBlitFramebuffer(int32_t srcX0, int32_t srcY0, int32_t srcX1, i
     glDispatch<void, int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t>(
         "glBlitFramebuffer", srcX0,srcY0,srcX1,srcY1,dstX0,dstY0,dstX1,dstY1,mask,filter);
 }
+extern "C" void glInvalidateFramebuffer(uint32_t target,int32_t count,const uint32_t* attachments) { if(metalModeEnabled()){g_metalRenderer.finish();return;}glDispatch<void,uint32_t,int32_t,const uint32_t*>("glInvalidateFramebuffer",target,count,attachments); }
+extern "C" void glInvalidateSubFramebuffer(uint32_t target,int32_t count,const uint32_t* attachments,int32_t x,int32_t y,int32_t width,int32_t height) { if(metalModeEnabled()){g_metalRenderer.finish();return;}glDispatch<void,uint32_t,int32_t,const uint32_t*,int32_t,int32_t,int32_t,int32_t>("glInvalidateSubFramebuffer",target,count,attachments,x,y,width,height); }
 
 // glBindFramebuffer is hand-written because it must mirror the binding into
 // GLState so subsequent framebuffer attachment calls can observe which
