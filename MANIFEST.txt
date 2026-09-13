@@ -68,6 +68,7 @@ tests/wine/opengl_ubo.c
 tests/wine/opengl_1d.c
 tests/wine/opengl_blend.c
 tests/wine/opengl_contexts.c
+tests/wine/opengl_wgl_modern.c
 tests/wine/opengl_share.c
 tests/wine/opengl_cube.c
 tests/wine/opengl_debug.c

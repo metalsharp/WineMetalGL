@@ -1,0 +1,5 @@
+#include <windows.h>
+#include <GL/gl.h>
+#include <stdio.h>
+typedef HGLRC (WINAPI *CreateAttribs)(HDC,HGLRC,const int*);
+int main(void){PIXELFORMATDESCRIPTOR p={0};HWND w=CreateWindowA("STATIC","WineMetalGL modern WGL",WS_OVERLAPPEDWINDOW,0,0,64,64,0,0,0,0);HDC d=GetDC(w);p.nSize=sizeof(p);p.nVersion=1;p.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL;p.iPixelType=PFD_TYPE_RGBA;p.cColorBits=32;int f=ChoosePixelFormat(d,&p);if(!f||!SetPixelFormat(d,f,&p))return 12;HGLRC legacy=wglCreateContext(d);if(!legacy||!wglMakeCurrent(d,legacy))return 13;CreateAttribs create=(CreateAttribs)wglGetProcAddress("wglCreateContextAttribsARB");if(!create)return 14;const int attribs[]={0x2091,4,0x2092,6,0x9126,0x00000001,0x2094,0x00000002,0};HGLRC modern=create(d,NULL,attribs);if(!modern){printf("WGL modern create failed error=%lu\n",GetLastError());return 15;}if(!wglMakeCurrent(d,modern))return 16;printf("WINEMETALGL_WGL_MODERN_CONTEXT_OK\n");wglMakeCurrent(NULL,NULL);wglDeleteContext(modern);wglDeleteContext(legacy);ReleaseDC(w,d);DestroyWindow(w);return 0;}

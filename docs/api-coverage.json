@@ -70,7 +70,7 @@
     "sampler object state, anisotropy, LOD clamps, border color, and compare parameters",
     "sync/fence and sample-query completion",
     "real CAMetalLayer default-surface presentation",
-    "multiple current WGL contexts with per-context tracked raster/viewport state across threads", "post-creation WGL display-list sharing", "WGL swap interval routing to the Metal presentation path",
+    "multiple current WGL contexts with per-context tracked raster/viewport state across threads", "post-creation WGL display-list sharing", "WGL swap interval routing to the Metal presentation path", "modern WGL context-attrib creation up to the experimental profile lane",
     "x86_64 guest in WoW64",
     "i386 guest in WoW64"
   ],
