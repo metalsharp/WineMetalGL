@@ -50,7 +50,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Direct/indirect compute dispatch with ranged SSBO writeback, storage-block reflection, and program-resource interface queries on both guests.
 - Transform-feedback capture for gl_Position and simple scalar-varying expressions, including indexed draws and ranged transform-feedback-buffer offsets.
 - Uniform-buffer object binding/range offsets, bounded buffer mapping, and uniform-block name/size reflection.
-- Compute `imageStore` to 2D RGBA8, R32UI, and R32F textures with readback.
+- Compute `imageStore` to 2D RGBA8, R32UI, R32F, and RGBA16F textures with readback.
 - Arrays/elements indirect draw commands, including parameter-buffer-counted multi-draw.
 - Basic fixed-function immediate-mode triangle/texture rendering, point-size and line-width state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
 - Sync/fence completion behavior and query-result buffer writes.
@@ -155,6 +155,7 @@ WINEMETALGL_COMPUTE_INDIRECT_OK
 WINEMETALGL_IMAGE_OK
 WINEMETALGL_IMAGE_R32UI_OK
 WINEMETALGL_IMAGE_R32F_OK
+WINEMETALGL_IMAGE_RGBA16F_OK
 WINEMETALGL_TEXTURE_CUBE_OK
 WINEMETALGL_TEXTURE_CUBE_QUERY_OK
 WINEMETALGL_TEXTURE_RECTANGLE_OK

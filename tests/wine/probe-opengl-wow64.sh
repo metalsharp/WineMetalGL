@@ -126,12 +126,14 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image.c" -o "$RUN_ROOT/image64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_formats.c" -o "$RUN_ROOT/image-formats64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_r32f.c" -o "$RUN_ROOT/image-r32f64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_rgba16f.c" -o "$RUN_ROOT/image-rgba16f64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_cube.c" -o "$RUN_ROOT/cube64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_rectangle.c" -o "$RUN_ROOT/rectangle64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_1d.c" -o "$RUN_ROOT/1d64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image.c" -o "$RUN_ROOT/image32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_formats.c" -o "$RUN_ROOT/image-formats32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_r32f.c" -o "$RUN_ROOT/image-r32f32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_image_rgba16f.c" -o "$RUN_ROOT/image-rgba16f32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_cube.c" -o "$RUN_ROOT/cube32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_rectangle.c" -o "$RUN_ROOT/rectangle32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_1d.c" -o "$RUN_ROOT/1d32.exe" -lopengl32 -luser32 -lgdi32
@@ -266,6 +268,8 @@ run_shader "$RUN_ROOT/image-formats64.exe"
 run_shader "$RUN_ROOT/image-formats32.exe"
 run_shader "$RUN_ROOT/image-r32f64.exe"
 run_shader "$RUN_ROOT/image-r32f32.exe"
+run_shader "$RUN_ROOT/image-rgba16f64.exe"
+run_shader "$RUN_ROOT/image-rgba16f32.exe"
 run_shader "$RUN_ROOT/cube64.exe"
 run_shader "$RUN_ROOT/cube32.exe"
 run_shader "$RUN_ROOT/rectangle64.exe"
@@ -480,6 +484,8 @@ grep -q WINEMETALGL_IMAGE_R32UI_OK "$RUN_ROOT/image-formats64.exe.stdout"
 grep -q WINEMETALGL_IMAGE_R32UI_OK "$RUN_ROOT/image-formats32.exe.stdout"
 grep -q WINEMETALGL_IMAGE_R32F_OK "$RUN_ROOT/image-r32f64.exe.stdout"
 grep -q WINEMETALGL_IMAGE_R32F_OK "$RUN_ROOT/image-r32f32.exe.stdout"
+grep -q WINEMETALGL_IMAGE_RGBA16F_OK "$RUN_ROOT/image-rgba16f64.exe.stdout"
+grep -q WINEMETALGL_IMAGE_RGBA16F_OK "$RUN_ROOT/image-rgba16f32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_CUBE_OK "$RUN_ROOT/cube64.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_CUBE_OK "$RUN_ROOT/cube32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_CUBE_QUERY_OK "$RUN_ROOT/cube64.exe.stdout"
@@ -638,6 +644,7 @@ echo WINEMETALGL_COMPUTE_INDIRECT_OK
 echo WINEMETALGL_IMAGE_OK
 echo WINEMETALGL_IMAGE_R32UI_OK
 echo WINEMETALGL_IMAGE_R32F_OK
+echo WINEMETALGL_IMAGE_RGBA16F_OK
 echo WINEMETALGL_TEXTURE_CUBE_OK
 echo WINEMETALGL_TEXTURE_CUBE_QUERY_OK
 echo WINEMETALGL_TEXTURE_RECTANGLE_OK
