@@ -55,7 +55,8 @@ inline bool parseGLSLVersion(const char* source, GLSLVersion& out) {
     out.major = major;
     out.minor = 0;
 
-    // Check for ".minor" (e.g., #version 3.30)
+    // OpenGL also writes versions without a dot (#version 120, 330, 450).
+    // Interpret those as 1.20, 3.30, and 4.50 respectively.
     if (*source == '.') {
         source++;
         uint32_t minor = 0;
@@ -64,6 +65,9 @@ inline bool parseGLSLVersion(const char* source, GLSLVersion& out) {
             source++;
         }
         out.minor = minor;
+    } else if (major >= 100) {
+        out.major = major / 100;
+        out.minor = major % 100;
     }
 
     // Check for "es" or "core" profile keyword AFTER the version number

@@ -62,7 +62,9 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_metal.c" -o "$RUN_ROOT/gl33-64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_metal.c" -o "$RUN_ROOT/gl33-32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -DWINEMETALGL_GLSL450 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_metal.c" -o "$RUN_ROOT/gl45-64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_glsl120.c" -o "$RUN_ROOT/glsl120-64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -DWINEMETALGL_GLSL450 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_metal.c" -o "$RUN_ROOT/gl45-32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_glsl120.c" -o "$RUN_ROOT/glsl120-32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_resources.c" -o "$RUN_ROOT/resources64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_resources.c" -o "$RUN_ROOT/resources32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture64.exe" -lopengl32 -luser32 -lgdi32
@@ -174,6 +176,8 @@ run_shader "$RUN_ROOT/gl33-64.exe"
 run_shader "$RUN_ROOT/gl33-32.exe"
 run_shader "$RUN_ROOT/gl45-64.exe"
 run_shader "$RUN_ROOT/gl45-32.exe"
+run_shader "$RUN_ROOT/glsl120-64.exe"
+run_shader "$RUN_ROOT/glsl120-32.exe"
 run_shader "$RUN_ROOT/resources64.exe"
 run_shader "$RUN_ROOT/resources32.exe"
 run_shader "$RUN_ROOT/texture64.exe"
@@ -252,6 +256,8 @@ grep -q WINEMETALGL_RASTER_STATE_OK "$RUN_ROOT/gl33-64.exe.stdout"
 grep -q WINEMETALGL_RASTER_STATE_OK "$RUN_ROOT/gl33-32.exe.stdout"
 grep -q OPENGL_GL450_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl45-64.exe.stdout"
 grep -q OPENGL_GL450_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl45-32.exe.stdout"
+grep -q WINEMETALGL_GLSL120_OK "$RUN_ROOT/glsl120-64.exe.stdout"
+grep -q WINEMETALGL_GLSL120_OK "$RUN_ROOT/glsl120-32.exe.stdout"
 grep -q WINEMETALGL_GL33_RESOURCES_OK "$RUN_ROOT/resources64.exe.stdout"
 grep -q WINEMETALGL_GL33_RESOURCES_OK "$RUN_ROOT/resources32.exe.stdout"
 grep -q WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK "$RUN_ROOT/resources64.exe.stdout"
@@ -450,6 +456,7 @@ echo WINEMETALGL_STATE_QUERY_OK
 echo WINEMETALGL_FRAG_DATA_LOCATION_OK
 echo WINEMETALGL_RASTER_STATE_OK
 echo WINEMETALGL_GLSL450_OK
+echo WINEMETALGL_GLSL120_OK
 echo WINEMETALGL_GL33_RESOURCES_OK
 echo WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK
 echo WINEMETALGL_PBO_READBACK_OK
