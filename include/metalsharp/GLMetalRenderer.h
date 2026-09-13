@@ -112,7 +112,7 @@ class GLMetalRenderer {
     void drawArraysInstanced(uint32_t primitiveType, uint32_t first, uint32_t count, uint32_t instances, uint32_t baseInstance = 0);
     void drawElementsInstanced(uint32_t primitiveType, uint32_t count, uint32_t indexType,
                                size_t offset, uint32_t instances, int32_t baseVertex = 0, uint32_t baseInstance = 0);
-    void drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor = 1.0f, bool quad = false);
+    void drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor = 1.0f, bool quad = false, const float* outerFactors = nullptr, const float* innerFactors = nullptr);
     void drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
                            uint32_t width, uint32_t height, uint64_t textureHandle,
                            uint32_t minFilter, uint32_t magFilter,

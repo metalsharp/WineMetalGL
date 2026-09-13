@@ -34,7 +34,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
-- Basic triangle and quad tessellation evaluation draws with fixed factors.
+- Basic triangle and quad tessellation evaluation draws with per-edge/inner factor extraction.
 - Simple triangle geometry pass-through emulation and limited pass-through shader transform-feedback capture.
 - Fixed-function single-texture environment modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
@@ -123,6 +123,7 @@ WINEMETALGL_QUERY_OK
 WINEMETALGL_QUERY_BUFFER_OK
 WINEMETALGL_TESSELLATION_COMPILE_OK
 WINEMETALGL_TESSELLATION_DRAW_OK
+WINEMETALGL_TESSELLATION_FACTORS_OK
 WINEMETALGL_TESSELLATION_QUAD_OK
 WINEMETALGL_GEOMETRY_PASSTHROUGH_OK
 WINEMETALGL_UBO_OK

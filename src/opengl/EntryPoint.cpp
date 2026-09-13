@@ -515,6 +515,7 @@ bool beginExperimentalDraw(uint32_t program) {
 }
 
 float g_tessellationFactor = 1.0f;
+float g_tessellationOuterFactors[4] = {1,1,1,1}, g_tessellationInnerFactors[2] = {1,1};
 bool g_tessellationQuad = false;
 
 static float tessellationFactorFromSource(const std::string& source) {
@@ -524,6 +525,7 @@ static float tessellationFactorFromSource(const std::string& source) {
     char* end = nullptr; float value = std::strtof(source.c_str() + position + 1, &end);
     return end == source.c_str() + position + 1 ? 1.0f : value;
 }
+static void tessellationFactorsFromSource(const std::string& source) { for(float& value:g_tessellationOuterFactors)value=1.0f;for(float& value:g_tessellationInnerFactors)value=1.0f;for(int i=0;i<4;++i){std::string needle="gl_TessLevelOuter["+std::to_string(i)+"]";size_t position=source.find(needle);if(position!=std::string::npos){position=source.find('=',position);if(position!=std::string::npos){char* end=nullptr;float value=std::strtof(source.c_str()+position+1,&end);if(end!=source.c_str()+position+1)g_tessellationOuterFactors[i]=value;}}}for(int i=0;i<2;++i){std::string needle="gl_TessLevelInner["+std::to_string(i)+"]";size_t position=source.find(needle);if(position!=std::string::npos){position=source.find('=',position);if(position!=std::string::npos){char* end=nullptr;float value=std::strtof(source.c_str()+position+1,&end);if(end!=source.c_str()+position+1)g_tessellationInnerFactors[i]=value;}}}}
 
 bool hasTessEvaluation(uint32_t program) {
     for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
@@ -551,7 +553,7 @@ bool beginExperimentalTessDraw(uint32_t program) {
     if (!eval || !fragment) return false;
     g_tessellationQuad = eval->source.find("layout(quads") != std::string::npos || eval->source.find("layout (quads") != std::string::npos;
     if (!g_metalRenderer.createTessellationPipeline(*eval, *fragment, g_glBridge.state(), g_tessellationQuad)) return false;
-    g_tessellationFactor = control ? tessellationFactorFromSource(control->source) : 1.0f;
+    g_tessellationFactor = control ? tessellationFactorFromSource(control->source) : 1.0f; if(control)tessellationFactorsFromSource(control->source);else{for(float& value:g_tessellationOuterFactors)value=g_tessellationFactor;for(float& value:g_tessellationInnerFactors)value=g_tessellationFactor;}
     uint32_t width = g_glBridge.state().viewportWidth > 0 ? g_glBridge.state().viewportWidth : 64;
     uint32_t height = g_glBridge.state().viewportHeight > 0 ? g_glBridge.state().viewportHeight : 64;
     g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
@@ -1035,7 +1037,7 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
         if (mode == 0x000E && hasTessEvaluation(program)) {
             const uint32_t patchVertices = g_glBridge.state().patchVertices;
             if ((patchVertices != 3 && patchVertices != 4) || count < static_cast<int32_t>(patchVertices) || !beginExperimentalTessDraw(program)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
-            g_metalRenderer.drawPatches(patchVertices, static_cast<uint32_t>(count) / patchVertices, g_tessellationFactor, g_tessellationQuad);
+            g_metalRenderer.drawPatches(patchVertices, static_cast<uint32_t>(count) / patchVertices, g_tessellationFactor, g_tessellationQuad, g_tessellationOuterFactors, g_tessellationInnerFactors);
             g_metalRenderer.endRenderPass(); g_metalRenderer.finish(); return;
         }
         if (!beginExperimentalDraw(program)) {

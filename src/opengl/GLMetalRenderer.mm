@@ -626,7 +626,7 @@ static uint16_t halfFromFloat(float value) {
     return static_cast<uint16_t>(sign | (static_cast<uint32_t>(e) << 10) | (mantissa >> 13));
 }
 
-void GLMetalRenderer::drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor, bool quad) {
+void GLMetalRenderer::drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor, bool quad, const float* outerFactors, const float* innerFactors) {
     if (!m_impl->currentEncoder || !m_impl->tessellationPipeline || !patchCount) return;
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     for (const auto& attribute : m_impl->vertexAttributes) {
@@ -634,9 +634,10 @@ void GLMetalRenderer::drawPatches(uint32_t patchControlPoints, uint32_t patchCou
         if (it != m_impl->buffers.end()) [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
     }
     [m_impl->currentEncoder setRenderPipelineState:m_impl->tessellationPipeline];
-    uint16_t factor = halfFromFloat(std::max(1.0f, std::min(64.0f, tessellationFactor)));
-    MTLTriangleTessellationFactorsHalf triangleFactors = {{factor,factor,factor},factor};
-    MTLQuadTessellationFactorsHalf quadFactors = {{factor,factor,factor,factor},{factor,factor}};
+    auto factorAt=[&](const float* values,size_t index){return halfFromFloat(std::max(1.0f,std::min(64.0f,values?values[index]:tessellationFactor)));};
+    uint16_t outer0=factorAt(outerFactors,0),outer1=factorAt(outerFactors,1),outer2=factorAt(outerFactors,2),outer3=factorAt(outerFactors,3),inner0=factorAt(innerFactors,0),inner1=factorAt(innerFactors,1);
+    MTLTriangleTessellationFactorsHalf triangleFactors = {{outer0,outer1,outer2},inner0};
+    MTLQuadTessellationFactorsHalf quadFactors = {{outer0,outer1,outer2,outer3},{inner0,inner1}};
     const void* factorData = quad ? static_cast<const void*>(&quadFactors) : static_cast<const void*>(&triangleFactors);
     size_t factorSize = quad ? sizeof(quadFactors) : sizeof(triangleFactors);
     m_impl->tessellationFactors = [m_device newBufferWithBytes:factorData length:factorSize options:MTLResourceStorageModeShared];
