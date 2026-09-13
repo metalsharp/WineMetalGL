@@ -200,6 +200,9 @@ float g_fixedTexcoord[2] = {0.0f, 0.0f};
 bool g_fixedTexGenS = false, g_fixedTexGenT = false;
 uint32_t g_fixedTexGenModeS = 0x2401, g_fixedTexGenModeT = 0x2401;
 float g_fixedTexGenPlaneS[4] = {1,0,0,0}, g_fixedTexGenPlaneT[4] = {0,1,0,0};
+bool g_fixedClipEnabled[6] = {};
+double g_fixedClipPlanes[6][4] = {};
+std::vector<std::array<float,6>> g_fixedClipDistances;
 enum class FixedCommandKind { Begin, End, Vertex, Color, TexCoord, Normal, MatrixMode, LoadIdentity, PushMatrix, PopMatrix, Translate, Rotate, Scale };
 struct FixedCommand { FixedCommandKind kind; uint32_t mode = 0; float values[4] = {}; };
 std::unordered_map<uint32_t, std::vector<FixedCommand>> g_fixedLists;
@@ -645,8 +648,20 @@ static void recordFixed(FixedCommandKind kind, uint32_t mode, std::initializer_l
 // ---------------------------------------------------------------------------
 extern "C" void glBegin(uint32_t mode) {
     if (g_listCompiling) { recordFixed(FixedCommandKind::Begin, mode); if (!g_listExecute) return; }
-    if (metalModeEnabled()) { g_fixedRecording = true; g_fixedPrimitive = mode; g_fixedVertices.clear(); return; }
+    if (metalModeEnabled()) { g_fixedRecording = true; g_fixedPrimitive = mode; g_fixedVertices.clear(); g_fixedClipDistances.clear(); return; }
     glDispatch<void, uint32_t>("glBegin", mode);
+}
+static std::vector<float> clipFixedVertices(const std::vector<float>& vertices, uint32_t primitive) {
+    bool active=false;for(bool enabled:g_fixedClipEnabled)if(enabled){active=true;break;}if(!active||vertices.size()%9||g_fixedClipDistances.size()<vertices.size()/9)return vertices;
+    struct ClipVertex { std::array<float,9> value; std::array<float,6> distance; };
+    auto makeVertex=[&](size_t index){ClipVertex vertex{};std::memcpy(vertex.value.data(),vertices.data()+index*9,sizeof(vertex.value));vertex.distance=g_fixedClipDistances[index];return vertex;};
+    auto interpolate=[](const ClipVertex& a,const ClipVertex& b,float t){ClipVertex result{};for(int i=0;i<9;++i)result.value[i]=a.value[i]+(b.value[i]-a.value[i])*t;for(int i=0;i<6;++i)result.distance[i]=a.distance[i]+(b.distance[i]-a.distance[i])*t;return result;};
+    auto clipPolygon=[&](std::vector<ClipVertex> polygon){for(int plane=0;plane<6&& !polygon.empty();++plane)if(g_fixedClipEnabled[plane]){std::vector<ClipVertex> clipped;ClipVertex previous=polygon.back();float previousDistance=previous.distance[plane];for(const auto& current:polygon){float currentDistance=current.distance[plane];bool previousInside=previousDistance>=0,currentInside=currentDistance>=0;if(previousInside!=currentInside){float denominator=previousDistance-currentDistance;float t=denominator!=0?previousDistance/denominator:0;clipped.push_back(interpolate(previous,current,t));}if(currentInside)clipped.push_back(current);previous=current;previousDistance=currentDistance;}polygon.swap(clipped);}return polygon;};
+    std::vector<float> output;auto append=[&](const ClipVertex& vertex){output.insert(output.end(),vertex.value.begin(),vertex.value.end());};
+    if(primitive==0){for(size_t i=0;i<vertices.size()/9;++i){auto vertex=makeVertex(i);bool inside=true;for(int plane=0;plane<6;++plane)if(g_fixedClipEnabled[plane]&&vertex.distance[plane]<0)inside=false;if(inside)append(vertex);}return output;}
+    if(primitive==1){for(size_t i=0;i+1<vertices.size()/9;i+=2){auto line=clipPolygon({makeVertex(i),makeVertex(i+1)});for(const auto& vertex:line)append(vertex);}return output;}
+    if(primitive==4){for(size_t i=0;i+2<vertices.size()/9;i+=3){auto polygon=clipPolygon({makeVertex(i),makeVertex(i+1),makeVertex(i+2)});for(size_t j=1;j+1<polygon.size();++j){append(polygon[0]);append(polygon[j]);append(polygon[j+1]);}}return output;}
+    return vertices;
 }
 extern "C" void glEnd(void) {
     if (g_listCompiling) { recordFixed(FixedCommandKind::End, 0); if (!g_listExecute) return; }
@@ -662,7 +677,8 @@ extern "C" void glEnd(void) {
         g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
         uint64_t textureHandle = 0; uint32_t minFilter=0x2601, magFilter=0x2601, wrapS=0x2901, wrapT=0x2901;
         if (g_fixedTextureEnabled) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture=g_textures.find(g_textureUnits[0]); if(texture!=g_textures.end()){textureHandle=texture->second.metalHandle;minFilter=texture->second.minFilter;magFilter=texture->second.magFilter;wrapS=texture->second.wrapS;wrapT=texture->second.wrapT;} }
-        g_metalRenderer.drawFixedFunction(g_fixedVertices.data(), g_fixedVertices.size() / 9, g_fixedPrimitive, width, height, textureHandle, minFilter, magFilter, wrapS, wrapT, g_fixedAlphaEnabled, g_fixedAlphaFunc, g_fixedAlphaRef, g_fixedTextureEnv, g_glBridge.state());
+        std::vector<float> clippedVertices=clipFixedVertices(g_fixedVertices,g_fixedPrimitive);
+        if(!clippedVertices.empty())g_metalRenderer.drawFixedFunction(clippedVertices.data(), clippedVertices.size() / 9, g_fixedPrimitive, width, height, textureHandle, minFilter, magFilter, wrapS, wrapT, g_fixedAlphaEnabled, g_fixedAlphaFunc, g_fixedAlphaRef, g_fixedTextureEnv, g_glBridge.state());
         return;
     }
     glDispatch<void>("glEnd");
@@ -754,6 +770,7 @@ extern "C" void glEnable(uint32_t cap) {
     if (cap == 0x0DE1) g_fixedTextureEnabled = true;
     if (cap == 0x0C60) g_fixedTexGenS = true;
     if (cap == 0x0C61) g_fixedTexGenT = true;
+    if (cap >= 0x3000 && cap < 0x3006) g_fixedClipEnabled[cap - 0x3000] = true;
     if (cap == 0x0C11) g_glBridge.state().scissorEnabled = true;
     if (cap == 0x8037) g_glBridge.state().polygonOffsetFill = true;
     if (cap == 0x2A02) g_glBridge.state().polygonOffsetLine = true;
@@ -772,6 +789,7 @@ extern "C" void glDisable(uint32_t cap) {
     if (cap == 0x0DE1) g_fixedTextureEnabled = false;
     if (cap == 0x0C60) g_fixedTexGenS = false;
     if (cap == 0x0C61) g_fixedTexGenT = false;
+    if (cap >= 0x3000 && cap < 0x3006) g_fixedClipEnabled[cap - 0x3000] = false;
     if (cap == 0x0C11) g_glBridge.state().scissorEnabled = false;
     if (cap == 0x8037) g_glBridge.state().polygonOffsetFill = false;
     if (cap == 0x2A02) g_glBridge.state().polygonOffsetLine = false;
@@ -2393,6 +2411,9 @@ static void fixedVertex(float x, float y, float z, float w) {
         }
         float eye[4] = {};
         for (int r=0;r<4;++r) for (int k=0;k<4;++k) eye[r] += g_fixedModelview[k*4+r]*input[k];
+        std::array<float,6> clipDistances{};
+        for (int plane=0;plane<6;++plane) if(g_fixedClipEnabled[plane]) clipDistances[plane]=static_cast<float>(g_fixedClipPlanes[plane][0]*eye[0]+g_fixedClipPlanes[plane][1]*eye[1]+g_fixedClipPlanes[plane][2]*eye[2]+g_fixedClipPlanes[plane][3]*eye[3]);
+        g_fixedClipDistances.push_back(clipDistances);
         float tex[2] = {g_fixedTexcoord[0],g_fixedTexcoord[1]};
         if (g_fixedTexGenS) tex[0]=fixedTexGenCoordinate(g_fixedTexGenModeS,g_fixedTexGenPlaneS,x,y,z,eye,false);
         if (g_fixedTexGenT) tex[1]=fixedTexGenCoordinate(g_fixedTexGenModeT,g_fixedTexGenPlaneT,x,y,z,eye,true);
@@ -2467,7 +2488,7 @@ extern "C" void glAlphaFunc(uint32_t func, float ref) { glDispatch<void,uint32_t
 // ---------------------------------------------------------------------------
 // Clip planes (GL 1.0)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(void, glClipPlane, uint32_t, plane, const double*, equation)
+extern "C" void glClipPlane(uint32_t plane,const double* equation) { glDispatch<void,uint32_t,const double*>("glClipPlane",plane,equation);if(!metalModeEnabled()||!equation||plane<0x3000||plane>=0x3006)return;std::memcpy(g_fixedClipPlanes[plane-0x3000],equation,sizeof(g_fixedClipPlanes[plane-0x3000]));}
 
 // ---------------------------------------------------------------------------
 // Matrix stack (fixed pipeline, GL 1.0)
