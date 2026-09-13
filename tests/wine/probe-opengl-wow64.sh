@@ -86,9 +86,11 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_varying.c" -o "$RUN_ROOT/transform-varying64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_debug.c" -o "$RUN_ROOT/debug64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_varying.c" -o "$RUN_ROOT/transform-varying32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_debug.c" -o "$RUN_ROOT/debug32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader-elements64.exe" -lopengl32 -luser32 -lgdi32
@@ -204,6 +206,8 @@ run_shader "$RUN_ROOT/transform-shader64.exe"
 run_shader "$RUN_ROOT/transform-shader32.exe"
 run_shader "$RUN_ROOT/transform-shader-elements64.exe"
 run_shader "$RUN_ROOT/transform-shader-elements32.exe"
+run_shader "$RUN_ROOT/transform-varying64.exe"
+run_shader "$RUN_ROOT/transform-varying32.exe"
 run_shader "$RUN_ROOT/shader-binary64.exe"
 run_shader "$RUN_ROOT/shader-binary32.exe"
 run_shader "$RUN_ROOT/debug64.exe"
@@ -360,6 +364,8 @@ grep -q WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK "$RUN_ROOT/transform-shader-ele
 grep -q WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK "$RUN_ROOT/transform-shader-elements32.exe.stdout"
 grep -q WINEMETALGL_TRANSFORM_SHADER_RANGE_OK "$RUN_ROOT/transform-shader-elements64.exe.stdout"
 grep -q WINEMETALGL_TRANSFORM_SHADER_RANGE_OK "$RUN_ROOT/transform-shader-elements32.exe.stdout"
+grep -q WINEMETALGL_TRANSFORM_SHADER_VARYING_OK "$RUN_ROOT/transform-varying64.exe.stdout"
+grep -q WINEMETALGL_TRANSFORM_SHADER_VARYING_OK "$RUN_ROOT/transform-varying32.exe.stdout"
 grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary64.exe.stdout"
 grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary32.exe.stdout"
 grep -q WINEMETALGL_SHADER_SPECIALIZE_OK "$RUN_ROOT/shader-binary64.exe.stdout"
@@ -516,6 +522,7 @@ echo WINEMETALGL_TRANSFORM_FIXED_OK
 echo WINEMETALGL_TRANSFORM_SHADER_OK
 echo WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 echo WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
+echo WINEMETALGL_TRANSFORM_SHADER_VARYING_OK
 echo WINEMETALGL_SHADER_BINARY_OK
 echo WINEMETALGL_SHADER_SPECIALIZE_OK
 echo WINEMETALGL_PROGRAM_BINARY_OK

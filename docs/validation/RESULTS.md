@@ -47,7 +47,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - 1D texture creation, subimage updates, GLSL sampling, and readback.
 - Instanced drawing with Metal depth/stencil attachments.
 - Direct/indirect compute dispatch with ranged SSBO writeback, storage-block reflection, and program-resource interface queries on both guests.
-- Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
+- Transform-feedback capture for gl_Position and simple scalar-varying expressions, including indexed draws and ranged transform-feedback-buffer offsets.
 - Uniform-buffer object binding/range offsets and uniform-block name/size reflection.
 - Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
 - Arrays/elements indirect draw commands.
@@ -159,6 +159,7 @@ WINEMETALGL_TRANSFORM_FIXED_OK
 WINEMETALGL_TRANSFORM_SHADER_OK
 WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
+WINEMETALGL_TRANSFORM_SHADER_VARYING_OK
 WINEMETALGL_SHADER_BINARY_OK
 WINEMETALGL_SHADER_SPECIALIZE_OK
 WINEMETALGL_PROGRAM_BINARY_OK
