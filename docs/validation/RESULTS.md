@@ -51,7 +51,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Transform-feedback capture for gl_Position and simple scalar-varying expressions, including indexed draws and ranged transform-feedback-buffer offsets.
 - Uniform-buffer object binding/range offsets and uniform-block name/size reflection.
 - Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
-- Arrays/elements indirect draw commands.
+- Arrays/elements indirect draw commands, including parameter-buffer-counted multi-draw.
 - Basic fixed-function immediate-mode triangle/texture rendering, point-size and line-width state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
 - Sync/fence completion behavior and query-result buffer writes.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
@@ -151,6 +151,7 @@ WINEMETALGL_TEXTURE_CUBE_QUERY_OK
 WINEMETALGL_TEXTURE_RECTANGLE_OK
 WINEMETALGL_TEXTURE_1D_OK
 WINEMETALGL_INDIRECT_OK
+WINEMETALGL_INDIRECT_COUNT_OK
 WINEMETALGL_FIXED_OK
 WINEMETALGL_FIXED_LIST_MATRIX_OK
 WINEMETALGL_FIXED_LIGHTING_OK

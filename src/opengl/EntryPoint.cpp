@@ -178,6 +178,7 @@ std::array<size_t, 16> g_uniformBufferSizes{};
 size_t g_storageBufferOffset = 0;
 size_t g_storageBufferSize = 0;
 uint32_t g_boundQueryBuffer = 0;
+uint32_t g_boundParameterBuffer = 0;
 uint32_t g_boundIndirectBuffer = 0;
 uint32_t g_boundDispatchIndirectBuffer = 0;
 uint32_t g_boundPixelPackBuffer = 0;
@@ -852,6 +853,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
                               std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
     const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
                           target == 0x9192 ? g_boundQueryBuffer :
+                          target == 0x80EE ? g_boundParameterBuffer :
                           target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer :
                           target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer :
                           target == kGL_TRANSFORM_FEEDBACK_BUFFER ? g_boundTransformFeedbackBuffer :
@@ -1019,6 +1021,8 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
         g_boundUniformBuffer = buffer;
     } else if (target == 0x9192) {
         g_boundQueryBuffer = buffer;
+    } else if (target == 0x80EE) {
+        g_boundParameterBuffer = buffer;
     } else if (target == kGL_DRAW_INDIRECT_BUFFER) {
         g_boundIndirectBuffer = buffer;
     } else if (target == kGL_PIXEL_PACK_BUFFER) {
@@ -1198,6 +1202,14 @@ extern "C" void glBindImageTexture(uint32_t unit, uint32_t texture, int32_t leve
         "glBindImageTexture", unit, texture, level, layered, layer, access, format);
     if (metalModeEnabled() && unit < g_imageUnits.size()) g_imageUnits[unit] = texture;
 }
+
+extern "C" void glMultiDrawArraysIndirect(uint32_t,const void*,int32_t,int32_t);
+extern "C" void glMultiDrawElementsIndirect(uint32_t,uint32_t,const void*,int32_t,int32_t);
+static bool readIndirectCount(uint32_t buffer,uint32_t offset,uint32_t& count) { uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(buffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}return handle&&g_metalRenderer.readBuffer(handle,offset,sizeof(count),&count); }
+extern "C" void glDrawArraysIndirectCount(uint32_t mode,const void* indirect,int64_t drawcountOffset,int32_t maxdrawcount,int32_t stride) { if(!isExperimentalProgram(currentRenderProgram())){glDispatch<void,uint32_t,const void*,int64_t,int32_t,int32_t>("glDrawArraysIndirectCount",mode,indirect,drawcountOffset,maxdrawcount,stride);return;}uint32_t count=0;if(maxdrawcount<0||!readIndirectCount(g_boundParameterBuffer,static_cast<uint32_t>(drawcountOffset),count)){metalsharp::GLErrorTracker::instance().setError(0x0502);return;}glMultiDrawArraysIndirect(mode,indirect,static_cast<int32_t>(std::min<uint32_t>(count,static_cast<uint32_t>(maxdrawcount))),stride); }
+extern "C" void glMultiDrawArraysIndirectCount(uint32_t mode,const void* indirect,int64_t drawcountOffset,int32_t maxdrawcount,int32_t stride) { glDrawArraysIndirectCount(mode,indirect,drawcountOffset,maxdrawcount,stride); }
+extern "C" void glDrawElementsIndirectCount(uint32_t mode,uint32_t type,const void* indirect,int64_t drawcountOffset,int32_t maxdrawcount,int32_t stride) { if(!isExperimentalProgram(currentRenderProgram())){glDispatch<void,uint32_t,uint32_t,const void*,int64_t,int32_t,int32_t>("glDrawElementsIndirectCount",mode,type,indirect,drawcountOffset,maxdrawcount,stride);return;}uint32_t count=0;if(maxdrawcount<0||!readIndirectCount(g_boundParameterBuffer,static_cast<uint32_t>(drawcountOffset),count)){metalsharp::GLErrorTracker::instance().setError(0x0502);return;}glMultiDrawElementsIndirect(mode,type,indirect,static_cast<int32_t>(std::min<uint32_t>(count,static_cast<uint32_t>(maxdrawcount))),stride); }
+extern "C" void glMultiDrawElementsIndirectCount(uint32_t mode,uint32_t type,const void* indirect,int64_t drawcountOffset,int32_t maxdrawcount,int32_t stride) { glDrawElementsIndirectCount(mode,type,indirect,drawcountOffset,maxdrawcount,stride); }
 
 extern "C" void glMultiDrawArraysIndirect(uint32_t mode, const void* indirect, int32_t drawcount, int32_t stride) {
     const uint32_t program=currentRenderProgram();
