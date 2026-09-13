@@ -33,6 +33,7 @@ patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patc
 scripts/build.sh
 scripts/probe-native.sh
 scripts/stage-host-libs.sh
+scripts/stage-release.sh
 scripts/stage-wine.sh
 scripts/verify-release.sh
 src/opengl/EntryPoint.cpp
