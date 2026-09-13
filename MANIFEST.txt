@@ -75,6 +75,7 @@ tests/wine/opengl_texture_depth_sample.c
 tests/wine/opengl_texture_float_sample.c
 tests/wine/opengl_texture_half_sample.c
 tests/wine/opengl_ubo.c
+tests/wine/opengl_uniform_matrix.c
 tests/wine/opengl_1d.c
 tests/wine/opengl_blend.c
 tests/wine/opengl_contexts.c

@@ -94,7 +94,9 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_sync.c" -o "$RUN_ROOT/sync64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_sync.c" -o "$RUN_ROOT/sync32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_ubo.c" -o "$RUN_ROOT/ubo64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_uniform_matrix.c" -o "$RUN_ROOT/uniform-matrix64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_ubo.c" -o "$RUN_ROOT/ubo32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_uniform_matrix.c" -o "$RUN_ROOT/uniform-matrix32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_query.c" -o "$RUN_ROOT/query64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_query.c" -o "$RUN_ROOT/query32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform64.exe" -lopengl32 -luser32 -lgdi32
@@ -248,6 +250,8 @@ run_shader "$RUN_ROOT/sync64.exe"
 run_shader "$RUN_ROOT/sync32.exe"
 run_shader "$RUN_ROOT/ubo64.exe"
 run_shader "$RUN_ROOT/ubo32.exe"
+run_shader "$RUN_ROOT/uniform-matrix64.exe"
+run_shader "$RUN_ROOT/uniform-matrix32.exe"
 run_shader "$RUN_ROOT/query64.exe"
 run_shader "$RUN_ROOT/query32.exe"
 run_shader "$RUN_ROOT/transform64.exe"
@@ -454,6 +458,10 @@ grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync64.exe.stdout"
 grep -q WINEMETALGL_SYNC_OK "$RUN_ROOT/sync32.exe.stdout"
 grep -q WINEMETALGL_UBO_OK "$RUN_ROOT/ubo64.exe.stdout"
 grep -q WINEMETALGL_UBO_OK "$RUN_ROOT/ubo32.exe.stdout"
+grep -q WINEMETALGL_UNIFORM_MATRIX_ARRAY_OK "$RUN_ROOT/uniform-matrix64.exe.stdout"
+grep -q WINEMETALGL_UNIFORM_MATRIX_ARRAY_OK "$RUN_ROOT/uniform-matrix32.exe.stdout"
+grep -q WINEMETALGL_UNIFORM_MATRIX_DRAW_OK "$RUN_ROOT/uniform-matrix64.exe.stdout"
+grep -q WINEMETALGL_UNIFORM_MATRIX_DRAW_OK "$RUN_ROOT/uniform-matrix32.exe.stdout"
 grep -q WINEMETALGL_BUFFER_SIZE_OK "$RUN_ROOT/ubo64.exe.stdout"
 grep -q WINEMETALGL_BUFFER_SIZE_OK "$RUN_ROOT/ubo32.exe.stdout"
 grep -q WINEMETALGL_UBO_RANGE_OK "$RUN_ROOT/ubo64.exe.stdout"
@@ -681,6 +689,8 @@ echo WINEMETALGL_MULTISAMPLE_OK
 echo WINEMETALGL_MULTISAMPLE_STORAGE_OK
 echo WINEMETALGL_SYNC_OK
 echo WINEMETALGL_UBO_OK
+echo WINEMETALGL_UNIFORM_MATRIX_ARRAY_OK
+echo WINEMETALGL_UNIFORM_MATRIX_DRAW_OK
 echo WINEMETALGL_BUFFER_SIZE_OK
 echo WINEMETALGL_UBO_RANGE_OK
 echo WINEMETALGL_MULTI_BIND_BUFFERS_OK
