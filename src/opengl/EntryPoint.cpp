@@ -2165,6 +2165,7 @@ extern "C" void glLineWidth(float width) { glDispatch<void,float>("glLineWidth",
 extern "C" void glPointSize(float size) { glDispatch<void,float>("glPointSize",size);if(metalModeEnabled()&&size>0)g_glBridge.state().pointSize=size; }
 GL_PASSTHROUGH2(void, glPolygonMode, uint32_t, face, uint32_t, mode)
 extern "C" void glPolygonOffset(float factor,float units) { glDispatch<void,float,float>("glPolygonOffset",factor,units);g_glBridge.state().polygonOffsetFactor=factor;g_glBridge.state().polygonOffsetUnits=units; }
+extern "C" void glClipControl(uint32_t origin,uint32_t depth) { if(origin!=0x8CA1&&origin!=0x8CA2){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}if(depth!=0x935E&&depth!=0x935F){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}if(metalModeEnabled()){g_glBridge.state().clipOrigin=origin;g_glBridge.state().clipDepthMode=depth;return;}glDispatch<void,uint32_t,uint32_t>("glClipControl",origin,depth); }
 
 // ---------------------------------------------------------------------------
 // Stencil state (GL 1.0)
@@ -3135,6 +3136,8 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         case 0x0BC0: *params=g_fixedAlphaEnabled; return;
         case 0x8038: *params=static_cast<int32_t>(g_glBridge.state().polygonOffsetFactor); return;
         case 0x2A00: *params=static_cast<int32_t>(g_glBridge.state().polygonOffsetUnits); return;
+        case 0x935C: *params=static_cast<int32_t>(g_glBridge.state().clipOrigin); return;
+        case 0x935D: *params=static_cast<int32_t>(g_glBridge.state().clipDepthMode); return;
         default: break;
         }
     }

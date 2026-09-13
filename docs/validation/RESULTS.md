@@ -29,7 +29,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Window DC, pixel format, context creation, extension discovery, and per-context state across concurrent threads.
 - GLSL 1.10/1.20 simple vertex/fragment translation, Metal draw/readback, and compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
-- Tracked polygon offset and depth-clamp raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
+- Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
 - OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
@@ -79,6 +79,7 @@ WINEMETALGL_GLSL120_OK
 WINEMETALGL_GLSL330_OK
 WINEMETALGL_STATE_QUERY_OK
 WINEMETALGL_RASTER_STATE_OK
+WINEMETALGL_CLIP_CONTROL_OK
 WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
 WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK

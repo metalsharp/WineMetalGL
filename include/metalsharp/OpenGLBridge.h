@@ -110,6 +110,7 @@ struct GLState {
     bool polygonOffsetFill = false, polygonOffsetLine = false, polygonOffsetPoint = false, depthClampEnabled = false;
     float polygonOffsetFactor = 0.0f, polygonOffsetUnits = 0.0f;
     float pointSize = 1.0f, lineWidth = 1.0f;
+    uint32_t clipOrigin = 0x8CA1, clipDepthMode = 0x935E;
 };
 
 /// Bridge between Windows opengl32.dll callers and macOS native OpenGL.
