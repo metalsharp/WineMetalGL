@@ -44,6 +44,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
 - Cube-map texture creation, sampling, mipmaps, face readback, and x86_64/i386 validation.
 - Rectangle-texture creation, unnormalized sampling, GLSL translation, and readback.
+- 1D texture creation, subimage updates, GLSL sampling, and readback.
 - Instanced drawing with Metal depth/stencil attachments.
 - Direct/indirect compute dispatch with ranged SSBO writeback and storage-block reflection on both guests.
 - Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
@@ -133,6 +134,7 @@ WINEMETALGL_IMAGE_OK
 WINEMETALGL_IMAGE_R32UI_OK
 WINEMETALGL_TEXTURE_CUBE_OK
 WINEMETALGL_TEXTURE_RECTANGLE_OK
+WINEMETALGL_TEXTURE_1D_OK
 WINEMETALGL_INDIRECT_OK
 WINEMETALGL_FIXED_OK
 WINEMETALGL_FIXED_LIGHTING_OK
