@@ -30,6 +30,8 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 1.20 compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
 - Tracked polygon offset and depth-clamp raster state translated to Metal.
+- OpenGL SPIR-V shader-binary ingestion, MSL translation, linking, and draw/readback.
+- MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
 - Basic triangle and quad tessellation evaluation draws with fixed factors.
@@ -138,6 +140,8 @@ WINEMETALGL_TRANSFORM_FIXED_OK
 WINEMETALGL_TRANSFORM_SHADER_OK
 WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
+WINEMETALGL_SHADER_BINARY_OK
+WINEMETALGL_PROGRAM_BINARY_OK
 WINEMETALGL_FIXED_TEXTURE_OK
 WINEMETALGL_FIXED_TEXTURE_REPLACE_OK
 WINEMETALGL_FIXED_TEXTURE_ADD_OK

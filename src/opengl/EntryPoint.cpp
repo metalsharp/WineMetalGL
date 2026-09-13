@@ -50,6 +50,9 @@ std::once_flag g_glInitFlag;
 std::once_flag g_metalInitFlag;
 bool g_metalAvailable = false;
 bool g_modernContextReady = false;
+std::mutex g_contextStateMutex;
+void* g_currentContextKey = nullptr;
+std::unordered_map<void*, metalsharp::GLState> g_contextStates;
 
 struct ExperimentalProgram {
     bool linked = false;
@@ -72,6 +75,8 @@ struct ExperimentalProgram {
     std::unordered_map<std::string, uint32_t> storageBlockIndices;
     std::unordered_map<uint32_t, uint32_t> storageBlockBindings;
     std::unordered_map<std::string, uint32_t> fragDataLocations;
+    bool binaryRetrievable = false;
+    std::vector<uint8_t> binary;
 };
 
 std::mutex g_programMutex;
@@ -1528,6 +1533,11 @@ extern "C" void glShaderSource(uint32_t shader, int32_t count, const char** stri
     }
 }
 
+extern "C" void glShaderBinary(int32_t count,const uint32_t* shaders,uint32_t binaryFormat,const void* binary,int32_t length) {
+    if(!metalModeEnabled()||binaryFormat!=0x9551||!binary||length<=0||length%4){glDispatch<void,int32_t,const uint32_t*,uint32_t,const void*,int32_t>("glShaderBinary",count,shaders,binaryFormat,binary,length);return;}
+    const size_t words=static_cast<size_t>(length)/sizeof(uint32_t);for(int32_t i=0;i<count;++i){if(!shaders)break;auto* state=metalsharp::GLShaderTracker::instance().getShader(shaders[i]);if(!state)continue;state->spirv.assign(static_cast<const uint32_t*>(binary),static_cast<const uint32_t*>(binary)+words);state->source.clear();state->needsCrossCompile=true;std::string error;state->msl.clear();state->compiled=true;state->compileSuccess=metalsharp::GLSLCompiler::translateSPIRVtoMSL(state->spirv,state->stage,state->msl,error);state->infoLog=error;}
+}
+
 // glGetShaderiv is hand-written so that shaders driven through the
 // SPIRV-Cross cross-compile path can report their compile status,
 // delete status, and info-log length from the tracker's state instead
@@ -1724,7 +1734,12 @@ extern "C" void glDetachShader(uint32_t program, uint32_t shader) {
     glDispatch<void, uint32_t, uint32_t>("glDetachShader", program, shader);
 }
 
-extern "C" void glProgramParameteri(uint32_t program, uint32_t pname, int32_t value) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,int32_t>("glProgramParameteri",program,pname,value);return;}if(pname==0x8258){std::lock_guard<std::mutex> lock(g_programMutex);g_programs[program].separable=value!=0;} }
+extern "C" void glProgramParameteri(uint32_t program, uint32_t pname, int32_t value) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,int32_t>("glProgramParameteri",program,pname,value);return;}if(pname==0x8258||pname==0x8257){std::lock_guard<std::mutex> lock(g_programMutex);if(pname==0x8258)g_programs[program].separable=value!=0;else g_programs[program].binaryRetrievable=value!=0;} }
+static std::vector<uint8_t> buildExperimentalProgramBinary(const metalsharp::GLShaderState* vertex,const metalsharp::GLShaderState* fragment,const metalsharp::GLShaderState* compute) {
+    std::vector<uint8_t> binary;auto append=[&](const void* data,size_t size){const auto* bytes=static_cast<const uint8_t*>(data);binary.insert(binary.end(),bytes,bytes+size);};const uint32_t magic=0x4D474C42u,version=1;append(&magic,4);append(&version,4);uint32_t count=0;for(auto* state:{vertex,fragment,compute})if(state&& !state->msl.empty())++count;append(&count,4);for(auto* state:{vertex,fragment,compute})if(state&&!state->msl.empty()){uint32_t type=state->type,size=static_cast<uint32_t>(state->msl.size());append(&type,4);append(&size,4);append(state->msl.data(),size);}return binary;
+}
+extern "C" void glGetProgramBinary(uint32_t program,int32_t bufSize,int32_t* length,uint32_t* binaryFormat,void* binary) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,int32_t,int32_t*,uint32_t*,void*>("glGetProgramBinary",program,bufSize,length,binaryFormat,binary);return;}std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end()||!it->second.linkSuccess){if(length)*length=0;return;}if(binaryFormat)*binaryFormat=0x4D474C42u;int32_t copy=std::min<int32_t>(std::max(0,bufSize),static_cast<int32_t>(it->second.binary.size()));if(binary&&copy>0)std::memcpy(binary,it->second.binary.data(),copy);if(length)*length=copy; }
+extern "C" void glProgramBinary(uint32_t program,uint32_t binaryFormat,const void* binary,int32_t length) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,const void*,int32_t>("glProgramBinary",program,binaryFormat,binary,length);return;}if(binaryFormat!=0x4D474C42u||!binary||length<12){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}const auto* bytes=static_cast<const uint8_t*>(binary);auto read32=[&](size_t& offset,uint32_t& value){if(offset+4>static_cast<size_t>(length))return false;std::memcpy(&value,bytes+offset,4);offset+=4;return true;};size_t offset=0;uint32_t magic=0,version=0,count=0;if(!read32(offset,magic)||!read32(offset,version)||!read32(offset,count)||magic!=0x4D474C42u||version!=1||count>3){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}ExperimentalProgram result;result.linked=true;result.linkSuccess=true;std::vector<uint32_t> shaders;for(uint32_t i=0;i<count;++i){uint32_t type=0,size=0;if(!read32(offset,type)||!read32(offset,size)||offset+size>static_cast<size_t>(length)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}uint32_t shader=metalsharp::GLShaderTracker::instance().createShader(type);auto* state=metalsharp::GLShaderTracker::instance().getShader(shader);if(!state){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}state->msl.assign(reinterpret_cast<const char*>(bytes+offset),size);state->compiled=true;state->compileSuccess=true;shaders.push_back(shader);offset+=size;}for(uint32_t shader:metalsharp::GLShaderTracker::instance().copyAttachedShaders(program))metalsharp::GLShaderTracker::instance().detachShader(program,shader);for(uint32_t shader:shaders){metalsharp::GLShaderTracker::instance().attachShader(program,shader);auto* state=metalsharp::GLShaderTracker::instance().getShader(shader);if(state&&state->stage==metalsharp::ShaderStage::Vertex)result.vertexShader=shader;if(state&&state->stage==metalsharp::ShaderStage::Pixel)result.fragmentShader=shader;}result.binary.assign(bytes,bytes+length);std::lock_guard<std::mutex> lock(g_programMutex);g_programs[program]=std::move(result); }
 extern "C" void glBindFragDataLocation(uint32_t program,uint32_t colorNumber,const char* name) { if(!isExperimentalProgram(program)&&!metalsharp::GLShaderTracker::instance().hasProgram(program)){glDispatch<void,uint32_t,uint32_t,const char*>("glBindFragDataLocation",program,colorNumber,name);return;}if(name){std::lock_guard<std::mutex> lock(g_programMutex);g_programs[program].fragDataLocations[name]=colorNumber;} }
 extern "C" void glBindFragDataLocationIndexed(uint32_t program,uint32_t colorNumber,uint32_t index,const char* name) { if(!isExperimentalProgram(program)&&!metalsharp::GLShaderTracker::instance().hasProgram(program)){glDispatch<void,uint32_t,uint32_t,uint32_t,const char*>("glBindFragDataLocationIndexed",program,colorNumber,index,name);return;}glBindFragDataLocation(program,colorNumber,name); }
 extern "C" int32_t glGetFragDataLocation(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataLocation",program,name);if(!name)return -1;std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end())return -1;auto found=it->second.fragDataLocations.find(name);return found==it->second.fragDataLocations.end()?-1:static_cast<int32_t>(found->second); }
@@ -1787,6 +1802,8 @@ extern "C" void glLinkProgram(uint32_t program) {
         if(state==vertex)result.vertexShader=shader;
         if(state==fragment)result.fragmentShader=shader;
     }
+    { std::lock_guard<std::mutex> lock(g_programMutex); auto old=g_programs.find(program); if(old!=g_programs.end()&&result.binaryRetrievable==false)result.binaryRetrievable=old->second.binaryRetrievable; }
+    if(result.linkSuccess) result.binary=buildExperimentalProgramBinary(vertex,fragment,compute);
     std::lock_guard<std::mutex> lock(g_programMutex);
     g_programs[program] = std::move(result);
 }
@@ -3031,6 +3048,14 @@ extern "C" void metalsharp_opengl_set_metal_layer(void* layer) {
 
 extern "C" int metalsharp_opengl_modern_context_ready(void) {
     return g_modernContextReady && metalModeEnabled();
+}
+extern "C" void metalsharp_opengl_set_current_context(void* context) {
+    if(!metalModeEnabled())return;
+    std::lock_guard<std::mutex> lock(g_contextStateMutex);
+    if(context==g_currentContextKey)return;
+    if(g_currentContextKey)g_contextStates[g_currentContextKey]=g_glBridge.state();
+    g_currentContextKey=context;
+    if(context){auto it=g_contextStates.find(context);if(it!=g_contextStates.end())g_glBridge.state()=it->second;else {g_glBridge.state()=metalsharp::GLState{};g_contextStates.emplace(context,g_glBridge.state());}}
 }
 
 extern "C" int metalsharp_opengl_is_drawable_backed(void) {

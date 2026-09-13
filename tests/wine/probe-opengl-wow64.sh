@@ -82,7 +82,9 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader-elements64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader-elements32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_tess_compile.c" -o "$RUN_ROOT/tess64.exe" -lopengl32 -luser32 -lgdi32
@@ -142,6 +144,8 @@ run_shader "$RUN_ROOT/interface64.exe"
 run_shader "$RUN_ROOT/interface32.exe"
 grep -q WINEMETALGL_WGL_MULTI_CONTEXT_OK "$RUN_ROOT/contexts64.exe.stdout"
 grep -q WINEMETALGL_WGL_MULTI_CONTEXT_OK "$RUN_ROOT/contexts32.exe.stdout"
+grep -q WINEMETALGL_WGL_CONTEXT_STATE_OK "$RUN_ROOT/contexts64.exe.stdout"
+grep -q WINEMETALGL_WGL_CONTEXT_STATE_OK "$RUN_ROOT/contexts32.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_OK "$RUN_ROOT/pipeline64.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_OK "$RUN_ROOT/pipeline32.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK "$RUN_ROOT/pipeline64.exe.stdout"
@@ -178,6 +182,8 @@ run_shader "$RUN_ROOT/transform-shader64.exe"
 run_shader "$RUN_ROOT/transform-shader32.exe"
 run_shader "$RUN_ROOT/transform-shader-elements64.exe"
 run_shader "$RUN_ROOT/transform-shader-elements32.exe"
+run_shader "$RUN_ROOT/shader-binary64.exe"
+run_shader "$RUN_ROOT/shader-binary32.exe"
 run_shader "$RUN_ROOT/tess64.exe"
 run_shader "$RUN_ROOT/tess32.exe"
 run_shader "$RUN_ROOT/tess-draw64.exe"
@@ -308,6 +314,10 @@ grep -q WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK "$RUN_ROOT/transform-shader-ele
 grep -q WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK "$RUN_ROOT/transform-shader-elements32.exe.stdout"
 grep -q WINEMETALGL_TRANSFORM_SHADER_RANGE_OK "$RUN_ROOT/transform-shader-elements64.exe.stdout"
 grep -q WINEMETALGL_TRANSFORM_SHADER_RANGE_OK "$RUN_ROOT/transform-shader-elements32.exe.stdout"
+grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary64.exe.stdout"
+grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary32.exe.stdout"
+grep -q WINEMETALGL_PROGRAM_BINARY_OK "$RUN_ROOT/shader-binary64.exe.stdout"
+grep -q WINEMETALGL_PROGRAM_BINARY_OK "$RUN_ROOT/shader-binary32.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_COMPILE_OK "$RUN_ROOT/tess64.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_COMPILE_OK "$RUN_ROOT/tess32.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_DRAW_OK "$RUN_ROOT/tess-draw64.exe.stdout"
@@ -376,6 +386,7 @@ echo WINEMETALGL_WOW64_I386_OK
 echo WINEMETALGL_OPENGL32_LOAD_OK
 echo WINEMETALGL_WGL_CONTEXT_OK
 echo WINEMETALGL_WGL_MULTI_CONTEXT_OK
+echo WINEMETALGL_WGL_CONTEXT_STATE_OK
 echo WINEMETALGL_PROGRAM_PIPELINE_OK
 echo WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK
 echo WINEMETALGL_INTERFACE_REJECT_OK
@@ -432,6 +443,8 @@ echo WINEMETALGL_TRANSFORM_FIXED_OK
 echo WINEMETALGL_TRANSFORM_SHADER_OK
 echo WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 echo WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
+echo WINEMETALGL_SHADER_BINARY_OK
+echo WINEMETALGL_PROGRAM_BINARY_OK
 echo WINEMETALGL_TESSELLATION_COMPILE_OK
 echo WINEMETALGL_TESSELLATION_DRAW_OK
 echo WINEMETALGL_TESSELLATION_QUAD_OK
