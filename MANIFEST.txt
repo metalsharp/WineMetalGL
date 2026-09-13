@@ -36,6 +36,7 @@ scripts/stage-host-libs.sh
 scripts/stage-release.sh
 scripts/stage-wine.sh
 scripts/verify-release.sh
+scripts/verify-source.sh
 src/opengl/EntryPoint.cpp
 src/opengl/GLErrorTracker.cpp
 src/opengl/GLMetalRenderer.mm
