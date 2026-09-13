@@ -52,7 +52,9 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_runtime.c" -o "$RUN_ROOT/runtime64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_runtime.c" -o "$RUN_ROOT/runtime32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_contexts.c" -o "$RUN_ROOT/contexts64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_share.c" -o "$RUN_ROOT/share64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_contexts.c" -o "$RUN_ROOT/contexts32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_share.c" -o "$RUN_ROOT/share32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_pipeline.c" -o "$RUN_ROOT/pipeline64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_pipeline.c" -o "$RUN_ROOT/pipeline32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_interface.c" -o "$RUN_ROOT/interface64.exe" -lopengl32 -luser32 -lgdi32
@@ -162,6 +164,8 @@ grep -q OPENGL_RUNTIME_ALL_OK "$RUN_ROOT/runtime64.marker"
 grep -q OPENGL_RUNTIME_ALL_OK "$RUN_ROOT/runtime32.marker"
 run_shader "$RUN_ROOT/contexts64.exe"
 run_shader "$RUN_ROOT/contexts32.exe"
+run_shader "$RUN_ROOT/share64.exe"
+run_shader "$RUN_ROOT/share32.exe"
 run_shader "$RUN_ROOT/pipeline64.exe"
 run_shader "$RUN_ROOT/pipeline32.exe"
 run_shader "$RUN_ROOT/interface64.exe"
@@ -172,6 +176,8 @@ grep -q WINEMETALGL_WGL_CONTEXT_STATE_OK "$RUN_ROOT/contexts64.exe.stdout"
 grep -q WINEMETALGL_WGL_CONTEXT_STATE_OK "$RUN_ROOT/contexts32.exe.stdout"
 grep -q WINEMETALGL_WGL_CONTEXT_THREADS_OK "$RUN_ROOT/contexts64.exe.stdout"
 grep -q WINEMETALGL_WGL_CONTEXT_THREADS_OK "$RUN_ROOT/contexts32.exe.stdout"
+grep -q WINEMETALGL_WGL_SHARE_LISTS_OK "$RUN_ROOT/share64.exe.stdout"
+grep -q WINEMETALGL_WGL_SHARE_LISTS_OK "$RUN_ROOT/share32.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_OK "$RUN_ROOT/pipeline64.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_OK "$RUN_ROOT/pipeline32.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK "$RUN_ROOT/pipeline64.exe.stdout"
@@ -500,6 +506,7 @@ echo WINEMETALGL_WGL_CONTEXT_OK
 echo WINEMETALGL_WGL_MULTI_CONTEXT_OK
 echo WINEMETALGL_WGL_CONTEXT_STATE_OK
 echo WINEMETALGL_WGL_CONTEXT_THREADS_OK
+echo WINEMETALGL_WGL_SHARE_LISTS_OK
 echo WINEMETALGL_PROGRAM_PIPELINE_OK
 echo WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK
 echo WINEMETALGL_INTERFACE_REJECT_OK
