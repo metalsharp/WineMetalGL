@@ -74,6 +74,7 @@ tests/wine/opengl_fixed_point.c
 tests/wine/opengl_fixed_line.c
 tests/wine/opengl_geometry.c
 tests/wine/opengl_geometry_points.c
+tests/wine/opengl_geometry_varying.c
 tests/wine/opengl_glsl110.c
 tests/wine/opengl_glsl120.c
 tests/wine/opengl_image_formats.c
