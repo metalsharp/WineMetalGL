@@ -2756,6 +2756,13 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         "glReadPixels", x, y, w, h, format, type, data);
 }
 
+extern "C" void glGetUniformfv(uint32_t,int32_t,float*);
+extern "C" void glGetUniformiv(uint32_t,int32_t,int32_t*);
+extern "C" void glReadnPixels(int32_t x,int32_t y,int32_t width,int32_t height,uint32_t format,uint32_t type,int32_t bufSize,void* data) { if(metalModeEnabled()){size_t required=pixelUploadBytes(width,height,1,format,type,g_glBridge.state().packAlignment);if(bufSize<0||static_cast<size_t>(bufSize)<required){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}glReadPixels(x,y,width,height,format,type,data);return;}glDispatch<void,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t,int32_t,void*>("glReadnPixels",x,y,width,height,format,type,bufSize,data); }
+extern "C" uint32_t glGetGraphicsResetStatus(void) { if(metalModeEnabled())return 0;return glDispatch<uint32_t>("glGetGraphicsResetStatus"); }
+extern "C" void glGetnUniformfv(uint32_t program,int32_t location,int32_t bufSize,float* params) { if(metalModeEnabled()){if(bufSize<0){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}glGetUniformfv(program,location,params);return;}glDispatch<void,uint32_t,int32_t,int32_t,float*>("glGetnUniformfv",program,location,bufSize,params); }
+extern "C" void glGetnUniformiv(uint32_t program,int32_t location,int32_t bufSize,int32_t* params) { if(metalModeEnabled()){if(bufSize<0){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}glGetUniformiv(program,location,params);return;}glDispatch<void,uint32_t,int32_t,int32_t,int32_t*>("glGetnUniformiv",program,location,bufSize,params); }
+
 // ---------------------------------------------------------------------------
 // Texture objects (GL 1.1-1.3)
 // ---------------------------------------------------------------------------

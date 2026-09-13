@@ -18,6 +18,7 @@ typedef void (WINAPI *PFNGLLINKPROGRAMPROC)(GLuint);
 typedef void (WINAPI *PFNGLGETPROGRAMIVPROC)(GLuint, GLenum, GLint *);
 typedef void (WINAPI *PFNGLGETPROGRAMINFOLOGPROC)(GLuint, GLsizei, GLsizei *, char *);
 typedef void (WINAPI *PFNGLUSEPROGRAMPROC)(GLuint);
+typedef void (WINAPI *PFNGLREADNPIXELSPROC)(GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,GLsizei,void*);
 typedef void (WINAPI *PFNGLCLIPCONTROLPROC)(GLenum,GLenum);
 typedef void (WINAPI *PFNGLBINDFRAGDATALOCATIONPROC)(GLuint,GLuint,const char*);
 typedef GLint (WINAPI *PFNGLGETFRAGDATALOCATIONPROC)(GLuint,const char*);
@@ -93,6 +94,7 @@ int main(void)
     PFNGLGETPROGRAMIVPROC get_program_iv;
     PFNGLGETPROGRAMINFOLOGPROC get_program_log;
     PFNGLUSEPROGRAMPROC use_program;
+    PFNGLREADNPIXELSPROC readn_pixels;
     PFNGLCLIPCONTROLPROC clip_control;
     PFNGLBINDFRAGDATALOCATIONPROC bind_frag_data_location;
     PFNGLGETFRAGDATALOCATIONPROC get_frag_data_location;
@@ -142,6 +144,7 @@ int main(void)
     LOAD(PFNGLGETPROGRAMIVPROC, get_program_iv, "glGetProgramiv");
     LOAD(PFNGLGETPROGRAMINFOLOGPROC, get_program_log, "glGetProgramInfoLog");
     LOAD(PFNGLUSEPROGRAMPROC, use_program, "glUseProgram");
+    LOAD(PFNGLREADNPIXELSPROC, readn_pixels, "glReadnPixels");
     LOAD(PFNGLCLIPCONTROLPROC, clip_control, "glClipControl");
     LOAD(PFNGLBINDFRAGDATALOCATIONPROC, bind_frag_data_location, "glBindFragDataLocation");
     LOAD(PFNGLGETFRAGDATALOCATIONPROC, get_frag_data_location, "glGetFragDataLocation");
@@ -179,6 +182,7 @@ int main(void)
     GLint reported_viewport[4]={0}; GLfloat reported_clear[4]={0}; glGetIntegerv(0x0BA2,reported_viewport); glGetFloatv(0x0C22,reported_clear); if(reported_viewport[2]!=64||reported_viewport[3]!=64)return 17; printf("WINEMETALGL_STATE_QUERY_OK\\n"); glPolygonOffset(1.25f,2.5f);glEnable(0x8037);GLfloat offset_factor=0,offset_units=0;glGetFloatv(0x8038,&offset_factor);glGetFloatv(0x2A00,&offset_units);glEnable(0x864F);GLboolean clamp=0;glGetBooleanv(0x864F,&clamp);if(offset_factor<1.24f||offset_units<2.49f||!clamp)return 18;glDisable(0x864F);glDisable(0x8037);printf("WINEMETALGL_RASTER_STATE_OK\\n"); clip_control(0x8CA2,0x935F);GLint clip_origin=0,clip_depth=0;glGetIntegerv(0x935C,&clip_origin);glGetIntegerv(0x935D,&clip_depth);if(clip_origin!=0x8CA2||clip_depth!=0x935F)return 18;clip_control(0x8CA1,0x935E);printf("WINEMETALGL_CLIP_CONTROL_OK\\n");
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    unsigned char robust_pixel[4]={0};readn_pixels(32,32,1,1,GL_RGBA,GL_UNSIGNED_BYTE,sizeof(robust_pixel),robust_pixel);if(robust_pixel[0]!=pixel[0]||robust_pixel[1]!=pixel[1]||robust_pixel[2]!=pixel[2]||robust_pixel[3]!=pixel[3])return 19;printf("WINEMETALGL_ROBUSTNESS_OK\\n");
     printf("%s Metal readback rgba=%u,%u,%u,%u error=0x%x\n",
            version_name, pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());
     if (pixel[0] < 47 || pixel[0] > 55 ||

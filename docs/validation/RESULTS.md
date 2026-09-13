@@ -31,6 +31,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
 - Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
 - OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
+- Bounded `glReadnPixels` robustness path.
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
@@ -78,6 +79,7 @@ WINEMETALGL_GLSL110_OK
 WINEMETALGL_GLSL120_OK
 WINEMETALGL_GLSL330_OK
 WINEMETALGL_STATE_QUERY_OK
+WINEMETALGL_ROBUSTNESS_OK
 WINEMETALGL_RASTER_STATE_OK
 WINEMETALGL_CLIP_CONTROL_OK
 WINEMETALGL_GLSL450_OK
