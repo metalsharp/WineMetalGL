@@ -1,6 +1,9 @@
-# WineMetalGL 1.8.0 validation
+# WineMetalGL current validation
 
-Validation date: 2026-09-12
+Validation date: 2026-09-13
+
+The candidate artifacts staged from this validation are in
+`/Volumes/AverySSD/VKMT/graphics/winemetalgl-1.9.0-candidate-20260913`.
 
 ## Host gates
 
@@ -16,11 +19,9 @@ architecture (`x86_64`). No ARM or universal artifact is part of this release.
 
 ## Wine gates
 
-`tests/wine/probe-opengl-wow64.sh` was run against:
-
-```text
-/Volumes/AverySSD/Crossover-WineForge-macos15/merged-build/install/wine-vulkan-portability-test
-```
+`tests/wine/probe-opengl-wow64.sh` was run against the freshly rebuilt Wine
+11.17 candidate runtime, with the candidate's matching `opengl32.dll`,
+`winemac.so`, `win32u.so`, and sidecar staged together.
 
 The runner created one fresh `WINEARCH=wow64` prefix and sequentially ran
 x86_64 and i386 Windows fixtures. Both guests passed:
@@ -195,12 +196,15 @@ WINEMETALGL_FIXED_TEXGEN_OK
 
 The explicit `WINEMETALGL_METAL_SURFACE_OK`,
 `WINEMETALGL_DEFAULT_FBO_PRESENT_OK`, and `WINEMETALGL_READBACK_OK` markers
-prove the drawable-backed path without requiring verbose Wine logging.
+prove the drawable-backed path without requiring verbose Wine logging. The
+native translation probe also reports `WINEMETALGL_NATIVE_TRANSLATION_OK`.
 
 ## Scope boundary
 
-This release does not claim complete Khronos OpenGL 4.6 conformance. The
+This candidate does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
-tessellation, transform feedback, fixed-function lighting/matrices/display
-lists, image formats beyond the validated 2D RGBA8/R32UI paths, and the full
-texture/sampler/FBO format matrix remain explicitly unadvertised; fixed-function texture combine/coordinate generation is limited to the validated modes above.
+general tessellation-control/evaluation semantics, general transform feedback,
+fixed-function lighting/matrices/display lists, image formats beyond the
+validated 2D RGBA8/R32UI/R32F/RGBA16F paths, and the full texture/sampler/FBO
+format matrix remain explicitly unadvertised. Fixed-function texture
+combine/coordinate generation is limited to the validated modes above.
