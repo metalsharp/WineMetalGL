@@ -49,6 +49,16 @@ namespace metalsharp {
 
 struct GLState;
 struct GLShaderState;
+struct FixedTextureEnvironment {
+    uint32_t mode = 0x2100;
+    uint32_t combineRGB = 0x2100;
+    uint32_t combineAlpha = 0x2100;
+    uint32_t sourceRGB[3] = {0x1702,0x8577,0x8576};
+    uint32_t operandRGB[3] = {0x0300,0x0300,0x0300};
+    uint32_t sourceAlpha[3] = {0x1702,0x8577,0x8576};
+    uint32_t operandAlpha[3] = {0x0302,0x0302,0x0302};
+    float constantColor[4] = {0,0,0,1};
+};
 
 /// Bridges OpenGL draw calls to Metal. Each GL context owns one renderer.
 ///
@@ -81,6 +91,7 @@ class GLMetalRenderer {
     /// Bind the current pipeline state for drawing.
     void usePipeline();
     void setRasterState(const GLState& glState);
+    void setBlendColor(const GLState& glState);
 
     /// Create a Metal buffer from raw vertex data.
     /// @return buffer handle (non-zero on success)
@@ -107,7 +118,7 @@ class GLMetalRenderer {
                            uint32_t minFilter, uint32_t magFilter,
                            uint32_t wrapS, uint32_t wrapT,
                            bool alphaTest, uint32_t alphaFunc, float alphaRef,
-                           uint32_t textureEnvMode, const GLState& glState);
+                           const FixedTextureEnvironment& textureEnv, const GLState& glState);
 
     /// Begin a render pass on the default framebuffer (FBO 0).
     /// If setMetalLayer() was called, the pass targets the current
@@ -119,7 +130,7 @@ class GLMetalRenderer {
     /// Begin a pass targeting a Metal texture owned by an OpenGL FBO.
     /// `textureHandle == 0` selects the current CAMetalDrawable/offscreen
     /// default target. The texture must have render-target usage.
-    void beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear, uint64_t depthTextureHandle = 0, uint32_t colorSlice = 0);
+    void beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear, uint64_t depthTextureHandle = 0, uint32_t colorSlice = 0, uint64_t stencilTextureHandle = 0);
 
     /// End the current render pass and present.
     void endRenderPass();
@@ -132,8 +143,8 @@ class GLMetalRenderer {
 
     /// Begin/dispatch a compute workload for a compute-only OpenGL program.
     void beginComputePass();
-    void bindComputeBuffer(uint64_t bufferHandle, uint32_t index);
-    void bindUniformBuffer(uint64_t bufferHandle, uint32_t index);
+    void bindComputeBuffer(uint64_t bufferHandle, uint32_t index, size_t offset = 0);
+    void bindUniformBuffer(uint64_t bufferHandle, uint32_t index, size_t offset = 0);
     void bindComputeTexture(uint64_t textureHandle, uint32_t index);
     void dispatchCompute(uint32_t x, uint32_t y, uint32_t z);
     bool readBuffer(uint64_t bufferHandle, size_t offset, size_t size, void* data);
@@ -150,6 +161,8 @@ class GLMetalRenderer {
     /// The renderer's Metal target is BGRA8; this method performs the channel
     /// conversion required by glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE).
     bool readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
+    bool readDepth32(uint64_t depthTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
+    bool readStencil8(uint64_t stencilTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data, uint32_t slice = 0);
     bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height);
 
@@ -176,7 +189,8 @@ class GLMetalRenderer {
     /// @param width,height  texture dimensions in pixels
     /// @param data         BGRA8 pixel data, tightly packed
     /// @return non-zero texture handle on success
-    uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true);
+    uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true, bool srgb = false);
+    uint64_t createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
     uint64_t createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat);
@@ -189,7 +203,9 @@ class GLMetalRenderer {
     /// Bind a sampler state using OpenGL enum values for min/mag filters and
     /// S/T wrap modes.
     void bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
-                     uint32_t wrapS, uint32_t wrapT);
+                     uint32_t wrapS, uint32_t wrapT, uint32_t maxAnisotropy,
+                     float minLod, float maxLod, uint32_t compareFunc,
+                     bool compare, const float* borderColor);
 
     /// Set the encoder viewport (glViewport equivalent).
     void setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height, double znear = 0.0, double zfar = 1.0);

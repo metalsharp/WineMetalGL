@@ -40,6 +40,7 @@ struct GLState {
 
     // Current program / shader
     uint32_t currentProgram = 0;
+    uint32_t currentProgramPipeline = 0;
     bool shaderCompilePending = false;
 
     // Blend state
@@ -53,6 +54,7 @@ struct GLState {
     uint32_t blendDstAlpha = 0;
     uint32_t blendEquationRGB = 0x8006;
     uint32_t blendEquationAlpha = 0x8006;
+    float blendColor[4] = {0,0,0,0};
     bool colorMask[4] = {true, true, true, true};
 
     // Depth state
@@ -67,6 +69,13 @@ struct GLState {
     uint32_t stencilFail = 0x1e00; /* GL_KEEP */
     uint32_t stencilDepthFail = 0x1e00;
     uint32_t stencilDepthPass = 0x1e00;
+    uint32_t stencilFuncBack = 0x0207;
+    int32_t stencilRefBack = 0;
+    uint32_t stencilValueMaskBack = 0xffffffffu;
+    uint32_t stencilWriteMaskBack = 0xffffffffu;
+    uint32_t stencilFailBack = 0x1e00;
+    uint32_t stencilDepthFailBack = 0x1e00;
+    uint32_t stencilDepthPassBack = 0x1e00;
 
     // Clear state
     float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -98,6 +107,8 @@ struct GLState {
     uint32_t readBuffer = 0x0405;
     bool scissorEnabled = false;
     int32_t scissorX = 0, scissorY = 0, scissorWidth = 0, scissorHeight = 0;
+    bool polygonOffsetFill = false, polygonOffsetLine = false, polygonOffsetPoint = false, depthClampEnabled = false;
+    float polygonOffsetFactor = 0.0f, polygonOffsetUnits = 0.0f;
 };
 
 /// Bridge between Windows opengl32.dll callers and macOS native OpenGL.

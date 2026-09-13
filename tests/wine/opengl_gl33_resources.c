@@ -9,6 +9,7 @@
 #define GL_LINK_STATUS 0x8b82
 #define GL_ARRAY_BUFFER 0x8892
 #define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#define GL_PIXEL_PACK_BUFFER 0x88eb
 #define GL_STATIC_DRAW 0x88e4
 #define GL_FLOAT 0x1406
 #define GL_UNSIGNED_SHORT 0x1403
@@ -31,7 +32,7 @@ typedef GLint (WINAPI *PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const char *);
 typedef void (WINAPI *PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
 typedef void (WINAPI *PFNGLGENBUFFERSPROC)(GLsizei, GLuint *);
 typedef void (WINAPI *PFNGLBINDBUFFERPROC)(GLenum, GLuint);
-typedef void (WINAPI *PFNGLBUFFERDATAPROC)(GLenum, intptr_t, const void *, GLenum);
+typedef void (WINAPI *PFNGLBUFFERDATAPROC)(GLenum, intptr_t, const void *, GLenum); typedef void (WINAPI *PFNGLGETBUFFERSUBDATAPROC)(GLenum,intptr_t,intptr_t,void*);
 typedef void (WINAPI *PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
 typedef void (WINAPI *PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
 typedef void (WINAPI *PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);
@@ -89,7 +90,7 @@ int main(void)
     PFNGLUNIFORM4FPROC uniform4f;
     PFNGLGENBUFFERSPROC gen_buffers;
     PFNGLBINDBUFFERPROC bind_buffer;
-    PFNGLBUFFERDATAPROC buffer_data;
+    PFNGLBUFFERDATAPROC buffer_data; PFNGLGETBUFFERSUBDATAPROC get_buffer_sub_data;
     PFNGLDELETEBUFFERSPROC delete_buffers;
     PFNGLENABLEVERTEXATTRIBARRAYPROC enable_attrib;
     PFNGLVERTEXATTRIBPOINTERPROC attrib_pointer;
@@ -123,7 +124,7 @@ int main(void)
     LOAD(PFNGLUNIFORM4FPROC, uniform4f, "glUniform4f");
     LOAD(PFNGLGENBUFFERSPROC, gen_buffers, "glGenBuffers");
     LOAD(PFNGLBINDBUFFERPROC, bind_buffer, "glBindBuffer");
-    LOAD(PFNGLBUFFERDATAPROC, buffer_data, "glBufferData");
+    LOAD(PFNGLBUFFERDATAPROC, buffer_data, "glBufferData"); LOAD(PFNGLGETBUFFERSUBDATAPROC, get_buffer_sub_data, "glGetBufferSubData");
     LOAD(PFNGLDELETEBUFFERSPROC, delete_buffers, "glDeleteBuffers");
     LOAD(PFNGLENABLEVERTEXATTRIBARRAYPROC, enable_attrib, "glEnableVertexAttribArray");
     LOAD(PFNGLVERTEXATTRIBPOINTERPROC, attrib_pointer, "glVertexAttribPointer");
@@ -151,7 +152,7 @@ int main(void)
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("GL33 resources readback rgba=%u,%u,%u,%u error=0x%x\n", pixel[0], pixel[1], pixel[2], pixel[3], (unsigned)glGetError());
     if (pixel[0] < 47 || pixel[0] > 55 || pixel[1] < 98 || pixel[1] > 106 || pixel[2] < 149 || pixel[2] > 157 || pixel[3] < 250) return 19;
-    printf("WINEMETALGL_GL33_RESOURCES_OK\n");
+    printf("WINEMETALGL_GL33_RESOURCES_OK\n"); GLuint pbo; unsigned char pbo_pixel[4]={0}; gen_buffers(1,&pbo); bind_buffer(GL_PIXEL_PACK_BUFFER,pbo); buffer_data(GL_PIXEL_PACK_BUFFER,4,0,GL_STATIC_DRAW); glReadPixels(32,32,1,1,GL_RGBA,GL_UNSIGNED_BYTE,0); get_buffer_sub_data(GL_PIXEL_PACK_BUFFER,0,4,pbo_pixel); if(pbo_pixel[0]<47||pbo_pixel[0]>55||pbo_pixel[1]<98||pbo_pixel[1]>106||pbo_pixel[2]<149||pbo_pixel[2]>157||pbo_pixel[3]<250)return 20; printf("WINEMETALGL_PBO_READBACK_OK\n"); bind_buffer(GL_PIXEL_PACK_BUFFER,0);
     SwapBuffers(dc);
     delete_buffers(1, &ibo); delete_buffers(1, &vbo); delete_program(program); delete_shader(fragment_shader); delete_shader(vertex_shader);
     wglMakeCurrent(NULL, NULL); wglDeleteContext(context); ReleaseDC(window, dc); DestroyWindow(window);

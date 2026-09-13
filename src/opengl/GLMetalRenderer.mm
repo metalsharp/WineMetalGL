@@ -235,6 +235,10 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
             case 0x0306: return MTLBlendFactorDestinationColor;
             case 0x0307: return MTLBlendFactorOneMinusDestinationColor;
             case 0x0308: return MTLBlendFactorSourceAlphaSaturated;
+            case 0x8001: return MTLBlendFactorBlendColor;
+            case 0x8002: return MTLBlendFactorOneMinusBlendColor;
+            case 0x8003: return MTLBlendFactorBlendAlpha;
+            case 0x8004: return MTLBlendFactorOneMinusBlendAlpha;
             default: return MTLBlendFactorOne;
             }
         };
@@ -294,13 +298,17 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
                 default: return MTLStencilOperationKeep;
                 }
             };
-            MTLStencilDescriptor* stencil = [[MTLStencilDescriptor alloc] init];
-            stencil.stencilCompareFunction = depthFunc(glState.stencilFunc);
-            stencil.stencilFailureOperation = stencilOperation(glState.stencilFail);
-            stencil.depthFailureOperation = stencilOperation(glState.stencilDepthFail);
-            stencil.depthStencilPassOperation = stencilOperation(glState.stencilDepthPass);
-            stencil.readMask = glState.stencilValueMask; stencil.writeMask = glState.stencilWriteMask;
-            depth.frontFaceStencil = stencil; depth.backFaceStencil = stencil;
+            auto makeStencil = [&](uint32_t func, uint32_t fail, uint32_t depthFail, uint32_t pass, uint32_t readMask, uint32_t writeMask) {
+                MTLStencilDescriptor* stencil = [[MTLStencilDescriptor alloc] init];
+                stencil.stencilCompareFunction = depthFunc(func);
+                stencil.stencilFailureOperation = stencilOperation(fail);
+                stencil.depthFailureOperation = stencilOperation(depthFail);
+                stencil.depthStencilPassOperation = stencilOperation(pass);
+                stencil.readMask = readMask; stencil.writeMask = writeMask;
+                return stencil;
+            };
+            depth.frontFaceStencil = makeStencil(glState.stencilFunc,glState.stencilFail,glState.stencilDepthFail,glState.stencilDepthPass,glState.stencilValueMask,glState.stencilWriteMask);
+            depth.backFaceStencil = makeStencil(glState.stencilFuncBack,glState.stencilFailBack,glState.stencilDepthFailBack,glState.stencilDepthPassBack,glState.stencilValueMaskBack,glState.stencilWriteMaskBack);
         }
         std::lock_guard<std::mutex> depthLock(m_impl->mutex);
         m_impl->currentDepthStencilState = [m_device newDepthStencilStateWithDescriptor:depth];
@@ -447,6 +455,14 @@ void GLMetalRenderer::setRasterState(const GLState& glState) {
     if (!m_impl->currentEncoder) return;
     [m_impl->currentEncoder setCullMode:glState.cullEnabled ? (glState.cullFace == 0x0404 ? MTLCullModeFront : MTLCullModeBack) : MTLCullModeNone];
     [m_impl->currentEncoder setFrontFacingWinding:glState.frontFace == 0x0900 ? MTLWindingClockwise : MTLWindingCounterClockwise];
+    [m_impl->currentEncoder setDepthClipMode:glState.depthClampEnabled ? MTLDepthClipModeClamp : MTLDepthClipModeClip];
+    if (glState.polygonOffsetFill || glState.polygonOffsetLine || glState.polygonOffsetPoint) [m_impl->currentEncoder setDepthBias:glState.polygonOffsetUnits slopeScale:glState.polygonOffsetFactor clamp:0.0f];
+    else [m_impl->currentEncoder setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+}
+
+void GLMetalRenderer::setBlendColor(const GLState& glState) {
+    if (!m_impl->currentEncoder) return;
+    [m_impl->currentEncoder setBlendColorRed:glState.blendColor[0] green:glState.blendColor[1] blue:glState.blendColor[2] alpha:glState.blendColor[3]];
 }
 
 void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
@@ -465,7 +481,7 @@ void GLMetalRenderer::bindIndexBuffer(uint64_t bufferHandle, size_t offset)
 void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCount, uint32_t primitiveType,
                                           uint32_t width, uint32_t height, uint64_t textureHandle,
                                           uint32_t minFilter, uint32_t magFilter, uint32_t wrapS, uint32_t wrapT,
-                                          bool alphaTest, uint32_t alphaFunc, float alphaRef, uint32_t textureEnvMode, const GLState& glState)
+                                          bool alphaTest, uint32_t alphaFunc, float alphaRef, const FixedTextureEnvironment& textureEnv, const GLState& glState)
 {
     if (!m_device || !vertices || !vertexCount) return;
     {
@@ -478,9 +494,15 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
                 "struct Out { float4 p [[position]]; float4 c; float2 uv; };\n"
                 "vertex Out fixed_vertex(In i [[stage_in]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; return o; }\n"
                 "struct Alpha { float ref; uint func; };\n"
+                "struct TextureEnv { uint mode; uint combineRGB; uint combineAlpha; uint sourceRGB[3]; uint operandRGB[3]; uint sourceAlpha[3]; uint operandAlpha[3]; float4 constantColor; };\n"
                 "bool alpha_pass(float a, constant Alpha& x) { if(x.func==0x0200) return false; if(x.func==0x0201) return a<x.ref; if(x.func==0x0202) return a==x.ref; if(x.func==0x0203) return a<=x.ref; if(x.func==0x0204) return a>x.ref; if(x.func==0x0205) return a!=x.ref; if(x.func==0x0206) return a>=x.ref; return true; }\n"
+                "float4 env_source(uint source,float4 tex,float4 primary,float4 constantValue) { if(source==0x8576)return constantValue; if(source==0x8577)return primary; if(source==0x8578)return primary; return tex; }\n"
+                "float3 env_rgb(float4 value,uint operand) { return operand==0x0301?1.0-value.rgb:(operand==0x0302?float3(value.a):value.rgb); }\n"
+                "float env_alpha(float4 value,uint operand) { return operand==0x0303?1.0-value.a:value.a; }\n"
+                "float3 combine_rgb(constant TextureEnv& e,float4 tex,float4 primary) { float4 a=env_source(e.sourceRGB[0],tex,primary,e.constantColor),b=env_source(e.sourceRGB[1],tex,primary,e.constantColor),d=env_source(e.sourceRGB[2],tex,primary,e.constantColor); float3 x=env_rgb(a,e.operandRGB[0]),y=env_rgb(b,e.operandRGB[1]),z=env_rgb(d,e.operandRGB[2]); if(e.combineRGB==0x1e01)return x; if(e.combineRGB==0x0104)return x+y; if(e.combineRGB==0x8577)return x+y-0.5; if(e.combineRGB==0x8574)return x*y+(1.0-x)*z; return x*y; }\n"
+                "float combine_alpha(constant TextureEnv& e,float4 tex,float4 primary) { float4 a=env_source(e.sourceAlpha[0],tex,primary,e.constantColor),b=env_source(e.sourceAlpha[1],tex,primary,e.constantColor),d=env_source(e.sourceAlpha[2],tex,primary,e.constantColor); float x=env_alpha(a,e.operandAlpha[0]),y=env_alpha(b,e.operandAlpha[1]),z=env_alpha(d,e.operandAlpha[2]); if(e.combineAlpha==0x1e01)return x; if(e.combineAlpha==0x0104)return x+y; if(e.combineAlpha==0x8577)return x+y-0.5; if(e.combineAlpha==0x8574)return x*y+(1.0-x)*z; return x*y; }\n"
                 "fragment float4 fixed_fragment(Out i [[stage_in]], constant Alpha& a [[buffer(1)]]) { if(!alpha_pass(i.c.a,a)) discard_fragment(); return i.c; }\n"
-                "fragment float4 fixed_tex_fragment(Out i [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]], constant Alpha& a [[buffer(1)]], constant uint& mode [[buffer(2)]]) { float4 t=tex.sample(samp,i.uv); float4 c=(mode==0x1e01)?t:((mode==0x2102)?float4(mix(i.c.rgb,t.rgb,t.a),i.c.a):(i.c*t)); if(!alpha_pass(c.a,a)) discard_fragment(); return c; }\n";
+                "fragment float4 fixed_tex_fragment(Out i [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]], constant Alpha& a [[buffer(1)]], constant TextureEnv& env [[buffer(2)]]) { float4 t=tex.sample(samp,i.uv); float4 c=i.c; if(env.mode==0x1e01)c=t; else if(env.mode==0x2101)c=float4(mix(i.c.rgb,t.rgb,t.a),i.c.a); else if(env.mode==0x0be2)c=float4(mix(i.c.rgb,env.constantColor.rgb,t.rgb),i.c.a*t.a); else if(env.mode==0x0104)c=i.c+t; else if(env.mode==0x8570)c=float4(combine_rgb(env,t,i.c),combine_alpha(env,t,i.c)); else c=i.c*t; if(!alpha_pass(c.a,a)) discard_fragment(); return c; }\n";
             NSError* error = nil;
             NSString* text = [NSString stringWithUTF8String:source];
             id<MTLLibrary> library = [m_device newLibraryWithSource:text options:nil error:&error];
@@ -510,6 +532,10 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
                     case 0x0305: return MTLBlendFactorOneMinusDestinationAlpha;
                     case 0x0306: return MTLBlendFactorDestinationColor;
                     case 0x0307: return MTLBlendFactorOneMinusDestinationColor;
+                    case 0x8001: return MTLBlendFactorBlendColor;
+                    case 0x8002: return MTLBlendFactorOneMinusBlendColor;
+                    case 0x8003: return MTLBlendFactorBlendAlpha;
+                    case 0x8004: return MTLBlendFactorOneMinusBlendAlpha;
                     default: return MTLBlendFactorOne;
                     }
                 };
@@ -551,11 +577,15 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     [m_impl->currentEncoder setRenderPipelineState:pipeline];
     [m_impl->currentEncoder setCullMode:glState.cullEnabled ? (glState.cullFace == 0x0404 ? MTLCullModeFront : MTLCullModeBack) : MTLCullModeNone];
     [m_impl->currentEncoder setFrontFacingWinding:glState.frontFace == 0x0900 ? MTLWindingClockwise : MTLWindingCounterClockwise];
+    [m_impl->currentEncoder setDepthClipMode:glState.depthClampEnabled ? MTLDepthClipModeClamp : MTLDepthClipModeClip];
+    if (glState.polygonOffsetFill || glState.polygonOffsetLine || glState.polygonOffsetPoint) [m_impl->currentEncoder setDepthBias:glState.polygonOffsetUnits slopeScale:glState.polygonOffsetFactor clamp:0.0f];
+    else [m_impl->currentEncoder setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+    [m_impl->currentEncoder setBlendColorRed:glState.blendColor[0] green:glState.blendColor[1] blue:glState.blendColor[2] alpha:glState.blendColor[3]];
     struct AlphaState { float ref; uint32_t func; } alpha = { alphaRef, alphaTest ? alphaFunc : 0x0207 };
     id<MTLBuffer> alphaBuffer = [m_device newBufferWithBytes:&alpha length:sizeof(alpha) options:MTLResourceStorageModeShared];
     if (alphaBuffer) [m_impl->currentEncoder setFragmentBuffer:alphaBuffer offset:0 atIndex:1];
     if (textureHandle) {
-        id<MTLBuffer> textureEnvBuffer = [m_device newBufferWithBytes:&textureEnvMode length:sizeof(textureEnvMode) options:MTLResourceStorageModeShared];
+        id<MTLBuffer> textureEnvBuffer = [m_device newBufferWithBytes:&textureEnv length:sizeof(textureEnv) options:MTLResourceStorageModeShared];
         if (textureEnvBuffer) [m_impl->currentEncoder setFragmentBuffer:textureEnvBuffer offset:0 atIndex:2];
         auto texture = m_impl->textures.find(textureHandle);
         if (texture != m_impl->textures.end()) [m_impl->currentEncoder setFragmentTexture:texture->second atIndex:0];
@@ -677,7 +707,7 @@ void GLMetalRenderer::beginRenderPass(uint32_t width, uint32_t height) {
     beginRenderPassToTexture(0, width, height, true);
 }
 
-void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear, uint64_t depthTextureHandle, uint32_t colorSlice) {
+void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t width, uint32_t height, bool clear, uint64_t depthTextureHandle, uint32_t colorSlice, uint64_t stencilTextureHandle) {
     if (!m_device)
         return;
 
@@ -718,9 +748,11 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
     passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     m_impl->depthTarget = nil;
+    id<MTLTexture> stencilTarget = nil;
     if (depthTextureHandle) {
         auto depth = m_impl->textures.find(depthTextureHandle); if (depth != m_impl->textures.end()) m_impl->depthTarget = depth->second;
     }
+    if (stencilTextureHandle) { auto stencil = m_impl->textures.find(stencilTextureHandle); if (stencil != m_impl->textures.end()) stencilTarget = stencil->second; }
     if (!m_impl->depthTarget) {
         MTLTextureDescriptor* depthDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float_Stencil8 width:width height:height mipmapped:NO];
         depthDesc.usage = MTLTextureUsageRenderTarget;
@@ -732,13 +764,16 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
             passDesc.depthAttachment.texture = m_impl->depthTarget;
             passDesc.depthAttachment.loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
             passDesc.depthAttachment.clearDepth = m_impl->clearDepth;
-            passDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+            passDesc.depthAttachment.storeAction = depthTextureHandle ? MTLStoreActionStore : MTLStoreActionDontCare;
         }
-        if (depthFormat == MTLPixelFormatStencil8 || depthFormat == MTLPixelFormatDepth32Float_Stencil8) {
-            passDesc.stencilAttachment.texture = m_impl->depthTarget;
+        if (!stencilTarget) stencilTarget = m_impl->depthTarget;
+        MTLPixelFormat stencilFormat = stencilTarget.pixelFormat;
+        if (stencilFormat == MTLPixelFormatStencil8 || stencilFormat == MTLPixelFormatDepth32Float_Stencil8) {
+            passDesc.stencilAttachment.texture = stencilTarget;
+            passDesc.stencilAttachment.slice = colorSlice;
             passDesc.stencilAttachment.loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
             passDesc.stencilAttachment.clearStencil = m_impl->clearStencil;
-            passDesc.stencilAttachment.storeAction = MTLStoreActionDontCare;
+            passDesc.stencilAttachment.storeAction = (depthTextureHandle || stencilTextureHandle) ? MTLStoreActionStore : MTLStoreActionDontCare;
         }
     }
 
@@ -801,19 +836,19 @@ void GLMetalRenderer::beginComputePass() {
         [m_impl->currentComputeEncoder setComputePipelineState:m_impl->currentComputePipeline];
 }
 
-void GLMetalRenderer::bindComputeBuffer(uint64_t bufferHandle, uint32_t index) {
+void GLMetalRenderer::bindComputeBuffer(uint64_t bufferHandle, uint32_t index, size_t offset) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentComputeEncoder) return;
     auto it = m_impl->buffers.find(bufferHandle);
-    if (it != m_impl->buffers.end()) [m_impl->currentComputeEncoder setBuffer:it->second offset:0 atIndex:index];
+    if (it != m_impl->buffers.end()) [m_impl->currentComputeEncoder setBuffer:it->second offset:offset atIndex:index];
 }
 
-void GLMetalRenderer::bindUniformBuffer(uint64_t bufferHandle, uint32_t index) {
+void GLMetalRenderer::bindUniformBuffer(uint64_t bufferHandle, uint32_t index, size_t offset) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     auto it = m_impl->buffers.find(bufferHandle);
     if (it == m_impl->buffers.end() || !m_impl->currentEncoder) return;
-    [m_impl->currentEncoder setVertexBuffer:it->second offset:0 atIndex:index];
-    [m_impl->currentEncoder setFragmentBuffer:it->second offset:0 atIndex:index];
+    [m_impl->currentEncoder setVertexBuffer:it->second offset:offset atIndex:index];
+    [m_impl->currentEncoder setFragmentBuffer:it->second offset:offset atIndex:index];
 }
 
 void GLMetalRenderer::bindComputeTexture(uint64_t textureHandle, uint32_t index) {
@@ -891,38 +926,21 @@ bool GLMetalRenderer::readPixelsRGBA8(uint32_t x, uint32_t y, uint32_t width, ui
     return true;
 }
 
+bool GLMetalRenderer::readStencil8(uint64_t stencilTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data) {
+    if(!data||!width||!height)return false; std::lock_guard<std::mutex> lock(m_impl->mutex); auto it=m_impl->textures.find(stencilTextureHandle); if(it==m_impl->textures.end()||it->second.pixelFormat!=MTLPixelFormatDepth32Float_Stencil8)return false; if(x+width>it->second.width||y+height>it->second.height)return false; const size_t bytesPerPixel=8; std::vector<uint8_t> raw(static_cast<size_t>(width)*height*bytesPerPixel); [it->second getBytes:raw.data() bytesPerRow:width*bytesPerPixel fromRegion:MTLRegionMake2D(x,y,width,height) mipmapLevel:0]; for(size_t i=0;i<static_cast<size_t>(width)*height;++i)static_cast<uint8_t*>(data)[i]=raw[i*bytesPerPixel+4]; return true;
+}
+
+bool GLMetalRenderer::readDepth32(uint64_t depthTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data) {
+    if(!data||!width||!height)return false; std::lock_guard<std::mutex> lock(m_impl->mutex); auto it=m_impl->textures.find(depthTextureHandle); if(it==m_impl->textures.end()||it->second.pixelFormat!=MTLPixelFormatDepth32Float)return false; if(x+width>it->second.width||y+height>it->second.height)return false; [it->second getBytes:data bytesPerRow:width*sizeof(float) fromRegion:MTLRegionMake2D(x,y,width,height) mipmapLevel:0]; return true;
+}
+
+static float metalHalfToFloat(uint16_t value) { uint32_t sign=(value>>15)&1,e=(value>>10)&0x1f,m=value&0x3ff,bits;if(!e)bits=sign<<31;else if(e==0x1f)bits=(sign<<31)|0x7f800000|(m<<13);else bits=(sign<<31)|((static_cast<int32_t>(e)-15+127)<<23)|(m<<13);float result;std::memcpy(&result,&bits,4);return result; }
 bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y,
                                        uint32_t width, uint32_t height, void* data, uint32_t slice) {
     if (!data || !width || !height) return false;
-    std::lock_guard<std::mutex> lock(m_impl->mutex);
-    auto it = m_impl->textures.find(textureHandle);
-    if (it == m_impl->textures.end()) return false;
-    id<MTLTexture> texture = it->second;
-    if (x + width > texture.width || y + height > texture.height) return false;
-    const NSUInteger bytesPerRow = (static_cast<NSUInteger>(width) * 4 + 255) & ~static_cast<NSUInteger>(255);
-    const NSUInteger bufferSize = bytesPerRow * static_cast<NSUInteger>(height);
-    id<MTLBuffer> staging = [m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];
-    id<MTLCommandBuffer> commandBuffer = [m_commandQueue commandBuffer];
-    id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-    if (!staging || !commandBuffer || !blit) return false;
-    [blit copyFromTexture:texture sourceSlice:slice sourceLevel:0
-             sourceOrigin:MTLOriginMake(x, y, 0)
-               sourceSize:MTLSizeMake(width, height, 1)
-                 toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow
-    destinationBytesPerImage:bufferSize];
-    [blit endEncoding]; [commandBuffer commit]; [commandBuffer waitUntilCompleted];
-    if (commandBuffer.status != MTLCommandBufferStatusCompleted) return false;
-    uint8_t* rgba = static_cast<uint8_t*>(data);
-    const uint8_t* sourceBytes = static_cast<const uint8_t*>(staging.contents);
-    const bool bgraFormat = texture.pixelFormat == MTLPixelFormatBGRA8Unorm;
-    for (uint32_t row = 0; row < height; ++row)
-        for (uint32_t column = 0; column < width; ++column) {
-            const size_t source = static_cast<size_t>(row) * bytesPerRow + column * 4;
-            const size_t destination = (static_cast<size_t>(row) * width + column) * 4;
-            if (bgraFormat) { rgba[destination + 0] = sourceBytes[source + 2]; rgba[destination + 1] = sourceBytes[source + 1]; rgba[destination + 2] = sourceBytes[source + 0]; }
-            else { rgba[destination + 0] = sourceBytes[source + 0]; rgba[destination + 1] = sourceBytes[source + 1]; rgba[destination + 2] = sourceBytes[source + 2]; }
-            rgba[destination + 3] = sourceBytes[source + 3];
-        }
+    std::lock_guard<std::mutex> lock(m_impl->mutex); auto it=m_impl->textures.find(textureHandle); if(it==m_impl->textures.end())return false; id<MTLTexture> texture=it->second; if(x+width>texture.width||y+height>texture.height||slice>=texture.arrayLength)return false;
+    const bool r8=texture.pixelFormat==MTLPixelFormatR8Unorm,rg8=texture.pixelFormat==MTLPixelFormatRG8Unorm,rgba16=texture.pixelFormat==MTLPixelFormatRGBA16Float,rgba32=texture.pixelFormat==MTLPixelFormatRGBA32Float; const size_t bpp=r8?1:rg8?2:rgba16?8:rgba32?16:4; const NSUInteger bytesPerRow=(static_cast<NSUInteger>(width)*bpp+255)&~static_cast<NSUInteger>(255),bufferSize=bytesPerRow*static_cast<NSUInteger>(height); id<MTLBuffer> staging=[m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(!staging||!commandBuffer||!blit)return false;[blit copyFromTexture:texture sourceSlice:slice sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bufferSize];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];if(commandBuffer.status!=MTLCommandBufferStatusCompleted)return false;
+    uint8_t* rgbaOut=static_cast<uint8_t*>(data);const uint8_t* bytes=static_cast<const uint8_t*>(staging.contents);const bool bgra=texture.pixelFormat==MTLPixelFormatBGRA8Unorm||texture.pixelFormat==MTLPixelFormatBGRA8Unorm_sRGB;for(uint32_t row=0;row<height;++row)for(uint32_t column=0;column<width;++column){size_t src=static_cast<size_t>(row)*bytesPerRow+static_cast<size_t>(column)*bpp,dst=(static_cast<size_t>(row)*width+column)*4;float value[4]={0,0,0,1};if(r8)value[0]=bytes[src]/255.0f;else if(rg8){value[0]=bytes[src]/255.0f;value[1]=bytes[src+1]/255.0f;}else if(rgba16){const uint16_t* v=reinterpret_cast<const uint16_t*>(bytes+src);value[0]=metalHalfToFloat(v[0]);value[1]=metalHalfToFloat(v[1]);value[2]=metalHalfToFloat(v[2]);value[3]=metalHalfToFloat(v[3]);}else if(rgba32)std::memcpy(value,bytes+src,sizeof(value));else if(bgra){value[0]=bytes[src+2]/255.0f;value[1]=bytes[src+1]/255.0f;value[2]=bytes[src]/255.0f;value[3]=bytes[src+3]/255.0f;}else{for(int c=0;c<4;++c)value[c]=bytes[src+c]/255.0f;}for(int c=0;c<4;++c)rgbaOut[dst+c]=static_cast<uint8_t>(std::clamp(value[c],0.0f,1.0f)*255.0f+0.5f);}
     return true;
 }
 
@@ -1031,35 +1049,12 @@ void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, si
     }
 }
 
-uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped) {
-    if (!m_device || width == 0 || height == 0)
-        return 0;
-
-    MTLTextureDescriptor* texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                                                       width:width
-                                                                                      height:height
-                                                                                   mipmapped:mipmapped];
-    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
-    id<MTLTexture> texture = [m_device newTextureWithDescriptor:texDesc];
-    if (!texture)
-        return 0;
-
-    if (data) {
-        const size_t bytesPerRow = static_cast<size_t>(width) * 4u;
-        const MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-        [texture replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:bytesPerRow];
-    }
-    if (mipmapped) {
-        id<MTLCommandBuffer> commandBuffer = [m_commandQueue commandBuffer];
-        id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
-        if (blit) { [blit generateMipmapsForTexture:texture]; [blit endEncoding]; [commandBuffer commit]; [commandBuffer waitUntilCompleted]; }
-    }
-
-    std::lock_guard<std::mutex> lock(m_impl->mutex);
-    const uint64_t handle = m_impl->nextTextureHandle++;
-    m_impl->textures[handle] = texture;
-    return handle;
+uint64_t GLMetalRenderer::createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped) {
+    if(!m_device||!width||!height)return 0; MTLPixelFormat format=glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;
+    MTLTextureDescriptor* descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:mipmapped]; descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget; id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bytesPerPixel];if(mipmapped){id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];}}
+    std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
+uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped, bool srgb) { return createTextureFormat(width,height,srgb?0x8C43:0x8058,data,mipmapped); }
 
 uint64_t GLMetalRenderer::createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data) {
     if (!m_device || !width || !height || !depth) return 0;
@@ -1115,7 +1110,9 @@ void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
 }
 
 void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
-                                   uint32_t wrapS, uint32_t wrapT) {
+                                   uint32_t wrapS, uint32_t wrapT, uint32_t maxAnisotropy,
+                                   float minLod, float maxLod, uint32_t compareFunc,
+                                   bool compare, const float* borderColor) {
     if (!m_impl->currentEncoder || !m_device) return;
     MTLSamplerDescriptor* descriptor = [[MTLSamplerDescriptor alloc] init];
     descriptor.minFilter = (minFilter == 0x2600 || minFilter == 0x2700 || minFilter == 0x2702) ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
@@ -1131,6 +1128,13 @@ void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t m
     };
     descriptor.sAddressMode = wrap(wrapS);
     descriptor.tAddressMode = wrap(wrapT);
+    descriptor.maxAnisotropy = std::max<NSUInteger>(1, std::min<NSUInteger>(16, maxAnisotropy));
+    descriptor.lodMinClamp = std::max(0.0f, minLod);
+    descriptor.lodMaxClamp = std::max(descriptor.lodMinClamp, maxLod);
+    if (compare) {
+        switch (compareFunc) { case 0x0201: descriptor.compareFunction=MTLCompareFunctionLess; break; case 0x0202: descriptor.compareFunction=MTLCompareFunctionEqual; break; case 0x0203: descriptor.compareFunction=MTLCompareFunctionLessEqual; break; case 0x0204: descriptor.compareFunction=MTLCompareFunctionGreater; break; case 0x0205: descriptor.compareFunction=MTLCompareFunctionNotEqual; break; case 0x0206: descriptor.compareFunction=MTLCompareFunctionGreaterEqual; break; case 0x0207: descriptor.compareFunction=MTLCompareFunctionAlways; break; default: descriptor.compareFunction=MTLCompareFunctionNever; break; }
+    }
+    if (borderColor) { if(borderColor[3]<=0.0f) descriptor.borderColor=MTLSamplerBorderColorTransparentBlack; else if(borderColor[0]>=1.0f&&borderColor[1]>=1.0f&&borderColor[2]>=1.0f) descriptor.borderColor=MTLSamplerBorderColorOpaqueWhite; else if(borderColor[0]<=0.0f&&borderColor[1]<=0.0f&&borderColor[2]<=0.0f) descriptor.borderColor=MTLSamplerBorderColorOpaqueBlack; }
     id<MTLSamplerState> sampler = [m_device newSamplerStateWithDescriptor:descriptor];
     if (sampler) [m_impl->currentEncoder setFragmentSamplerState:sampler atIndex:index];
 }

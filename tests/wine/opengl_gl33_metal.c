@@ -18,6 +18,8 @@ typedef void (WINAPI *PFNGLLINKPROGRAMPROC)(GLuint);
 typedef void (WINAPI *PFNGLGETPROGRAMIVPROC)(GLuint, GLenum, GLint *);
 typedef void (WINAPI *PFNGLGETPROGRAMINFOLOGPROC)(GLuint, GLsizei, GLsizei *, char *);
 typedef void (WINAPI *PFNGLUSEPROGRAMPROC)(GLuint);
+typedef void (WINAPI *PFNGLBINDFRAGDATALOCATIONPROC)(GLuint,GLuint,const char*);
+typedef GLint (WINAPI *PFNGLGETFRAGDATALOCATIONPROC)(GLuint,const char*);
 typedef void (WINAPI *PFNGLDELETEOBJECTPROC)(GLuint);
 
 static void *get_gl_proc(const char *name)
@@ -90,6 +92,8 @@ int main(void)
     PFNGLGETPROGRAMIVPROC get_program_iv;
     PFNGLGETPROGRAMINFOLOGPROC get_program_log;
     PFNGLUSEPROGRAMPROC use_program;
+    PFNGLBINDFRAGDATALOCATIONPROC bind_frag_data_location;
+    PFNGLGETFRAGDATALOCATIONPROC get_frag_data_location;
     PFNGLDELETEOBJECTPROC delete_shader, delete_program;
     HWND window;
     HDC dc;
@@ -136,6 +140,8 @@ int main(void)
     LOAD(PFNGLGETPROGRAMIVPROC, get_program_iv, "glGetProgramiv");
     LOAD(PFNGLGETPROGRAMINFOLOGPROC, get_program_log, "glGetProgramInfoLog");
     LOAD(PFNGLUSEPROGRAMPROC, use_program, "glUseProgram");
+    LOAD(PFNGLBINDFRAGDATALOCATIONPROC, bind_frag_data_location, "glBindFragDataLocation");
+    LOAD(PFNGLGETFRAGDATALOCATIONPROC, get_frag_data_location, "glGetFragDataLocation");
     LOAD(PFNGLDELETEOBJECTPROC, delete_shader, "glDeleteShader");
     LOAD(PFNGLDELETEOBJECTPROC, delete_program, "glDeleteProgram");
 #undef LOAD
@@ -153,6 +159,7 @@ int main(void)
     program = create_program();
     attach_shader(program, vertex);
     attach_shader(program, fragment);
+    bind_frag_data_location(program, 0, "color");
     link_program(program);
     get_program_iv(program, GL_LINK_STATUS, &linked);
     if (!linked)
@@ -162,9 +169,11 @@ int main(void)
         return 16;
     }
     printf("OPENGL_%s_LINK_OK\n", version_name);
+    if(get_frag_data_location(program,"color")!=0)return 16; printf("WINEMETALGL_FRAG_DATA_LOCATION_OK\\n");
 
     use_program(program);
     glViewport(0, 0, 64, 64);
+    GLint reported_viewport[4]={0}; GLfloat reported_clear[4]={0}; glGetIntegerv(0x0BA2,reported_viewport); glGetFloatv(0x0C22,reported_clear); if(reported_viewport[2]!=64||reported_viewport[3]!=64)return 17; printf("WINEMETALGL_STATE_QUERY_OK\\n"); glPolygonOffset(1.25f,2.5f);glEnable(0x8037);GLfloat offset_factor=0,offset_units=0;glGetFloatv(0x8038,&offset_factor);glGetFloatv(0x2A00,&offset_units);glEnable(0x864F);GLboolean clamp=0;glGetBooleanv(0x864F,&clamp);if(offset_factor<1.24f||offset_units<2.49f||!clamp)return 18;glDisable(0x864F);glDisable(0x8037);printf("WINEMETALGL_RASTER_STATE_OK\\n");
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
     printf("%s Metal readback rgba=%u,%u,%u,%u error=0x%x\n",
