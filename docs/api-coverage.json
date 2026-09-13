@@ -40,7 +40,7 @@
       "forwarded": ["glGenRenderbuffers", "glGetRenderbufferParameteriv", "glFramebufferRenderbuffer", "glRenderbufferStorageMultisample", "glTexImage2DMultisample"]
     },
     "shader_stages": {
-      "implemented": ["vertex", "fragment", "GLSL 1.10/1.20 simple shader translation", "compute (buffer binding and dispatch)", "SPIR-V shader binary ingestion and specialization",  "MetalSharp program-binary serialization and restoration", "image load/store (2D rgba8, r32ui, r32f, and rgba16f)", "basic triangle and quad tessellation evaluation draw with per-edge/inner factor extraction", "simple triangle/point geometry pass-through emulation", "fixed-function single/multi-texture combine modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha)", "fixed-function object/eye-linear, sphere-map, and normal-map texture-coordinate generation", "fixed-function user clip-plane evaluation for immediate-mode primitives", "fixed-function point-size state, line-width expansion, and Metal point/line rasterization", "display-list matrix command recording and replay", "polygon offset, depth-clamp, and clip-control raster state, including target-0 per-target blend/color-mask operations", "multisample color textures/renderbuffers with Metal resolve and readback", "cube-map texture creation, sampling, mipmaps, and face readback", "1D texture creation, subimage updates, and readback", "rectangle texture creation, unnormalized sampling, and readback", "debug message insertion/logging, callbacks, groups, and object labels", "bounded readback/uniform robustness entry points", "limited pass-through shader transform-feedback capture for gl_Position and simple scalar/vector-varying expressions"],
+      "implemented": ["vertex", "fragment", "GLSL 1.10/1.20 simple shader translation", "compute (buffer binding and dispatch)", "SPIR-V shader binary ingestion and specialization",  "MetalSharp program-binary serialization and restoration", "image load/store (2D rgba8, r32ui, r32f, rgba8ui, and rgba16f)", "basic triangle and quad tessellation evaluation draw with per-edge/inner factor extraction", "simple triangle/point geometry pass-through emulation", "fixed-function single/multi-texture combine modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha)", "fixed-function object/eye-linear, sphere-map, and normal-map texture-coordinate generation", "fixed-function user clip-plane evaluation for immediate-mode primitives", "fixed-function point-size state, line-width expansion, and Metal point/line rasterization", "display-list matrix command recording and replay", "polygon offset, depth-clamp, and clip-control raster state, including target-0 per-target blend/color-mask operations", "multisample color textures/renderbuffers with Metal resolve and readback", "cube-map texture creation, sampling, mipmaps, and face readback", "1D texture creation, subimage updates, and readback", "rectangle texture creation, unnormalized sampling, and readback", "debug message insertion/logging, callbacks, groups, and object labels", "bounded readback/uniform robustness entry points", "limited pass-through shader transform-feedback capture for gl_Position and simple scalar/vector-varying expressions"],
       "compiler_only": ["tessellation control translation"],
       "rejected": ["geometry", "full tessellation-control", "mesh", "task", "ray-tracing"]
     }
@@ -54,7 +54,7 @@
     "indexed GL 3.3-style draw with VBO/IBO, range/base-vertex offset, DSA vertex binding, vertex attribute, uniform, and direct multi-draw",
     "multi-draw arrays and elements indirect submission",
     "texture sampling with sampler parameters",
-    "2D mipmap generation, immutable storage, DSA texture allocation/subimage/update and texture views, PBO pixel-pack readback, 16-bit normalized and half-float texture upload, RGBA16F/RGBA32F/sRGB/red/rg/luminance texture storage, pack-aware 2D/3D texture readback, 3D texture sampling, texture copy, packed-pixel/half-float conversion, BGRA upload, image copy, pack/unpack alignment, and 3D texture readback",
+    "2D mipmap generation, immutable storage, DSA texture allocation/subimage/update and texture views, PBO pixel-pack readback, 16-bit normalized and half-float texture upload, RGBA8UI/RGBA16F/RGBA32F/sRGB/red/rg/luminance texture storage, pack-aware 2D/3D texture readback, 3D texture sampling, texture copy, packed-pixel/half-float conversion, BGRA upload, image copy, pack/unpack alignment, and 3D texture readback",
     "tessellation control/evaluation compilation",
     "basic triangle and quad tessellation evaluation draw with fixed factors",
     "simple triangle/point geometry pass-through emulation",
@@ -77,7 +77,7 @@
   "not_advertised": [
     "complete Khronos OpenGL 4.6 conformance",
     "general geometry/full tessellation-control and general shader transform-feedback emulation",
-    "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond validated 2D rgba8/r32ui/r32f/rgba16f",
+    "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond validated 2D rgba8/r32ui/r32f/rgba8ui/rgba16f",
     "complete texture/sampler/FBO format matrix"
   ]
 }

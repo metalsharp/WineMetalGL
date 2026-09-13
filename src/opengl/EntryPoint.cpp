@@ -262,9 +262,10 @@ static bool convertPixelsToBGRA(int32_t width, int32_t height, uint32_t format, 
     if (width <= 0 || height <= 0 || !data) return false;
     const bool bgra = format == 0x80E1;
     const bool bgr = format == 0x80E0;
+    const bool integer = format == 0x8D99 || format == 0x8D94;
     const bool luminance = format == 0x1909;
     const bool luminanceAlpha = format == 0x190A;
-    const uint32_t channels = format == 0x1908 || bgra ? 4 : format == 0x1907 || bgr ? 3 : format == 0x8227 || luminanceAlpha ? 2 : format == 0x1903 || format == 0x1906 || luminance ? 1 : 0;
+    const uint32_t channels = format == 0x1908 || format == 0x8D99 || bgra ? 4 : format == 0x1907 || bgr ? 3 : format == 0x8227 || luminanceAlpha ? 2 : format == 0x1903 || format == 0x1906 || format == 0x8D94 || luminance ? 1 : 0;
     const size_t scalarSize = type == 0x1406 ? sizeof(float) : type == 0x1401 ? sizeof(uint8_t) :
                               type == 0x1403 || type == 0x140B ? 2 : type == 0x8367 ? 4 : (type == 0x8363 || type == 0x8033 || type == 0x8034) ? 2 : 0;
     if (!channels || !scalarSize) return false;
@@ -287,6 +288,7 @@ static bool convertPixelsToBGRA(int32_t width, int32_t height, uint32_t format, 
         else if (type == 0x8363) { uint16_t value; std::memcpy(&value, source, 2); output[pixel*4+0]=static_cast<uint8_t>((value & 0x1f) * 255 / 31); output[pixel*4+1]=static_cast<uint8_t>(((value >> 5) & 0x3f) * 255 / 63); output[pixel*4+2]=static_cast<uint8_t>(((value >> 11) & 0x1f) * 255 / 31); output[pixel*4+3]=255; }
         else if (type == 0x8033) { uint16_t value; std::memcpy(&value, source, 2); output[pixel*4+0]=static_cast<uint8_t>((value & 0x0f) * 17); output[pixel*4+1]=static_cast<uint8_t>(((value >> 4) & 0x0f) * 17); output[pixel*4+2]=static_cast<uint8_t>(((value >> 8) & 0x0f) * 17); output[pixel*4+3]=static_cast<uint8_t>(((value >> 12) & 0x0f) * 17); }
         else if (type == 0x8034) { uint16_t value; std::memcpy(&value, source, 2); output[pixel*4+0]=static_cast<uint8_t>((value & 0x1f) * 255 / 31); output[pixel*4+1]=static_cast<uint8_t>(((value >> 5) & 0x1f) * 255 / 31); output[pixel*4+2]=static_cast<uint8_t>(((value >> 10) & 0x1f) * 255 / 31); output[pixel*4+3]=(value & 1) ? 255 : 0; }
+        else if (integer) { for (uint32_t channel = 0; channel < channels; ++channel) output[pixel*4+channel] = sample(channel); }
         else if (bgra || bgr) { output[pixel*4+0] = sample(0); output[pixel*4+1] = sample(1); output[pixel*4+2] = sample(2); output[pixel*4+3] = channels == 4 ? sample(3) : 255; }
         else if (luminance || luminanceAlpha) { output[pixel*4+0] = output[pixel*4+1] = output[pixel*4+2] = sample(0); output[pixel*4+3] = luminanceAlpha ? sample(1) : 255; }
         else { output[pixel*4+0] = channels >= 3 ? sample(2) : 0; output[pixel*4+1] = channels >= 2 ? sample(1) : output[pixel*4+0]; output[pixel*4+2] = sample(0); output[pixel*4+3] = channels == 4 ? sample(3) : 255; }
