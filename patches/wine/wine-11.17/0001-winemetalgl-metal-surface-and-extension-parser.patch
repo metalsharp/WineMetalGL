@@ -31,7 +31,7 @@ index 6ab3a03..5679212 100644
  }
 
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
-index 696734f..1c01679 100644
+index 696734f..1fe9af9 100644
 --- a/dlls/winemac.drv/opengl.c
 +++ b/dlls/winemac.drv/opengl.c
 @@ -69,6 +69,10 @@ struct macdrv_context
@@ -186,7 +186,7 @@ index 696734f..1c01679 100644
      TRACE("()\n");
 
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2623,359 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2623,360 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
 
  #undef LOAD_FUNCPTR
 
@@ -282,6 +282,7 @@ index 696734f..1c01679 100644
 +            WINEMETALGL_BIND(glStencilMaskSeparate);
 +            WINEMETALGL_BIND(glClearDepth);
 +            WINEMETALGL_BIND(glPolygonOffset);
++            WINEMETALGL_BIND(glClipControl);
 +            WINEMETALGL_BIND(glViewport);
 +            WINEMETALGL_BIND(glGetString);
 +            WINEMETALGL_BIND(glGetStringi);
@@ -546,7 +547,7 @@ index 696734f..1c01679 100644
      dlclose(opengl_handle);
      opengl_handle = NULL;
      return STATUS_NOT_SUPPORTED;
-@@ -2662,6 +3077,9 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2662,6 +3078,9 @@ static BOOL macdrv_context_destroy(void *private)
 
      TRACE("deleting context %p/%p/%p\n", context, context->context, context->cglcontext);
 
@@ -556,7 +557,7 @@ index 696734f..1c01679 100644
      macdrv_dispose_opengl_context(context->context);
      free(context);
      return TRUE;
-@@ -2669,13 +3087,31 @@ static BOOL macdrv_context_destroy(void *private)
+@@ -2669,13 +3088,31 @@ static BOOL macdrv_context_destroy(void *private)
 
  static void *macdrv_get_proc_address(const char *name)
  {
@@ -588,7 +589,7 @@ index 696734f..1c01679 100644
      return dlsym(opengl_handle, name);
  }
 
-@@ -2686,6 +3122,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
+@@ -2686,6 +3123,17 @@ static BOOL macdrv_surface_swap(struct opengl_drawable *base)
      TRACE("%s context %p/%p/%p\n", debugstr_opengl_drawable(base), context, (context ? context->context : NULL),
            (context ? context->cglcontext : NULL));
 
