@@ -117,6 +117,8 @@ struct ExperimentalTexture {
     uint32_t depth = 1;
     uint32_t target = 0x0DE1;
     uint32_t sampleCount = 1;
+    uint8_t cubeFaceMask = 0;
+    std::array<std::vector<uint8_t>,6> cubePixels;
     int32_t internalFormat = 0x8058;
     uint32_t minFilter = 0x2601; /* GL_LINEAR */
     uint32_t magFilter = 0x2601;
@@ -2139,6 +2141,13 @@ extern "C" void glBlendEquation(uint32_t mode) { glDispatch<void,uint32_t>("glBl
 extern "C" void glBlendEquationSeparate(uint32_t modeRGB,uint32_t modeAlpha) { glDispatch<void,uint32_t,uint32_t>("glBlendEquationSeparate",modeRGB,modeAlpha); g_glBridge.state().blendEquationRGB=modeRGB;g_glBridge.state().blendEquationAlpha=modeAlpha; }
 extern "C" void glBlendFuncSeparate(uint32_t srcRGB,uint32_t dstRGB,uint32_t srcAlpha,uint32_t dstAlpha) { glDispatch<void,uint32_t,uint32_t,uint32_t,uint32_t>("glBlendFuncSeparate",srcRGB,dstRGB,srcAlpha,dstAlpha); g_glBridge.state().blendSrcRGB=srcRGB;g_glBridge.state().blendDstRGB=dstRGB;g_glBridge.state().blendSrcAlpha=srcAlpha;g_glBridge.state().blendDstAlpha=dstAlpha; }
 extern "C" void glBlendColor(float r,float g,float b,float a) { glDispatch<void,float,float,float,float>("glBlendColor",r,g,b,a); g_glBridge.state().blendColor[0]=r;g_glBridge.state().blendColor[1]=g;g_glBridge.state().blendColor[2]=b;g_glBridge.state().blendColor[3]=a; }
+extern "C" void glBlendFunci(uint32_t buf,uint32_t src,uint32_t dst) { if(buf==0)glBlendFunc(src,dst);else metalsharp::GLErrorTracker::instance().setError(0x0501); }
+extern "C" void glBlendFuncSeparatei(uint32_t buf,uint32_t srcRGB,uint32_t dstRGB,uint32_t srcAlpha,uint32_t dstAlpha) { if(buf==0)glBlendFuncSeparate(srcRGB,dstRGB,srcAlpha,dstAlpha);else metalsharp::GLErrorTracker::instance().setError(0x0501); }
+extern "C" void glBlendEquationi(uint32_t buf,uint32_t mode) { if(buf==0)glBlendEquation(mode);else metalsharp::GLErrorTracker::instance().setError(0x0501); }
+extern "C" void glBlendEquationSeparatei(uint32_t buf,uint32_t modeRGB,uint32_t modeAlpha) { if(buf==0)glBlendEquationSeparate(modeRGB,modeAlpha);else metalsharp::GLErrorTracker::instance().setError(0x0501); }
+extern "C" void glColorMaski(uint32_t buf,unsigned char r,unsigned char g,unsigned char b,unsigned char a) { if(buf==0)glColorMask(r,g,b,a);else metalsharp::GLErrorTracker::instance().setError(0x0501); }
+extern "C" void glEnablei(uint32_t target,uint32_t index) { if(index==0&&target==0x0BE2)glEnable(target);else if(index!=0)metalsharp::GLErrorTracker::instance().setError(0x0501);else glDispatch<void,uint32_t,uint32_t>("glEnablei",target,index); }
+extern "C" void glDisablei(uint32_t target,uint32_t index) { if(index==0&&target==0x0BE2)glDisable(target);else if(index!=0)metalsharp::GLErrorTracker::instance().setError(0x0501);else glDispatch<void,uint32_t,uint32_t>("glDisablei",target,index); }
 GL_PASSTHROUGH1(void, glLogicOp, uint32_t, opcode)
 
 // ---------------------------------------------------------------------------
@@ -2490,7 +2499,9 @@ extern "C" void glColor4f(float r, float g, float b, float a) {
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
-    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && w > 0 && h > 0 && textureName) {
+    if (metalModeEnabled() && (target == 0x0DE1 || (target >= 0x8515 && target <= 0x851A)) && level == 0 && w > 0 && h > 0 && textureName) {
+        const bool cubeFace = target >= 0x8515 && target <= 0x851A;
+        const uint32_t cubeFaceIndex = cubeFace ? target - 0x8515 : 0;
         const bool scalarUint = internalFormat == 0x8236 && format == 0x8D94 && type == 0x1405;
         const bool scalarFloat = internalFormat == 0x822E && format == 0x1903 && type == 0x1406;
         if (scalarUint || scalarFloat) { std::vector<uint8_t> raw(static_cast<size_t>(w)*h*4,0),unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=static_cast<size_t>(w)*h*4;if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(source)std::memcpy(raw.data(),source,raw.size());ExperimentalTexture uploadTexture;uploadTexture.width=w;uploadTexture.height=h;uploadTexture.internalFormat=internalFormat;uploadTexture.pixels=raw;uint64_t handle=createTextureFromCanonical(uploadTexture);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.pixels=std::move(raw);return; }
@@ -2505,6 +2516,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         if (g_boundPixelUnpackBuffer) { size_t bytes=pixelUploadBytes(w,h,1,format,type,g_glBridge.state().unpackAlignment); if(!readPixelUnpackBuffer(data,bytes,unpacked)){ metalsharp::GLErrorTracker::instance().setError(0x0501);return;} uploadData=unpacked.data(); }
         if (!uploadData) pixels.assign(static_cast<size_t>(w) * h * 4, 0);
         else if (!convertPixelsToBGRA(w, h, format, type, uploadData, pixels, g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+        if (cubeFace) { std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.target=0x8513;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.cubeFaceMask|=static_cast<uint8_t>(1u<<cubeFaceIndex);texture.cubePixels[cubeFaceIndex]=pixels;const void* faces[6]={};for(uint32_t face=0;face<6;++face)if(!texture.cubePixels[face].empty())faces[face]=texture.cubePixels[face].data();texture.metalHandle=g_metalRenderer.createTextureCube(w,h,static_cast<uint32_t>(internalFormat),faces);texture.pixels=pixels;return; }
         ExperimentalTexture uploadTexture; uploadTexture.width=static_cast<uint32_t>(w); uploadTexture.height=static_cast<uint32_t>(h); uploadTexture.internalFormat=internalFormat; uploadTexture.pixels=pixels;
         uint64_t handle = createTextureFromCanonical(uploadTexture);
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
@@ -2529,6 +2541,7 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
             glDispatch<void,uint32_t,int32_t,uint32_t,uint32_t,void*>("glGetTexImage",target,level,format,type,pixels); return;
         }
     }
+    if (metalModeEnabled() && target >= 0x8515 && target <= 0x851A && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) { uint64_t handle=0;uint32_t width=0,height=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){handle=it->second.metalHandle;width=it->second.width;height=it->second.height;}}std::vector<uint8_t> rgba(static_cast<size_t>(width)*height*4);if(handle&&g_metalRenderer.readTextureRGBA8(handle,0,0,width,height,rgba.data(),target-0x8515)&&writeRGBA8Pixels(rgba.data(),width,height,1,format,type,pixels,g_glBridge.state().packAlignment))return; }
     if (metalModeEnabled() && target == 0x0DE1 && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
         uint64_t scalarHandle=0;int32_t scalarFormat=0;uint32_t scalarWidth=0,scalarHeight=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto scalar=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(scalar!=g_textures.end()){scalarHandle=scalar->second.metalHandle;scalarFormat=scalar->second.internalFormat;scalarWidth=scalar->second.width;scalarHeight=scalar->second.height;}}
         if(scalarHandle&&((scalarFormat==0x8236&&format==0x8D94&&type==0x1405)||(scalarFormat==0x822E&&format==0x1903&&type==0x1406))&&g_metalRenderer.readTextureScalar32(scalarHandle,0,0,scalarWidth,scalarHeight,pixels))return;
@@ -2727,7 +2740,7 @@ extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
 
 extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
     glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
-    if ((target == 0x0DE1 || target == 0x9100 || target == 0x806F || target == 0x8C1A) && g_activeTextureUnit < g_textureUnits.size()) {
+    if ((target == 0x0DE1 || target == 0x9100 || target == 0x806F || target == 0x8C1A || target == 0x8513 || (target >= 0x8515 && target <= 0x851A)) && g_activeTextureUnit < g_textureUnits.size()) {
         g_textureUnits[g_activeTextureUnit] = texture;
         g_glBridge.state().boundTexture2D = texture;
     }
@@ -2741,7 +2754,7 @@ extern "C" void glActiveTexture(uint32_t texture) {
 
 extern "C" void glTexParameteri(uint32_t target, uint32_t pname, int32_t param) {
     glDispatch<void, uint32_t, uint32_t, int32_t>("glTexParameteri", target, pname, param);
-    if (target != 0x0DE1 || g_activeTextureUnit >= g_textureUnits.size()) return;
+    if ((target != 0x0DE1 && target != 0x8513 && (target < 0x8515 || target > 0x851A)) || g_activeTextureUnit >= g_textureUnits.size()) return;
     std::lock_guard<std::mutex> lock(g_resourceMutex);
     auto it = g_textures.find(g_textureUnits[g_activeTextureUnit]);
     if (it == g_textures.end()) return;
@@ -2755,9 +2768,9 @@ extern "C" void glTexParameteri(uint32_t target, uint32_t pname, int32_t param) 
     else if (pname == 0x884C) it->second.compare = param != 0;
     else if (pname == 0x884D) it->second.compareFunc = static_cast<uint32_t>(param);
 }
-extern "C" void glTexParameterf(uint32_t target,uint32_t pname,float param) { glDispatch<void,uint32_t,uint32_t,float>("glTexParameterf",target,pname,param); if(!metalModeEnabled()||target!=0x0DE1||g_activeTextureUnit>=g_textureUnits.size())return;std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it==g_textures.end())return;if(pname==0x813A)it->second.minLod=param;else if(pname==0x813B)it->second.maxLod=param;else if(pname==0x84FE)it->second.maxAnisotropy=static_cast<uint32_t>(std::max(1.0f,param)); }
+extern "C" void glTexParameterf(uint32_t target,uint32_t pname,float param) { glDispatch<void,uint32_t,uint32_t,float>("glTexParameterf",target,pname,param); if(!metalModeEnabled()||(target!=0x0DE1&&target!=0x8513&&(target<0x8515||target>0x851A))||g_activeTextureUnit>=g_textureUnits.size())return;std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it==g_textures.end())return;if(pname==0x813A)it->second.minLod=param;else if(pname==0x813B)it->second.maxLod=param;else if(pname==0x84FE)it->second.maxAnisotropy=static_cast<uint32_t>(std::max(1.0f,param)); }
 extern "C" void glTexParameteriv(uint32_t target,uint32_t pname,const int32_t* params) { if(params)glTexParameteri(target,pname,*params);else glDispatch<void,uint32_t,uint32_t,const int32_t*>("glTexParameteriv",target,pname,params); }
-extern "C" void glTexParameterfv(uint32_t target,uint32_t pname,const float* params) { if(!params){glDispatch<void,uint32_t,uint32_t,const float*>("glTexParameterfv",target,pname,params);return;}if(pname==0x1004&&metalModeEnabled()&&target==0x0DE1&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end())std::memcpy(it->second.borderColor,params,sizeof(it->second.borderColor));return;}glTexParameterf(target,pname,*params); }
+extern "C" void glTexParameterfv(uint32_t target,uint32_t pname,const float* params) { if(!params){glDispatch<void,uint32_t,uint32_t,const float*>("glTexParameterfv",target,pname,params);return;}if(pname==0x1004&&metalModeEnabled()&&(target==0x0DE1||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end())std::memcpy(it->second.borderColor,params,sizeof(it->second.borderColor));return;}glTexParameterf(target,pname,*params); }
 extern "C" void glTexSubImage2D(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset,
                                 int32_t width, int32_t height, uint32_t format, uint32_t type, const void* pixels) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
@@ -2792,6 +2805,7 @@ extern "C" void glTexStorage3D(uint32_t target, int32_t levels, uint32_t interna
 }
 extern "C" void glGenerateMipmap(uint32_t target) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if(metalModeEnabled()&&target==0x8513&&textureName){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(textureName);if(it!=g_textures.end()&&it->second.target==0x8513){const void* faces[6]={};for(uint32_t face=0;face<6;++face)if(!it->second.cubePixels[face].empty())faces[face]=it->second.cubePixels[face].data();it->second.metalHandle=g_metalRenderer.createTextureCube(it->second.width,it->second.height,static_cast<uint32_t>(it->second.internalFormat),faces);if(it->second.metalHandle)return;}}
     if (metalModeEnabled() && target == 0x0DE1 && textureName) {
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(textureName);
         if (it != g_textures.end() && !it->second.pixels.empty()) { it->second.metalHandle=g_metalRenderer.createTexture(it->second.width,it->second.height,it->second.pixels.data(),true); if(it->second.metalHandle)return; }
@@ -2811,8 +2825,8 @@ extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_
     }
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params);
 }
-extern "C" void glGetTexParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&target==0x0DE1&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params); }
-extern "C" void glGetTexParameterfv(uint32_t target,uint32_t pname,float* params) { if(params&&metalModeEnabled()&&target==0x0DE1&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params); }
+extern "C" void glGetTexParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params); }
+extern "C" void glGetTexParameterfv(uint32_t target,uint32_t pname,float* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params); }
 GL_PASSTHROUGH1(unsigned char, glIsTexture, uint32_t, texture)
 
 // glCopyTexImage2D and glCopyTexSubImage2D update tracked Metal textures

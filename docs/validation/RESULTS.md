@@ -29,7 +29,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Window DC, pixel format, context creation, and extension discovery.
 - GLSL 1.20 compatibility FBO/readback.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
-- Tracked polygon offset and depth-clamp raster state translated to Metal.
+- Tracked polygon offset and depth-clamp raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
 - OpenGL SPIR-V shader-binary ingestion, MSL translation, linking, and draw/readback.
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
@@ -42,11 +42,12 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, advanced texture/sampler state and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, completeness, and blit.
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
+- Cube-map texture creation, sampling, face readback, and x86_64/i386 validation.
 - Instanced drawing with Metal depth/stencil attachments.
 - Direct/indirect compute dispatch with ranged SSBO writeback and storage-block reflection on both guests.
 - Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
 - Uniform-buffer object binding/range offsets and uniform-block name/size reflection.
-- Compute `imageStore` to a 2D RGBA8 texture with FBO readback.
+- Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
 - Arrays/elements indirect draw commands.
 - Basic fixed-function immediate-mode triangle/texture rendering, texture replace/modulate/add/decal, display lists, multi-light diffuse/material/specular lighting, linear/exp fog, blending/constant-color/scissor/cull state, and fixed transform capture.
 - Sync/fence completion behavior.
@@ -128,12 +129,15 @@ WINEMETALGL_SSBO_REFLECTION_OK
 WINEMETALGL_COMPUTE_RANGE_OK
 WINEMETALGL_COMPUTE_INDIRECT_OK
 WINEMETALGL_IMAGE_OK
+WINEMETALGL_IMAGE_R32UI_OK
+WINEMETALGL_TEXTURE_CUBE_OK
 WINEMETALGL_INDIRECT_OK
 WINEMETALGL_FIXED_OK
 WINEMETALGL_FIXED_LIGHTING_OK
 WINEMETALGL_FIXED_SPECULAR_OK
 WINEMETALGL_FIXED_FOG_OK
 WINEMETALGL_BLEND_OK
+WINEMETALGL_PER_TARGET_BLEND_OK
 WINEMETALGL_BLEND_CONSTANT_OK
 WINEMETALGL_SCISSOR_OK
 WINEMETALGL_CULL_OK
@@ -160,5 +164,5 @@ prove the drawable-backed path without requiring verbose Wine logging.
 This release does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
 tessellation, transform feedback, fixed-function lighting/matrices/display
-lists, image formats beyond the validated 2D RGBA8 path, the full
-texture/sampler/FBO format matrix remains explicitly unadvertised; fixed-function texture combine/coordinate generation is limited to the validated modes above.
+lists, image formats beyond the validated 2D RGBA8/R32UI paths, and the full
+texture/sampler/FBO format matrix remain explicitly unadvertised; fixed-function texture combine/coordinate generation is limited to the validated modes above.

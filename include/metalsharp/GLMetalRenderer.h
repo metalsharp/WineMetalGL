@@ -191,6 +191,7 @@ class GLMetalRenderer {
     /// @return non-zero texture handle on success
     uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true, bool srgb = false);
     uint64_t createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
+    uint64_t createTextureCube(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* const* faces);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
     uint64_t createMultisampleTexture2D(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
