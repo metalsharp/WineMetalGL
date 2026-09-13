@@ -53,6 +53,7 @@ The sidecar is loaded as one ABI-coupled unit with the x86_64 Unix
 ```sh
 ./scripts/stage-wine.sh /absolute/path/to/wine-build
 ./scripts/stage-host-libs.sh /absolute/path/to/wine-runtime
+./scripts/stage-release.sh /absolute/path/to/wine-build /absolute/path/to/output
 ```
 
 `stage-host-libs.sh` stages the x86_64 FreeType/libpng compression closure
