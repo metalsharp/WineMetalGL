@@ -2707,6 +2707,13 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
             glDispatch<void,uint32_t,int32_t,uint32_t,uint32_t,void*>("glGetTexImage",target,level,format,type,pixels); return;
         }
     }
+    if (metalModeEnabled() && (target == 0x0DE1 || target == 0x84F5) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
+        uint64_t depthHandle=0; uint32_t depthWidth=0,depthHeight=0; int32_t depthFormat=0;
+        { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){depthHandle=it->second.metalHandle;depthWidth=it->second.width;depthHeight=it->second.height;depthFormat=it->second.internalFormat;} }
+        const bool depthTexture=depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x8CAC;
+        if(depthHandle&&depthTexture&&format==0x1902&&type==0x1406&&g_metalRenderer.readDepth32(depthHandle,0,0,depthWidth,depthHeight,pixels))return;
+        if(depthHandle&&depthFormat==0x88F0&&format==0x1901&&type==0x1401&&g_metalRenderer.readStencil8(depthHandle,0,0,depthWidth,depthHeight,pixels))return;
+    }
     if (metalModeEnabled() && target >= 0x8515 && target <= 0x851A && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) { uint64_t handle=0;uint32_t width=0,height=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){handle=it->second.metalHandle;width=it->second.width;height=it->second.height;}}std::vector<uint8_t> rgba(static_cast<size_t>(width)*height*4);if(handle&&g_metalRenderer.readTextureRGBA8(handle,0,0,width,height,rgba.data(),target-0x8515)&&writeRGBA8Pixels(rgba.data(),width,height,1,format,type,pixels,g_glBridge.state().packAlignment))return; }
     if (metalModeEnabled() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
         uint64_t scalarHandle=0;int32_t scalarFormat=0;uint32_t scalarWidth=0,scalarHeight=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto scalar=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(scalar!=g_textures.end()){scalarHandle=scalar->second.metalHandle;scalarFormat=scalar->second.internalFormat;scalarWidth=scalar->second.width;scalarHeight=scalar->second.height;}}
