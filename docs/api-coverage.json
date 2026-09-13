@@ -53,7 +53,7 @@
     "vertex/fragment interface mismatch rejection",
     "indexed GL 3.3-style draw with VBO/IBO, range/base-vertex offset, DSA vertex binding, vertex attribute, uniform, and direct multi-draw",
     "multi-draw arrays and elements indirect submission",
-    "texture sampling with sampler parameters",
+    "normalized and integer texture sampling with sampler parameters",
     "2D mipmap generation, immutable storage, DSA texture allocation/subimage/update and texture views, PBO pixel-pack readback, 16-bit normalized and half-float texture upload, RGBA8UI/RGBA16F/RGBA32F/sRGB/red/rg/luminance texture storage, pack-aware 2D/3D texture readback, 3D texture sampling, texture copy, packed-pixel/half-float conversion, BGRA upload, image copy, pack/unpack alignment, and 3D texture readback",
     "tessellation control/evaluation compilation",
     "basic triangle and quad tessellation evaluation draw with fixed factors",

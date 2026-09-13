@@ -75,6 +75,8 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_resources.c" -o "$RUN_ROOT/resources32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture32.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_integer.c" -o "$RUN_ROOT/texture-integer64.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_integer.c" -o "$RUN_ROOT/texture-integer32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_fbo.c" -o "$RUN_ROOT/fbo32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_renderbuffer.c" -o "$RUN_ROOT/renderbuffer64.exe" -lopengl32 -luser32 -lgdi32
@@ -218,6 +220,8 @@ run_shader "$RUN_ROOT/resources64.exe"
 run_shader "$RUN_ROOT/resources32.exe"
 run_shader "$RUN_ROOT/texture64.exe"
 run_shader "$RUN_ROOT/texture32.exe"
+run_shader "$RUN_ROOT/texture-integer64.exe"
+run_shader "$RUN_ROOT/texture-integer32.exe"
 run_shader "$RUN_ROOT/fbo64.exe"
 run_shader "$RUN_ROOT/fbo32.exe"
 run_shader "$RUN_ROOT/renderbuffer64.exe"
@@ -344,6 +348,8 @@ grep -q WINEMETALGL_MIPMAP_OK "$RUN_ROOT/texture64.exe.stdout"
 grep -q WINEMETALGL_MIPMAP_OK "$RUN_ROOT/texture32.exe.stdout"
 grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture64.exe.stdout"
 grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture32.exe.stdout"
+grep -q WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-integer64.exe.stdout"
+grep -q WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-integer32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_PACKED_OK "$RUN_ROOT/texture64.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_PACKED_OK "$RUN_ROOT/texture32.exe.stdout"
 grep -q WINEMETALGL_TEXTURE_USHORT_OK "$RUN_ROOT/texture64.exe.stdout"
@@ -600,6 +606,7 @@ echo WINEMETALGL_UNPACK_ALIGNMENT_OK
 echo WINEMETALGL_INTERNAL_FORMAT_QUERY_OK
 echo WINEMETALGL_MIPMAP_OK
 echo WINEMETALGL_GL33_TEXTURE_OK
+echo WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK
 echo WINEMETALGL_TEXTURE_PACKED_OK
 echo WINEMETALGL_TEXTURE_USHORT_OK
 echo WINEMETALGL_TEXTURE_HALF_FLOAT_OK
