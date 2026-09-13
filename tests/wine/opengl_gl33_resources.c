@@ -2,6 +2,7 @@
 #include <GL/gl.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 #define GL_VERTEX_SHADER 0x8b31
 #define GL_FRAGMENT_SHADER 0x8b30
@@ -29,7 +30,7 @@ typedef void (WINAPI *PFNGLUSEPROGRAMPROC)(GLuint);
 typedef void (WINAPI *PFNGLDELETESHADERPROC)(GLuint);
 typedef void (WINAPI *PFNGLDELETEPROGRAMPROC)(GLuint);
 typedef GLint (WINAPI *PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const char *);
-typedef void (WINAPI *PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
+typedef void (WINAPI *PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat, GLfloat); typedef void(WINAPI *PFNGLGETACTIVEUNIFORMPROC)(GLuint,GLuint,GLsizei,GLsizei*,GLint*,GLenum*,char*);
 typedef void (WINAPI *PFNGLGENBUFFERSPROC)(GLsizei, GLuint *);
 typedef void (WINAPI *PFNGLBINDBUFFERPROC)(GLenum, GLuint);
 typedef void (WINAPI *PFNGLBUFFERDATAPROC)(GLenum, intptr_t, const void *, GLenum); typedef void (WINAPI *PFNGLGETBUFFERSUBDATAPROC)(GLenum,intptr_t,intptr_t,void*);
@@ -63,8 +64,8 @@ int main(void)
     static const char fragment_source[] =
         "#version 330 core\n"
         "out vec4 color;\n"
-        "uniform vec4 tint;\n"
-        "void main() { color = tint; }\n";
+        "uniform vec4 tint[2];\n"
+        "void main() { color = tint[0]; }\n";
     static const float vertices[] = {0.0f, 0.0f, -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
     static const uint16_t indices[] = {0, 1, 2};
     PIXELFORMATDESCRIPTOR pfd = {0};
@@ -87,7 +88,7 @@ int main(void)
     PFNGLDELETESHADERPROC delete_shader;
     PFNGLDELETEPROGRAMPROC delete_program;
     PFNGLGETUNIFORMLOCATIONPROC get_uniform_location;
-    PFNGLUNIFORM4FPROC uniform4f;
+    PFNGLUNIFORM4FPROC uniform4f; PFNGLGETACTIVEUNIFORMPROC get_active_uniform;
     PFNGLGENBUFFERSPROC gen_buffers;
     PFNGLBINDBUFFERPROC bind_buffer;
     PFNGLBUFFERDATAPROC buffer_data; PFNGLGETBUFFERSUBDATAPROC get_buffer_sub_data;
@@ -121,7 +122,7 @@ int main(void)
     LOAD(PFNGLDELETESHADERPROC, delete_shader, "glDeleteShader");
     LOAD(PFNGLDELETEPROGRAMPROC, delete_program, "glDeleteProgram");
     LOAD(PFNGLGETUNIFORMLOCATIONPROC, get_uniform_location, "glGetUniformLocation");
-    LOAD(PFNGLUNIFORM4FPROC, uniform4f, "glUniform4f");
+    LOAD(PFNGLUNIFORM4FPROC, uniform4f, "glUniform4f"); LOAD(PFNGLGETACTIVEUNIFORMPROC,get_active_uniform,"glGetActiveUniform");
     LOAD(PFNGLGENBUFFERSPROC, gen_buffers, "glGenBuffers");
     LOAD(PFNGLBINDBUFFERPROC, bind_buffer, "glBindBuffer");
     LOAD(PFNGLBUFFERDATAPROC, buffer_data, "glBufferData"); LOAD(PFNGLGETBUFFERSUBDATAPROC, get_buffer_sub_data, "glGetBufferSubData");
@@ -142,6 +143,7 @@ int main(void)
     if (!linked) return 17;
     use_program(program);
     location = get_uniform_location(program, "tint");
+    GLint array_size=0;GLenum array_type=0;GLsizei array_length=0;char array_name[32]={0};get_active_uniform(program,0,sizeof(array_name),&array_length,&array_size,&array_type,array_name);if(array_size!=2||strcmp(array_name,"tint")!=0)return 21;printf("WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK\n");
     if (location < 0) return 18;
     uniform4f(location, 0.2f, 0.4f, 0.6f, 1.0f);
 

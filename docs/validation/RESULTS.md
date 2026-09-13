@@ -37,7 +37,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Basic triangle and quad tessellation evaluation draws with fixed factors.
 - Simple triangle geometry pass-through emulation and limited pass-through shader transform-feedback capture.
 - Fixed-function single-texture environment modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
-- Program uniform/attribute interface reflection for Metal-owned programs.
+- Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, vertex attribute, and uniform, plus direct and indirect multi-draw.
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, advanced texture/sampler state and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, completeness, and blit.
@@ -79,6 +79,7 @@ WINEMETALGL_STATE_QUERY_OK
 WINEMETALGL_RASTER_STATE_OK
 WINEMETALGL_GLSL450_OK
 WINEMETALGL_GL33_RESOURCES_OK
+WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK
 WINEMETALGL_PBO_READBACK_OK
 WINEMETALGL_UNPACK_ALIGNMENT_OK
 WINEMETALGL_MIPMAP_OK
