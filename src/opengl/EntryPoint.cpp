@@ -1327,24 +1327,56 @@ extern "C" void glSamplerParameterfv(uint32_t sampler, uint32_t pname, const flo
 extern "C" void glGetSamplerParameteriv(uint32_t sampler,uint32_t pname,int32_t* params) { if(!params)return; if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_samplers.find(sampler);if(it!=g_samplers.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetSamplerParameteriv",sampler,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetSamplerParameteriv",sampler,pname,params); }
 extern "C" void glGetSamplerParameterfv(uint32_t sampler,uint32_t pname,float* params) { if(!params)return;if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_samplers.find(sampler);if(it!=g_samplers.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetSamplerParameterfv",sampler,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetSamplerParameterfv",sampler,pname,params); }
 
+static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name) {
+    if (name == "gl_Position") return 4;
+    if (source.find("out float " + name) != std::string::npos) return 1;
+    if (source.find("out vec2 " + name) != std::string::npos) return 2;
+    if (source.find("out vec3 " + name) != std::string::npos) return 3;
+    if (source.find("out vec4 " + name) != std::string::npos) return 4;
+    return 1;
+}
+
+static float transformFeedbackVaryingScale(const std::string& source, const std::string& name) {
+    if (name == "gl_Position") return 1.0f;
+    std::string needle = name + " =";
+    size_t assignment = source.find(needle);
+    if (assignment == std::string::npos) { needle = name + "="; assignment = source.find(needle); }
+    if (assignment == std::string::npos) return 1.0f;
+    size_t multiplication = source.find('*', assignment);
+    if (multiplication == std::string::npos) return 1.0f;
+    char* end = nullptr;
+    float parsed = std::strtof(source.c_str() + multiplication + 1, &end);
+    return end != source.c_str() + multiplication + 1 ? parsed : 1.0f;
+}
+
 static void captureExperimentalTransformFeedbackVertices(const std::vector<uint32_t>& vertexIndices, int32_t baseVertex) {
     if (!g_transformFeedbackActive || !g_transformFeedbackProgram || !g_boundTransformFeedbackBuffer || g_transformFeedbackVaryings.empty() || vertexIndices.empty()) return;
     auto& attribute = g_experimentalVertexAttributes[0];
     if (!attribute.set || attribute.type != 0x1406 || attribute.buffer == 0) return;
+    std::string vertexSource;
     {
         std::lock_guard<std::mutex> lock(g_programMutex); auto program=g_programs.find(g_transformFeedbackProgram);
         if (program==g_programs.end() || program->second.vertexShader==0) return;
-        auto* vertex=metalsharp::GLShaderTracker::instance().getShader(program->second.vertexShader); if(!vertex || vertex->source.find("gl_Position")==std::string::npos)return;
+        auto* vertex=metalsharp::GLShaderTracker::instance().getShader(program->second.vertexShader);
+        if(!vertex || vertex->source.find("gl_Position")==std::string::npos)return;
+        vertexSource=vertex->source;
     }
     uint64_t sourceHandle=0,destinationHandle=0;
     { std::lock_guard<std::mutex> lock(g_bufferMutex); auto source=g_buffers.find(attribute.buffer),destination=g_buffers.find(g_boundTransformFeedbackBuffer); if(source!=g_buffers.end())sourceHandle=source->second.metalHandle; if(destination!=g_buffers.end())destinationHandle=destination->second.metalHandle; }
     if(!sourceHandle||!destinationHandle)return;
     const size_t componentBytes=static_cast<size_t>(std::max(1,attribute.size))*sizeof(float), stride=attribute.stride?attribute.stride:componentBytes;
-    float varyingScale=1.0f;std::string varyingName=g_transformFeedbackVaryings.front();
-    {
-        std::lock_guard<std::mutex> lock(g_programMutex);auto program=g_programs.find(g_transformFeedbackProgram);if(program!=g_programs.end()&&program->second.vertexShader){auto* vertex=metalsharp::GLShaderTracker::instance().getShader(program->second.vertexShader);if(vertex&&varyingName!="gl_Position"){std::string needle=varyingName+" =";size_t assignment=vertex->source.find(needle);if(assignment==std::string::npos){needle=varyingName+"=";assignment=vertex->source.find(needle);}if(assignment!=std::string::npos){size_t multiplication=vertex->source.find('*',assignment);if(multiplication!=std::string::npos){char* end=nullptr;float parsed=std::strtof(vertex->source.c_str()+multiplication+1,&end);if(end!=vertex->source.c_str()+multiplication+1)varyingScale=parsed;}}}}}
-    std::vector<float> output(vertexIndices.size()*4,0.0f); std::vector<uint8_t> vertex(stride);
-    for(size_t i=0;i<vertexIndices.size();++i){ int64_t vertexNumber=static_cast<int64_t>(vertexIndices[i])+baseVertex; if(vertexNumber<0||!g_metalRenderer.readBuffer(sourceHandle,attribute.offset+static_cast<size_t>(vertexNumber)*stride,stride,vertex.data()))return; const float* input=reinterpret_cast<const float*>(vertex.data()); for(int c=0;c<std::min(4,attribute.size);++c)output[i*4+c]=input[c]*varyingScale; output[i*4+3]=(attribute.size>=4?input[3]:1.0f)*varyingScale; }
+    size_t totalComponents=0; for(const auto& name:g_transformFeedbackVaryings) totalComponents+=transformFeedbackVaryingComponents(vertexSource,name);
+    std::vector<float> output(vertexIndices.size()*totalComponents,0.0f); std::vector<uint8_t> vertex(stride);
+    for(size_t i=0;i<vertexIndices.size();++i){
+        int64_t vertexNumber=static_cast<int64_t>(vertexIndices[i])+baseVertex;
+        if(vertexNumber<0||!g_metalRenderer.readBuffer(sourceHandle,attribute.offset+static_cast<size_t>(vertexNumber)*stride,stride,vertex.data()))return;
+        const float* input=reinterpret_cast<const float*>(vertex.data()); size_t outputOffset=i*totalComponents;
+        for(const auto& name:g_transformFeedbackVaryings){
+            const size_t components=transformFeedbackVaryingComponents(vertexSource,name); const float scale=transformFeedbackVaryingScale(vertexSource,name);
+            for(size_t c=0;c<components;++c){ float value=c<static_cast<size_t>(attribute.size)?input[c]:(c==3?1.0f:0.0f); output[outputOffset+c]=value*scale; }
+            outputOffset+=components;
+        }
+    }
     const size_t bytes = output.size() * sizeof(float);
     if (g_transformFeedbackBufferSize && bytes > g_transformFeedbackBufferSize) return;
     g_metalRenderer.updateBuffer(destinationHandle,g_transformFeedbackBufferOffset,output.data(),bytes);
