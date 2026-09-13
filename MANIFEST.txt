@@ -86,6 +86,7 @@ tests/wine/opengl_glsl110.c
 tests/wine/opengl_glsl120.c
 tests/wine/opengl_image_formats.c
 tests/wine/opengl_image_r32f.c
+tests/wine/opengl_image_rgba8ui.c
 tests/wine/opengl_image_rgba16f.c
 tests/wine/opengl_indirect_elements.c
 tests/wine/opengl_interface.c
