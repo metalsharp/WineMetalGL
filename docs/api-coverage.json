@@ -60,7 +60,7 @@
     "simple triangle/point geometry pass-through emulation",
     "limited pass-through shader transform-feedback capture for gl_Position and simple scalar/vector-varying expressions with interleaved and separate buffers",
     "fixed-function blend/constant-color, scissor, and cull state",
-    "color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil clear readback, blit, and multisample fallback",
+    "color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil/stencil-texture clear readback, blit, and multisample fallback",
     "instanced/base-instance draw with depth/stencil attachments",
     "direct/indirect compute dispatch with SSBO writeback, ranged binding, and storage-block reflection",
     "uniform-buffer object binding/ranges, DSA buffer creation/storage, buffer storage allocation and storage-flag reflection, persistent/coherent mapped-range copy/flush emulation, block-name/size reflection, and buffer-size reflection",
