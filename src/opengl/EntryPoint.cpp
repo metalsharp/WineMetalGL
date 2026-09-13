@@ -2144,8 +2144,8 @@ extern "C" void glGetActiveAttrib(uint32_t program, uint32_t index, int32_t bufS
 // ---------------------------------------------------------------------------
 extern "C" void glCullFace(uint32_t mode) { glDispatch<void,uint32_t>("glCullFace",mode); g_glBridge.state().cullFace=mode; }
 extern "C" void glFrontFace(uint32_t mode) { glDispatch<void,uint32_t>("glFrontFace",mode); g_glBridge.state().frontFace=mode; }
-GL_PASSTHROUGH1(void, glLineWidth, float, width)
-GL_PASSTHROUGH1(void, glPointSize, float, size)
+extern "C" void glLineWidth(float width) { glDispatch<void,float>("glLineWidth",width);if(metalModeEnabled()&&width>0)g_glBridge.state().lineWidth=width; }
+extern "C" void glPointSize(float size) { glDispatch<void,float>("glPointSize",size);if(metalModeEnabled()&&size>0)g_glBridge.state().pointSize=size; }
 GL_PASSTHROUGH2(void, glPolygonMode, uint32_t, face, uint32_t, mode)
 extern "C" void glPolygonOffset(float factor,float units) { glDispatch<void,float,float>("glPolygonOffset",factor,units);g_glBridge.state().polygonOffsetFactor=factor;g_glBridge.state().polygonOffsetUnits=units; }
 

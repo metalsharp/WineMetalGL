@@ -494,8 +494,8 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
             static const char source[] =
                 "#include <metal_stdlib>\nusing namespace metal;\n"
                 "struct In { float3 p [[attribute(0)]]; float4 c [[attribute(1)]]; float2 uv [[attribute(2)]]; };\n"
-                "struct Out { float4 p [[position]]; float4 c; float2 uv; };\n"
-                "vertex Out fixed_vertex(In i [[stage_in]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; return o; }\n"
+                "struct Out { float4 p [[position]]; float4 c; float2 uv; float pointSize [[point_size]]; };\n"
+                "vertex Out fixed_vertex(In i [[stage_in]], constant float& pointSize [[buffer(3)]]) { Out o; o.p=float4(i.p,1.0); o.c=i.c; o.uv=i.uv; o.pointSize=pointSize; return o; }\n"
                 "struct Alpha { float ref; uint func; };\n"
                 "struct TextureEnv { uint mode; uint combineRGB; uint combineAlpha; uint sourceRGB[3]; uint operandRGB[3]; uint sourceAlpha[3]; uint operandAlpha[3]; float4 constantColor; };\n"
                 "bool alpha_pass(float a, constant Alpha& x) { if(x.func==0x0200) return false; if(x.func==0x0201) return a<x.ref; if(x.func==0x0202) return a==x.ref; if(x.func==0x0203) return a<=x.ref; if(x.func==0x0204) return a>x.ref; if(x.func==0x0205) return a!=x.ref; if(x.func==0x0206) return a>=x.ref; return true; }\n"
@@ -587,6 +587,7 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     struct AlphaState { float ref; uint32_t func; } alpha = { alphaRef, alphaTest ? alphaFunc : 0x0207 };
     id<MTLBuffer> alphaBuffer = [m_device newBufferWithBytes:&alpha length:sizeof(alpha) options:MTLResourceStorageModeShared];
     if (alphaBuffer) [m_impl->currentEncoder setFragmentBuffer:alphaBuffer offset:0 atIndex:1];
+    float pointSize=std::max(1.0f,glState.pointSize);id<MTLBuffer> pointSizeBuffer=[m_device newBufferWithBytes:&pointSize length:sizeof(pointSize) options:MTLResourceStorageModeShared];if(pointSizeBuffer)[m_impl->currentEncoder setVertexBuffer:pointSizeBuffer offset:0 atIndex:3];
     if (textureHandle) {
         id<MTLBuffer> textureEnvBuffer = [m_device newBufferWithBytes:&textureEnv length:sizeof(textureEnv) options:MTLResourceStorageModeShared];
         if (textureEnvBuffer) [m_impl->currentEncoder setFragmentBuffer:textureEnvBuffer offset:0 atIndex:2];

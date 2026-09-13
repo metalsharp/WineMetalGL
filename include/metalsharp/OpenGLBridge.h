@@ -109,6 +109,7 @@ struct GLState {
     int32_t scissorX = 0, scissorY = 0, scissorWidth = 0, scissorHeight = 0;
     bool polygonOffsetFill = false, polygonOffsetLine = false, polygonOffsetPoint = false, depthClampEnabled = false;
     float polygonOffsetFactor = 0.0f, polygonOffsetUnits = 0.0f;
+    float pointSize = 1.0f, lineWidth = 1.0f;
 };
 
 /// Bridge between Windows opengl32.dll callers and macOS native OpenGL.

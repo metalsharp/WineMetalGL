@@ -124,7 +124,9 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_indirect_elements.c" -o "$RUN_ROOT/indirect-elements64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_indirect_elements.c" -o "$RUN_ROOT/indirect-elements32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed.c" -o "$RUN_ROOT/fixed64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed_point.c" -o "$RUN_ROOT/fixed-point64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed.c" -o "$RUN_ROOT/fixed32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_fixed_point.c" -o "$RUN_ROOT/fixed-point32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_blend.c" -o "$RUN_ROOT/blend64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_blend.c" -o "$RUN_ROOT/blend32.exe" -lopengl32 -luser32 -lgdi32
 
@@ -234,6 +236,8 @@ run_shader "$RUN_ROOT/indirect-elements64.exe"
 run_shader "$RUN_ROOT/indirect-elements32.exe"
 run_shader "$RUN_ROOT/fixed64.exe"
 run_shader "$RUN_ROOT/fixed32.exe"
+run_shader "$RUN_ROOT/fixed-point64.exe"
+run_shader "$RUN_ROOT/fixed-point32.exe"
 run_shader "$RUN_ROOT/blend64.exe"
 run_shader "$RUN_ROOT/blend32.exe"
 grep -q OPENGL_GL330_METAL_DRAW_READBACK_OK "$RUN_ROOT/gl33-64.exe.stdout"
@@ -412,6 +416,8 @@ grep -q WINEMETALGL_FIXED_FOG_OK "$RUN_ROOT/fixed64.exe.stdout"
 grep -q WINEMETALGL_FIXED_FOG_OK "$RUN_ROOT/fixed32.exe.stdout"
 grep -q WINEMETALGL_CLIP_PLANE_OK "$RUN_ROOT/fixed64.exe.stdout"
 grep -q WINEMETALGL_CLIP_PLANE_OK "$RUN_ROOT/fixed32.exe.stdout"
+grep -q WINEMETALGL_FIXED_POINT_SIZE_OK "$RUN_ROOT/fixed-point64.exe.stdout"
+grep -q WINEMETALGL_FIXED_POINT_SIZE_OK "$RUN_ROOT/fixed-point32.exe.stdout"
 grep -q WINEMETALGL_BLEND_OK "$RUN_ROOT/blend64.exe.stdout"
 grep -q WINEMETALGL_BLEND_OK "$RUN_ROOT/blend32.exe.stdout"
 grep -q WINEMETALGL_PER_TARGET_BLEND_OK "$RUN_ROOT/blend64.exe.stdout"
@@ -524,6 +530,7 @@ echo WINEMETALGL_FIXED_LIGHTING_OK
 echo WINEMETALGL_FIXED_SPECULAR_OK
 echo WINEMETALGL_FIXED_FOG_OK
 echo WINEMETALGL_CLIP_PLANE_OK
+echo WINEMETALGL_FIXED_POINT_SIZE_OK
 echo WINEMETALGL_BLEND_OK
 echo WINEMETALGL_PER_TARGET_BLEND_OK
 echo WINEMETALGL_BLEND_CONSTANT_OK
