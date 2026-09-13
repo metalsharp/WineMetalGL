@@ -984,10 +984,11 @@ extern "C" unsigned char glUnmapBuffer(uint32_t target) {
     return glDispatch<unsigned char, uint32_t>("glUnmapBuffer", target);
 }
 extern "C" void* glMapBufferRange(uint32_t target, int64_t offset, int64_t length, uint32_t access) {
-    void* base = glMapBuffer(target, access);
-    return base ? static_cast<uint8_t*>(base) + offset : nullptr;
+    if(metalModeEnabled()){uint32_t name=target==0x8892?g_glBridge.state().boundArrayBuffer:target==0x8893?g_glBridge.state().boundElementArrayBuffer:target==0x90D2?g_boundStorageBuffer:target==0x8C8E?g_boundTransformFeedbackBuffer:target==0x8A11?g_boundUniformBuffer:target==0x8F3F?g_boundIndirectBuffer:target==0x9192?g_boundQueryBuffer:0;size_t bufferSize=0;uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(name);if(it!=g_buffers.end()){bufferSize=it->second.size;handle=it->second.metalHandle;}}if(!handle||offset<0||length<0||static_cast<uint64_t>(offset)+static_cast<uint64_t>(length)>bufferSize){metalsharp::GLErrorTracker::instance().setError(0x0501);return nullptr;}void* base=g_metalRenderer.bufferContents(handle);return base?static_cast<uint8_t*>(base)+offset:nullptr;}
+    void* base = glMapBuffer(target, access);return base ? static_cast<uint8_t*>(base) + offset : nullptr;
 }
-GL_PASSTHROUGH3(void, glFlushMappedBufferRange, uint32_t, target, int64_t, offset, int64_t, length)
+extern "C" void glFlushMappedBufferRange(uint32_t target,int64_t offset,int64_t length) { if(!metalModeEnabled())glDispatch<void,uint32_t,int64_t,int64_t>("glFlushMappedBufferRange",target,offset,length); }
+extern "C" void glFlushMappedNamedBufferRange(uint32_t buffer,int64_t offset,int64_t length) { if(!metalModeEnabled())glDispatch<void,uint32_t,int64_t,int64_t>("glFlushMappedNamedBufferRange",buffer,offset,length); }
 extern "C" unsigned char glIsBuffer(uint32_t buffer) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_bufferMutex);return g_buffers.count(buffer)!=0;}return glDispatch<unsigned char,uint32_t>("glIsBuffer",buffer); }
 
 // glBindBuffer is hand-written because it must mirror the binding into
