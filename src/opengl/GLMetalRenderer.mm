@@ -1135,7 +1135,7 @@ void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
 void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
                                    uint32_t wrapS, uint32_t wrapT, uint32_t maxAnisotropy,
                                    float minLod, float maxLod, uint32_t compareFunc,
-                                   bool compare, const float* borderColor) {
+                                   bool compare, bool normalizedCoordinates, const float* borderColor) {
     if (!m_impl->currentEncoder || !m_device) return;
     MTLSamplerDescriptor* descriptor = [[MTLSamplerDescriptor alloc] init];
     descriptor.minFilter = (minFilter == 0x2600 || minFilter == 0x2700 || minFilter == 0x2702) ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
@@ -1151,6 +1151,7 @@ void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t m
     };
     descriptor.sAddressMode = wrap(wrapS);
     descriptor.tAddressMode = wrap(wrapT);
+    descriptor.normalizedCoordinates = normalizedCoordinates;
     descriptor.maxAnisotropy = std::max<NSUInteger>(1, std::min<NSUInteger>(16, maxAnisotropy));
     descriptor.lodMinClamp = std::max(0.0f, minLod);
     descriptor.lodMaxClamp = std::max(descriptor.lodMinClamp, maxLod);

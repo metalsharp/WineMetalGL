@@ -476,12 +476,12 @@ bool beginExperimentalDraw(uint32_t program) {
         g_metalRenderer.bindTexture(texture->second.metalHandle, unit);
         auto sampler = g_samplers.find(g_samplerUnits[unit]);
         if (sampler != g_samplers.end())
-            g_metalRenderer.bindSampler(unit, sampler->second.minFilter, sampler->second.magFilter, sampler->second.wrapS, sampler->second.wrapT, sampler->second.maxAnisotropy, sampler->second.minLod, sampler->second.maxLod, sampler->second.compareFunc, sampler->second.compare, sampler->second.borderColor);
+            g_metalRenderer.bindSampler(unit, sampler->second.minFilter, sampler->second.magFilter, sampler->second.wrapS, sampler->second.wrapT, sampler->second.maxAnisotropy, sampler->second.minLod, sampler->second.maxLod, sampler->second.compareFunc, sampler->second.compare, texture->second.target != 0x84F5, sampler->second.borderColor);
         else {
             g_metalRenderer.bindSampler(unit, texture->second.minFilter, texture->second.magFilter,
                                         texture->second.wrapS, texture->second.wrapT, texture->second.maxAnisotropy,
                                         texture->second.minLod, texture->second.maxLod, texture->second.compareFunc,
-                                        texture->second.compare, texture->second.borderColor);
+                                        texture->second.compare, texture->second.target != 0x84F5, texture->second.borderColor);
         }
     }
     g_metalRenderer.usePipeline();
@@ -1661,8 +1661,11 @@ extern "C" void glCompileShader(uint32_t shader) {
         // This is safe because the MSL output for a given (source, stage)
         // is fully determined by the inputs — there is no per-compile
         // randomness in glslang or SPIRV-Cross on our code paths.
+        std::string sourceForCompiler = state->source;
+        for (size_t position = 0; (position = sourceForCompiler.find("sampler2DRect", position)) != std::string::npos; position += 9)
+            sourceForCompiler.replace(position, 13, "sampler2D");
         const std::string* cached =
-            metalsharp::GLShaderCache::instance().lookupMSL(state->source, static_cast<uint32_t>(state->stage));
+            metalsharp::GLShaderCache::instance().lookupMSL(sourceForCompiler, static_cast<uint32_t>(state->stage));
         if (cached) {
             state->msl = *cached;
             // The cached entry was a successful translation; the SPIR-V
@@ -1679,7 +1682,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         }
 
         std::string errorLog;
-        bool ok = metalsharp::GLSLCompiler::compileToSPIRV(state->source.c_str(), state->stage, state->glslVersion,
+        bool ok = metalsharp::GLSLCompiler::compileToSPIRV(sourceForCompiler.c_str(), state->stage, state->glslVersion,
                                                            state->spirv, errorLog);
         if (ok) {
             ok = metalsharp::GLSLCompiler::translateSPIRVtoMSL(state->spirv, state->stage, state->msl, errorLog);
@@ -1691,7 +1694,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         // retry once underlying tools update, and we don't want to lock in
         // a broken result.
         if (ok) {
-            metalsharp::GLShaderCache::instance().storeMSL(state->source, static_cast<uint32_t>(state->stage),
+            metalsharp::GLShaderCache::instance().storeMSL(sourceForCompiler, static_cast<uint32_t>(state->stage),
                                                            state->msl);
         }
         g_glBridge.state().shaderCompilePending = false;
@@ -2499,7 +2502,7 @@ extern "C" void glColor4f(float r, float g, float b, float a) {
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
-    if (metalModeEnabled() && (target == 0x0DE1 || (target >= 0x8515 && target <= 0x851A)) && level == 0 && w > 0 && h > 0 && textureName) {
+    if (metalModeEnabled() && (target == 0x0DE1 || target == 0x84F5 || (target >= 0x8515 && target <= 0x851A)) && level == 0 && w > 0 && h > 0 && textureName) {
         const bool cubeFace = target >= 0x8515 && target <= 0x851A;
         const uint32_t cubeFaceIndex = cubeFace ? target - 0x8515 : 0;
         const bool scalarUint = internalFormat == 0x8236 && format == 0x8D94 && type == 0x1405;
@@ -2526,6 +2529,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         texture.width = static_cast<uint32_t>(w);
         texture.height = static_cast<uint32_t>(h);
         texture.internalFormat = internalFormat;
+        texture.target = target;
         texture.pixels = std::move(pixels);
         return;
     }
@@ -2542,7 +2546,7 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         }
     }
     if (metalModeEnabled() && target >= 0x8515 && target <= 0x851A && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) { uint64_t handle=0;uint32_t width=0,height=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){handle=it->second.metalHandle;width=it->second.width;height=it->second.height;}}std::vector<uint8_t> rgba(static_cast<size_t>(width)*height*4);if(handle&&g_metalRenderer.readTextureRGBA8(handle,0,0,width,height,rgba.data(),target-0x8515)&&writeRGBA8Pixels(rgba.data(),width,height,1,format,type,pixels,g_glBridge.state().packAlignment))return; }
-    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
+    if (metalModeEnabled() && (target == 0x0DE1 || target == 0x84F5) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
         uint64_t scalarHandle=0;int32_t scalarFormat=0;uint32_t scalarWidth=0,scalarHeight=0;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto scalar=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(scalar!=g_textures.end()){scalarHandle=scalar->second.metalHandle;scalarFormat=scalar->second.internalFormat;scalarWidth=scalar->second.width;scalarHeight=scalar->second.height;}}
         if(scalarHandle&&((scalarFormat==0x8236&&format==0x8D94&&type==0x1405)||(scalarFormat==0x822E&&format==0x1903&&type==0x1406))&&g_metalRenderer.readTextureScalar32(scalarHandle,0,0,scalarWidth,scalarHeight,pixels))return;
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);
@@ -2740,7 +2744,7 @@ extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
 
 extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
     glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
-    if ((target == 0x0DE1 || target == 0x9100 || target == 0x806F || target == 0x8C1A || target == 0x8513 || (target >= 0x8515 && target <= 0x851A)) && g_activeTextureUnit < g_textureUnits.size()) {
+    if ((target == 0x0DE1 || target == 0x84F5 || target == 0x9100 || target == 0x806F || target == 0x8C1A || target == 0x8513 || (target >= 0x8515 && target <= 0x851A)) && g_activeTextureUnit < g_textureUnits.size()) {
         g_textureUnits[g_activeTextureUnit] = texture;
         g_glBridge.state().boundTexture2D = texture;
     }
@@ -2754,7 +2758,7 @@ extern "C" void glActiveTexture(uint32_t texture) {
 
 extern "C" void glTexParameteri(uint32_t target, uint32_t pname, int32_t param) {
     glDispatch<void, uint32_t, uint32_t, int32_t>("glTexParameteri", target, pname, param);
-    if ((target != 0x0DE1 && target != 0x8513 && (target < 0x8515 || target > 0x851A)) || g_activeTextureUnit >= g_textureUnits.size()) return;
+    if ((target != 0x0DE1 && target != 0x84F5 && target != 0x8513 && (target < 0x8515 || target > 0x851A)) || g_activeTextureUnit >= g_textureUnits.size()) return;
     std::lock_guard<std::mutex> lock(g_resourceMutex);
     auto it = g_textures.find(g_textureUnits[g_activeTextureUnit]);
     if (it == g_textures.end()) return;
@@ -2825,8 +2829,8 @@ extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_
     }
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params);
 }
-extern "C" void glGetTexParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params); }
-extern "C" void glGetTexParameterfv(uint32_t target,uint32_t pname,float* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params); }
+extern "C" void glGetTexParameteriv(uint32_t target,uint32_t pname,int32_t* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x84F5||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x2801)*params=static_cast<int32_t>(it->second.minFilter);else if(pname==0x2800)*params=static_cast<int32_t>(it->second.magFilter);else if(pname==0x2802)*params=static_cast<int32_t>(it->second.wrapS);else if(pname==0x2803)*params=static_cast<int32_t>(it->second.wrapT);else if(pname==0x813A)*params=static_cast<int32_t>(it->second.minLod);else if(pname==0x813B)*params=static_cast<int32_t>(it->second.maxLod);else if(pname==0x84FE)*params=static_cast<int32_t>(it->second.maxAnisotropy);else if(pname==0x884C)*params=it->second.compare;else if(pname==0x884D)*params=static_cast<int32_t>(it->second.compareFunc);else {glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetTexParameteriv",target,pname,params); }
+extern "C" void glGetTexParameterfv(uint32_t target,uint32_t pname,float* params) { if(params&&metalModeEnabled()&&(target==0x0DE1||target==0x84F5||target==0x8513||(target>=0x8515&&target<=0x851A))&&g_activeTextureUnit<g_textureUnits.size()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);if(it!=g_textures.end()){if(pname==0x813A)*params=it->second.minLod;else if(pname==0x813B)*params=it->second.maxLod;else if(pname==0x84FE)*params=static_cast<float>(it->second.maxAnisotropy);else if(pname==0x1004){std::memcpy(params,it->second.borderColor,sizeof(it->second.borderColor));return;}else {glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params);return;}return;}}glDispatch<void,uint32_t,uint32_t,float*>("glGetTexParameterfv",target,pname,params); }
 GL_PASSTHROUGH1(unsigned char, glIsTexture, uint32_t, texture)
 
 // glCopyTexImage2D and glCopyTexSubImage2D update tracked Metal textures
@@ -2908,7 +2912,7 @@ extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uin
                                         uint32_t texture, int32_t level) {
     glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t, int32_t>(
         "glFramebufferTexture2D", target, attachment, textarget, texture, level);
-    if (metalModeEnabled() && target == 0x8D40 && (textarget == 0x0DE1 || textarget == 0x9100)) {
+    if (metalModeEnabled() && target == 0x8D40 && (textarget == 0x0DE1 || textarget == 0x84F5 || textarget == 0x9100)) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         auto image = g_textures.find(texture);

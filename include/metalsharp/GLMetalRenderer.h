@@ -208,7 +208,7 @@ class GLMetalRenderer {
     void bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
                      uint32_t wrapS, uint32_t wrapT, uint32_t maxAnisotropy,
                      float minLod, float maxLod, uint32_t compareFunc,
-                     bool compare, const float* borderColor);
+                     bool compare, bool normalizedCoordinates, const float* borderColor);
 
     /// Set the encoder viewport (glViewport equivalent).
     void setViewport(int32_t x, int32_t y, uint32_t width, uint32_t height, double znear = 0.0, double zfar = 1.0);

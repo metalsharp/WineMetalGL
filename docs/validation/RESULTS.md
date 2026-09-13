@@ -42,7 +42,8 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, advanced texture/sampler state and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, completeness, and blit.
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
-- Cube-map texture creation, sampling, face readback, and x86_64/i386 validation.
+- Cube-map texture creation, sampling, mipmaps, face readback, and x86_64/i386 validation.
+- Rectangle-texture creation, unnormalized sampling, GLSL translation, and readback.
 - Instanced drawing with Metal depth/stencil attachments.
 - Direct/indirect compute dispatch with ranged SSBO writeback and storage-block reflection on both guests.
 - Transform-feedback capture with indexed draws and ranged transform-feedback-buffer offsets.
@@ -131,6 +132,7 @@ WINEMETALGL_COMPUTE_INDIRECT_OK
 WINEMETALGL_IMAGE_OK
 WINEMETALGL_IMAGE_R32UI_OK
 WINEMETALGL_TEXTURE_CUBE_OK
+WINEMETALGL_TEXTURE_RECTANGLE_OK
 WINEMETALGL_INDIRECT_OK
 WINEMETALGL_FIXED_OK
 WINEMETALGL_FIXED_LIGHTING_OK
