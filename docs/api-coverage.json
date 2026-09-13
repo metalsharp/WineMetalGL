@@ -63,7 +63,7 @@
     "color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, blit, and multisample fallback",
     "instanced/base-instance draw with depth/stencil attachments",
     "direct/indirect compute dispatch with SSBO writeback, ranged binding, and storage-block reflection",
-    "uniform-buffer object binding/ranges, DSA buffer creation/storage, buffer storage allocation, block-name/size reflection, and buffer-size reflection",
+    "uniform-buffer object binding/ranges, DSA buffer creation/storage, buffer storage allocation and storage-flag reflection, persistent/coherent mapped-range copy/flush emulation, block-name/size reflection, and buffer-size reflection",
     "compute imageStore with 2D rgba8 writeback",
     "arrays and elements indirect draw",
     "basic fixed-function immediate-mode triangle, texture replace/modulate/add/decal, display-list, multi-light diffuse/material/specular lighting, linear/exp fog, blending, and fixed transform-feedback path",
