@@ -41,7 +41,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Fixed-function single/multi-texture environment modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, multi-bind vertex buffers, vertex attribute, and uniform, plus direct and indirect multi-draw.
-- PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA8UI/RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, multi-bind texture/sampler state, internal-format queries, advanced texture/sampler state, swizzle state, and parameter queries, normalized, depth, RGBA8UI, and R32UI integer GLSL texture sampling, and 2D/3D texture readback.
+- PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA8UI/RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, multi-bind texture/sampler state, internal-format queries, advanced texture/sampler state, swizzle state, and parameter queries, normalized, half-float, depth, RGBA8UI, and R32UI integer GLSL texture sampling, and 2D/3D texture readback.
 - Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil/stencil-texture clear readback, completeness, and blit.
 - Metal multisample color textures/renderbuffers with matching raster sample count, resolve attachments, readback, and framebuffer blit.
 - Cube-map texture creation, sampling, mipmaps, face readback, and x86_64/i386 validation.
@@ -103,6 +103,7 @@ WINEMETALGL_INTERNAL_FORMAT_QUERY_OK
 WINEMETALGL_MIPMAP_OK
 WINEMETALGL_GL33_TEXTURE_OK
 WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK
+WINEMETALGL_HALF_FLOAT_TEXTURE_SAMPLE_OK
 WINEMETALGL_DEPTH_TEXTURE_SAMPLE_OK
 WINEMETALGL_R32UI_TEXTURE_SAMPLE_OK
 WINEMETALGL_TEXTURE_PACKED_OK

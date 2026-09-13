@@ -76,8 +76,10 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_gl33_texture.c" -o "$RUN_ROOT/texture32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_integer.c" -o "$RUN_ROOT/texture-integer64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_half_sample.c" -o "$RUN_ROOT/texture-half64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_depth_sample.c" -o "$RUN_ROOT/texture-depth64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_integer.c" -o "$RUN_ROOT/texture-integer32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_half_sample.c" -o "$RUN_ROOT/texture-half32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_depth_sample.c" -o "$RUN_ROOT/texture-depth32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_r32ui.c" -o "$RUN_ROOT/texture-r32ui64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_texture_r32ui.c" -o "$RUN_ROOT/texture-r32ui32.exe" -lopengl32 -luser32 -lgdi32
@@ -226,6 +228,8 @@ run_shader "$RUN_ROOT/texture64.exe"
 run_shader "$RUN_ROOT/texture32.exe"
 run_shader "$RUN_ROOT/texture-integer64.exe"
 run_shader "$RUN_ROOT/texture-integer32.exe"
+run_shader "$RUN_ROOT/texture-half64.exe"
+run_shader "$RUN_ROOT/texture-half32.exe"
 run_shader "$RUN_ROOT/texture-depth64.exe"
 run_shader "$RUN_ROOT/texture-depth32.exe"
 run_shader "$RUN_ROOT/texture-r32ui64.exe"
@@ -358,6 +362,8 @@ grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture64.exe.stdout"
 grep -q WINEMETALGL_GL33_TEXTURE_OK "$RUN_ROOT/texture32.exe.stdout"
 grep -q WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-integer64.exe.stdout"
 grep -q WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-integer32.exe.stdout"
+grep -q WINEMETALGL_HALF_FLOAT_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-half64.exe.stdout"
+grep -q WINEMETALGL_HALF_FLOAT_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-half32.exe.stdout"
 grep -q WINEMETALGL_DEPTH_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-depth64.exe.stdout"
 grep -q WINEMETALGL_DEPTH_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-depth32.exe.stdout"
 grep -q WINEMETALGL_R32UI_TEXTURE_SAMPLE_OK "$RUN_ROOT/texture-r32ui64.exe.stdout"
@@ -623,6 +629,7 @@ echo WINEMETALGL_INTERNAL_FORMAT_QUERY_OK
 echo WINEMETALGL_MIPMAP_OK
 echo WINEMETALGL_GL33_TEXTURE_OK
 echo WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK
+echo WINEMETALGL_HALF_FLOAT_TEXTURE_SAMPLE_OK
 echo WINEMETALGL_DEPTH_TEXTURE_SAMPLE_OK
 echo WINEMETALGL_R32UI_TEXTURE_SAMPLE_OK
 echo WINEMETALGL_TEXTURE_PACKED_OK
