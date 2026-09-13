@@ -522,6 +522,7 @@ bool beginExperimentalDraw(uint32_t program) {
 
 float g_tessellationFactor = 1.0f;
 float g_tessellationOuterFactors[4] = {1,1,1,1}, g_tessellationInnerFactors[2] = {1,1};
+float g_patchDefaultOuterFactors[4] = {1,1,1,1}, g_patchDefaultInnerFactors[2] = {1,1};
 bool g_tessellationQuad = false;
 
 static float tessellationFactorFromSource(const std::string& source) {
@@ -559,7 +560,7 @@ bool beginExperimentalTessDraw(uint32_t program) {
     if (!eval || !fragment) return false;
     g_tessellationQuad = eval->source.find("layout(quads") != std::string::npos || eval->source.find("layout (quads") != std::string::npos;
     if (!g_metalRenderer.createTessellationPipeline(*eval, *fragment, g_glBridge.state(), g_tessellationQuad)) return false;
-    g_tessellationFactor = control ? tessellationFactorFromSource(control->source) : 1.0f; if(control)tessellationFactorsFromSource(control->source);else{for(float& value:g_tessellationOuterFactors)value=g_tessellationFactor;for(float& value:g_tessellationInnerFactors)value=g_tessellationFactor;}
+    g_tessellationFactor = control ? tessellationFactorFromSource(control->source) : 1.0f; if(control)tessellationFactorsFromSource(control->source);else{std::copy(std::begin(g_patchDefaultOuterFactors),std::end(g_patchDefaultOuterFactors),std::begin(g_tessellationOuterFactors));std::copy(std::begin(g_patchDefaultInnerFactors),std::end(g_patchDefaultInnerFactors),std::begin(g_tessellationInnerFactors));g_tessellationFactor=g_tessellationOuterFactors[0];}
     uint32_t width = g_glBridge.state().viewportWidth > 0 ? g_glBridge.state().viewportWidth : 64;
     uint32_t height = g_glBridge.state().viewportHeight > 0 ? g_glBridge.state().viewportHeight : 64;
     g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
@@ -827,6 +828,7 @@ extern "C" void glPatchParameteri(uint32_t pname, int32_t value) {
     glDispatch<void, uint32_t, int32_t>("glPatchParameteri", pname, value);
     if (pname == 0x8E72 && value > 0) g_glBridge.state().patchVertices = static_cast<uint32_t>(value);
 }
+extern "C" void glPatchParameterfv(uint32_t pname,const float* values) { glDispatch<void,uint32_t,const float*>("glPatchParameterfv",pname,values);if(!metalModeEnabled()||!values)return;if(pname==0x8E74)std::memcpy(g_patchDefaultOuterFactors,values,sizeof(g_patchDefaultOuterFactors));else if(pname==0x8E75)std::memcpy(g_patchDefaultInnerFactors,values,sizeof(g_patchDefaultInnerFactors)); }
 
 // ---------------------------------------------------------------------------
 // Buffer objects (GL 1.5)
