@@ -160,4 +160,4 @@ This release does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
 tessellation, transform feedback, fixed-function lighting/matrices/display
 lists, image formats beyond the validated 2D RGBA8 path, the full
-texture/sampler/FBO format matrix, and EGL/GLES remain explicitly unadvertised; fixed-function texture combine/coordinate generation is limited to the validated modes above.
+texture/sampler/FBO format matrix remains explicitly unadvertised; fixed-function texture combine/coordinate generation is limited to the validated modes above.

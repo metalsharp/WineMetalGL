@@ -1,0 +1,11 @@
+#include <windows.h>
+#include <GL/gl.h>
+#include <stdio.h>
+#include <string.h>
+#define DEBUG_SOURCE_APPLICATION 0x824A
+#define DEBUG_TYPE_MARKER 0x8268
+#define DEBUG_SEVERITY_NOTIFICATION 0x826B
+typedef void(WINAPI*DMControl)(GLenum,GLenum,GLenum,GLsizei,const GLuint*,GLboolean);typedef void(WINAPI*DMInsert)(GLenum,GLenum,GLuint,GLenum,GLsizei,const char*);typedef GLuint(WINAPI*DMLog)(GLuint,GLsizei,GLenum*,GLenum*,GLuint*,GLenum*,GLsizei*,char*);typedef void(WINAPI*ObjLabel)(GLenum,GLuint,GLsizei,const char*);typedef void(WINAPI*GetObjLabel)(GLenum,GLuint,GLsizei,GLsizei*,char*);
+static void*p(const char*n){PROC q=wglGetProcAddress(n);HMODULE m;if(q)return(void*)q;m=GetModuleHandleA("opengl32.dll");return m?(void*)GetProcAddress(m,n):0;}
+#define L(t,v,n)do{v=(t)p(n);if(!v){printf("FAIL missing %s\n",n);return 14;}}while(0)
+int main(void){PIXELFORMATDESCRIPTOR d={0};HWND w;HDC dc;HGLRC c;int pf;DMControl control;DMInsert insert;DMLog log;ObjLabel label;GetObjLabel getlabel;GLenum source=0,type=0,severity=0;GLuint id=0;GLsizei length=0;char messages[128]={0},object_label[64]={0};w=CreateWindowA("STATIC","WineMetalGL debug",WS_OVERLAPPEDWINDOW,0,0,64,64,0,0,0,0);if(!w)return 11;dc=GetDC(w);d.nSize=sizeof(d);d.nVersion=1;d.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL;d.iPixelType=PFD_TYPE_RGBA;d.cColorBits=32;pf=ChoosePixelFormat(dc,&d);if(!pf||!SetPixelFormat(dc,pf,&d))return 12;c=wglCreateContext(dc);if(!c||!wglMakeCurrent(dc,c))return 13;L(DMControl,control,"glDebugMessageControl");L(DMInsert,insert,"glDebugMessageInsert");L(DMLog,log,"glGetDebugMessageLog");L(ObjLabel,label,"glObjectLabel");L(GetObjLabel,getlabel,"glGetObjectLabel");control(0,0,0,0,0,1);insert(DEBUG_SOURCE_APPLICATION,DEBUG_TYPE_MARKER,77,DEBUG_SEVERITY_NOTIFICATION,11,"hello-debug");if(log(1,sizeof(messages),&source,&type,&id,&severity,&length,messages)!=1||strcmp(messages,"hello-debug")||id!=77||length!=11)return 15;label(0x1702,7,12,"texture-test");GLsizei object_length=0;getlabel(0x1702,7,sizeof(object_label),&object_length,object_label);if(strcmp(object_label,"texture-test")||object_length!=12)return 16;printf("WINEMETALGL_DEBUG_OUTPUT_OK\n");wglMakeCurrent(0,0);wglDeleteContext(c);ReleaseDC(w,dc);DestroyWindow(w);return 0;}

@@ -83,8 +83,10 @@ test "$(/usr/bin/lipo -archs "$PROJECT_ROOT/build/release/metalsharp-opengl.dyli
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform.c" -o "$RUN_ROOT/transform32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader64.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary64.exe" -lopengl32 -luser32 -lgdi32
+"$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_debug.c" -o "$RUN_ROOT/debug64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader32.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_shader_binary.c" -o "$RUN_ROOT/shader-binary32.exe" -lopengl32 -luser32 -lgdi32
+"$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_debug.c" -o "$RUN_ROOT/debug32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader-elements64.exe" -lopengl32 -luser32 -lgdi32
 "$CC32" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_transform_shader.c" -o "$RUN_ROOT/transform-shader-elements32.exe" -lopengl32 -luser32 -lgdi32
 "$CC64" -O2 -I"$WINE_RUNTIME/include" "$PROJECT_ROOT/tests/wine/opengl_tess_compile.c" -o "$RUN_ROOT/tess64.exe" -lopengl32 -luser32 -lgdi32
@@ -184,6 +186,8 @@ run_shader "$RUN_ROOT/transform-shader-elements64.exe"
 run_shader "$RUN_ROOT/transform-shader-elements32.exe"
 run_shader "$RUN_ROOT/shader-binary64.exe"
 run_shader "$RUN_ROOT/shader-binary32.exe"
+run_shader "$RUN_ROOT/debug64.exe"
+run_shader "$RUN_ROOT/debug32.exe"
 run_shader "$RUN_ROOT/tess64.exe"
 run_shader "$RUN_ROOT/tess32.exe"
 run_shader "$RUN_ROOT/tess-draw64.exe"
@@ -318,6 +322,8 @@ grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary64.exe.stdout"
 grep -q WINEMETALGL_SHADER_BINARY_OK "$RUN_ROOT/shader-binary32.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_BINARY_OK "$RUN_ROOT/shader-binary64.exe.stdout"
 grep -q WINEMETALGL_PROGRAM_BINARY_OK "$RUN_ROOT/shader-binary32.exe.stdout"
+grep -q WINEMETALGL_DEBUG_OUTPUT_OK "$RUN_ROOT/debug64.exe.stdout"
+grep -q WINEMETALGL_DEBUG_OUTPUT_OK "$RUN_ROOT/debug32.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_COMPILE_OK "$RUN_ROOT/tess64.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_COMPILE_OK "$RUN_ROOT/tess32.exe.stdout"
 grep -q WINEMETALGL_TESSELLATION_DRAW_OK "$RUN_ROOT/tess-draw64.exe.stdout"
@@ -445,6 +451,7 @@ echo WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
 echo WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
 echo WINEMETALGL_SHADER_BINARY_OK
 echo WINEMETALGL_PROGRAM_BINARY_OK
+echo WINEMETALGL_DEBUG_OUTPUT_OK
 echo WINEMETALGL_TESSELLATION_COMPILE_OK
 echo WINEMETALGL_TESSELLATION_DRAW_OK
 echo WINEMETALGL_TESSELLATION_QUAD_OK

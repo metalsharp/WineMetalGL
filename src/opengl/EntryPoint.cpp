@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
@@ -91,6 +92,14 @@ struct ExperimentalQuery { uint32_t target = 0; bool active = false; uint64_t va
 std::mutex g_queryMutex;
 std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
 std::unordered_map<uint64_t, uint8_t> g_stencilClearShadow;
+struct ExperimentalDebugMessage { uint32_t source=0,type=0,id=0,severity=0; std::string text; };
+using DebugCallback = void (*)(uint32_t,uint32_t,uint32_t,uint32_t,int32_t,const char*,const void*);
+std::mutex g_debugMutex;
+std::deque<ExperimentalDebugMessage> g_debugMessages;
+DebugCallback g_debugCallback = nullptr;
+const void* g_debugUserParam = nullptr;
+bool g_debugOutputEnabled = true;
+std::unordered_map<uint64_t,std::string> g_objectLabels;
 uint32_t g_nextQuery = 1;
 uint32_t g_activeQuery = 0;
 
@@ -2986,6 +2995,14 @@ extern "C" void glBindFramebuffer(uint32_t target, uint32_t framebuffer) {
 // via GL_PASSTHROUGH).
 // glGetString is hand-written for GL_EXTENSIONS passthrough (Phase 5b).
 // ---------------------------------------------------------------------------
+extern "C" void glDebugMessageControl(uint32_t source,uint32_t type,uint32_t severity,int32_t count,const uint32_t* ids,unsigned char enabled) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t,int32_t,const uint32_t*,unsigned char>("glDebugMessageControl",source,type,severity,count,ids,enabled);return;}std::lock_guard<std::mutex> lock(g_debugMutex);g_debugOutputEnabled=enabled!=0; }
+extern "C" void glDebugMessageCallback(void(*callback)(uint32_t,uint32_t,uint32_t,uint32_t,int32_t,const char*,const void*),const void* userParam) { if(!metalModeEnabled()){glDispatch<void,void(*)(uint32_t,uint32_t,uint32_t,uint32_t,int32_t,const char*,const void*),const void*>("glDebugMessageCallback",callback,userParam);return;}std::lock_guard<std::mutex> lock(g_debugMutex);g_debugCallback=callback;g_debugUserParam=userParam; }
+extern "C" void glDebugMessageInsert(uint32_t source,uint32_t type,uint32_t id,uint32_t severity,int32_t length,const char* message) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t,uint32_t,int32_t,const char*>("glDebugMessageInsert",source,type,id,severity,length,message);return;}if(!message)return;ExperimentalDebugMessage item;item.source=source;item.type=type;item.id=id;item.severity=severity;item.text.assign(message,length<0?std::strlen(message):static_cast<size_t>(length));DebugCallback callback;const void* userParam;{std::lock_guard<std::mutex> lock(g_debugMutex);if(!g_debugOutputEnabled)return;g_debugMessages.push_back(item);callback=g_debugCallback;userParam=g_debugUserParam;}if(callback)callback(source,type,id,severity,static_cast<int32_t>(item.text.size()),item.text.c_str(),userParam); }
+extern "C" uint32_t glGetDebugMessageLog(uint32_t count,int32_t bufSize,uint32_t* sources,uint32_t* types,uint32_t* ids,uint32_t* severities,int32_t* lengths,char* messageLog) { if(!metalModeEnabled())return glDispatch<uint32_t,uint32_t,int32_t,uint32_t*,uint32_t*,uint32_t*,uint32_t*,int32_t*,char*>("glGetDebugMessageLog",count,bufSize,sources,types,ids,severities,lengths,messageLog);std::lock_guard<std::mutex> lock(g_debugMutex);uint32_t returned=0;int32_t used=0;while(returned<count&&!g_debugMessages.empty()){auto& item=g_debugMessages.front();int32_t available=static_cast<int32_t>(item.text.size());if(messageLog&&bufSize>used){int32_t copy=std::min(available,bufSize-used-1);if(copy>0)std::memcpy(messageLog+used,item.text.data(),copy);messageLog[used+std::max(0,copy)]=0;if(lengths)lengths[returned]=copy;used+=copy+1;}else if(lengths)lengths[returned]=available;if(sources)sources[returned]=item.source;if(types)types[returned]=item.type;if(ids)ids[returned]=item.id;if(severities)severities[returned]=item.severity;g_debugMessages.pop_front();++returned;}return returned; }
+extern "C" void glPushDebugGroup(uint32_t source,uint32_t id,int32_t length,const char* message) { glDebugMessageInsert(source,0x824C,id,0x826B,length,message); }
+extern "C" void glPopDebugGroup(void) { }
+extern "C" void glObjectLabel(uint32_t identifier,uint32_t name,int32_t length,const char* label) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,int32_t,const char*>("glObjectLabel",identifier,name,length,label);return;}std::lock_guard<std::mutex> lock(g_debugMutex);uint64_t key=(static_cast<uint64_t>(identifier)<<32)|name;if(!label){g_objectLabels.erase(key);return;}g_objectLabels[key]=std::string(label,length<0?std::strlen(label):static_cast<size_t>(length)); }
+extern "C" void glGetObjectLabel(uint32_t identifier,uint32_t name,int32_t bufSize,int32_t* length,char* label) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,char*>("glGetObjectLabel",identifier,name,bufSize,length,label);return;}std::lock_guard<std::mutex> lock(g_debugMutex);uint64_t key=(static_cast<uint64_t>(identifier)<<32)|name;auto it=g_objectLabels.find(key);if(bufSize>0&&label){int32_t copy=it==g_objectLabels.end()?0:std::min<int32_t>(bufSize-1,static_cast<int32_t>(it->second.size()));if(copy)std::memcpy(label,it->second.data(),copy);label[copy]=0;if(length)*length=copy;}else if(length)*length=0; }
 extern "C" int metalsharp_opengl_modern_context_ready(void);
 extern "C" const uint8_t* glGetString(uint32_t name) {
     if (metalsharp_opengl_modern_context_ready() && name == 0x1F00) return (const uint8_t*)"MetalSharp";
