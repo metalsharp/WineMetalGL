@@ -219,6 +219,7 @@ bool g_listExecute = false;
 uint32_t g_listId = 0;
 uint32_t g_nextFixedList = 1;
 float g_fixedNormal[3] = {0.0f, 0.0f, 1.0f};
+float g_fixedTransformedNormal[3] = {0.0f, 0.0f, 1.0f};
 float g_fixedLightPosition[4] = {0.0f, 0.0f, 1.0f, 0.0f};
 float g_fixedLightAmbient[4] = {0.2f, 0.2f, 0.2f, 1.0f};
 float g_fixedLightDiffuse[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -2412,10 +2413,10 @@ static float fixedTexGenCoordinate(uint32_t mode, const float* plane, float x, f
     if (mode == 0x2400) return plane[0]*eye[0] + plane[1]*eye[1] + plane[2]*eye[2] + plane[3]*eye[3];
     if (mode == 0x2402) {
         float ex=-eye[0], ey=-eye[1], ez=-eye[2], el=std::sqrt(ex*ex+ey*ey+ez*ez); if(el>0){ex/=el;ey/=el;ez/=el;}
-        float nx=g_fixedNormal[0],ny=g_fixedNormal[1],nz=g_fixedNormal[2],nl=std::sqrt(nx*nx+ny*ny+nz*nz);if(nl>0){nx/=nl;ny/=nl;nz/=nl;}
+        float nx=g_fixedTransformedNormal[0],ny=g_fixedTransformedNormal[1],nz=g_fixedTransformedNormal[2],nl=std::sqrt(nx*nx+ny*ny+nz*nz);if(nl>0){nx/=nl;ny/=nl;nz/=nl;}
         float dot=ex*nx+ey*ny+ez*nz,rx=2.0f*dot*nx-ex,ry=2.0f*dot*ny-ey,rz=2.0f*dot*nz-ez,m=2.0f*std::sqrt(rx*rx+ry*ry+(rz+1.0f)*(rz+1.0f));return m>0?((second?ry:rx)/m+0.5f):0.5f;
     }
-    if (mode == 0x8511) return (plane[0]*g_fixedNormal[0]+plane[1]*g_fixedNormal[1]+plane[2]*g_fixedNormal[2]);
+    if (mode == 0x8511) return (plane[0]*g_fixedTransformedNormal[0]+plane[1]*g_fixedTransformedNormal[1]+plane[2]*g_fixedTransformedNormal[2]);
     return plane[0]*x + plane[1]*y + plane[2]*z + plane[3];
 }
 static void fixedVertex(float x, float y, float z, float w) {
@@ -2423,6 +2424,7 @@ static void fixedVertex(float x, float y, float z, float w) {
         float mvp[16], input[4] = {x, y, z, w}, output[4] = {};
         fixedMultiply(mvp, g_fixedProjection, g_fixedModelview);
         for (int r = 0; r < 4; ++r) for (int k = 0; k < 4; ++k) output[r] += mvp[k * 4 + r] * input[k];
+        g_fixedTransformedNormal[0]=g_fixedModelview[0]*g_fixedNormal[0]+g_fixedModelview[4]*g_fixedNormal[1]+g_fixedModelview[8]*g_fixedNormal[2];g_fixedTransformedNormal[1]=g_fixedModelview[1]*g_fixedNormal[0]+g_fixedModelview[5]*g_fixedNormal[1]+g_fixedModelview[9]*g_fixedNormal[2];g_fixedTransformedNormal[2]=g_fixedModelview[2]*g_fixedNormal[0]+g_fixedModelview[6]*g_fixedNormal[1]+g_fixedModelview[10]*g_fixedNormal[2];float normalLength=std::sqrt(g_fixedTransformedNormal[0]*g_fixedTransformedNormal[0]+g_fixedTransformedNormal[1]*g_fixedTransformedNormal[1]+g_fixedTransformedNormal[2]*g_fixedTransformedNormal[2]);if(normalLength>0){g_fixedTransformedNormal[0]/=normalLength;g_fixedTransformedNormal[1]/=normalLength;g_fixedTransformedNormal[2]/=normalLength;}
         float color[4] = {g_fixedColor[0], g_fixedColor[1], g_fixedColor[2], g_fixedColor[3]};
         if (g_fixedLighting) {
             float lit[3] = {0,0,0};
@@ -2431,9 +2433,9 @@ static void fixedVertex(float x, float y, float z, float w) {
                 if (g_fixedLightPositions[light][3] != 0.0f) { lx -= x; ly -= y; lz -= z; }
                 float length = std::sqrt(lx * lx + ly * ly + lz * lz);
                 if (length > 0.0f) { lx /= length; ly /= length; lz /= length; }
-                float diffuse = std::max(0.0f, g_fixedNormal[0] * lx + g_fixedNormal[1] * ly + g_fixedNormal[2] * lz);
+                float diffuse = std::max(0.0f, g_fixedTransformedNormal[0] * lx + g_fixedTransformedNormal[1] * ly + g_fixedTransformedNormal[2] * lz);
                 for (int channel = 0; channel < 3; ++channel) lit[channel] += g_fixedLightAmbients[light][channel] * g_fixedMaterialAmbient[channel] + g_fixedMaterialDiffuse[channel] * g_fixedLightDiffuses[light][channel] * diffuse + g_fixedMaterialEmission[channel];
-                if (g_fixedMaterialShininess > 0.0f) { float halfDot=std::max(0.0f,(g_fixedNormal[0]*(lx+0.0f)+g_fixedNormal[1]*(ly+0.0f)+g_fixedNormal[2]*(lz+1.0f))); float halfLen=std::sqrt((lx)*(lx)+(ly)*(ly)+(lz+1.0f)*(lz+1.0f)); if(halfLen>0)halfDot/=halfLen; float spec=std::pow(std::max(0.0f,halfDot),g_fixedMaterialShininess); for(int channel=0;channel<3;++channel)lit[channel]+=g_fixedMaterialSpecular[channel]*g_fixedLightSpeculars[light][channel]*spec; }
+                if (g_fixedMaterialShininess > 0.0f) { float halfDot=std::max(0.0f,(g_fixedTransformedNormal[0]*(lx+0.0f)+g_fixedTransformedNormal[1]*(ly+0.0f)+g_fixedTransformedNormal[2]*(lz+1.0f))); float halfLen=std::sqrt((lx)*(lx)+(ly)*(ly)+(lz+1.0f)*(lz+1.0f)); if(halfLen>0)halfDot/=halfLen; float spec=std::pow(std::max(0.0f,halfDot),g_fixedMaterialShininess); for(int channel=0;channel<3;++channel)lit[channel]+=g_fixedMaterialSpecular[channel]*g_fixedLightSpeculars[light][channel]*spec; }
             }
             for (int channel = 0; channel < 3; ++channel) color[channel] = std::min(1.0f, lit[channel]);
             color[3] = g_fixedMaterialDiffuse[3];
