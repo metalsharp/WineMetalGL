@@ -3114,6 +3114,7 @@ extern "C" const uint8_t* glGetString(uint32_t name) {
     if (metalsharp_opengl_modern_context_ready() && name == 0x1F00) return (const uint8_t*)"MetalSharp";
     if (metalsharp_opengl_modern_context_ready() && name == 0x1F01) return (const uint8_t*)"Apple M4 Metal (WineMetalGL)";
     if (metalsharp_opengl_modern_context_ready() && name == 0x1F02) return (const uint8_t*)"3.3 WineMetalGL";
+    if (metalsharp_opengl_modern_context_ready() && name == 0x8B8C) return (const uint8_t*)"4.50 WineMetalGL";
     if (name == 0x1F03) return glGetString_EXTENSIONS_override(name);
     return reinterpret_cast<const uint8_t*>("");
 }
@@ -3131,6 +3132,11 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         case 0x8A2F: case 0x90DD: *params=16; return; /* UBO/SSBO bindings */
         case 0x8824: *params=1; return; /* GL_MAX_DRAW_BUFFERS */
         case 0x8D57: *params=4; return; /* GL_MAX_SAMPLES */
+        case 0x0D33: *params=16384; return; /* GL_MAX_TEXTURE_SIZE */
+        case 0x8073: *params=2048; return; /* GL_MAX_3D_TEXTURE_SIZE */
+        case 0x8C76: *params=2048; return; /* GL_MAX_ARRAY_TEXTURE_LAYERS */
+        case 0x8B4C: case 0x8871: *params=16; return; /* fragment/vertex texture units */
+        case 0x8A30: *params=65536; return; /* GL_MAX_UNIFORM_BLOCK_SIZE */
         case 0x0BA0: *params=static_cast<int32_t>(g_fixedMatrixMode); return; /* GL_MATRIX_MODE */
         case 0x0BA2: {float values[4];experimentalGetFloatValues(pname,values);for(int i=0;i<4;++i)params[i]=static_cast<int32_t>(values[i]);return;}
         case 0x0C10: {float values[4];experimentalGetFloatValues(pname,values);for(int i=0;i<4;++i)params[i]=static_cast<int32_t>(values[i]);return;}

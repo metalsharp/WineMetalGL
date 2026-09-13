@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <GL/gl.h>
 #include <stdio.h>
+#include <string.h>
 
 #define GL_VERTEX_SHADER 0x8b31
 #define GL_FRAGMENT_SHADER 0x8b30
@@ -127,7 +128,7 @@ int main(void)
     if (!format || !SetPixelFormat(dc, format, &pfd)) return 12;
     context = wglCreateContext(dc);
     if (!context || !wglMakeCurrent(dc, context)) return 13;
-    printf("OPENGL_EXPERIMENTAL_VERSION_%s\\n", (const char *)glGetString(GL_VERSION));
+    printf("OPENGL_EXPERIMENTAL_VERSION_%s\\n", (const char *)glGetString(GL_VERSION)); if(!glGetString(0x8B8C)||strstr((const char*)glGetString(0x8B8C),"4.50")==NULL)return 14;printf("WINEMETALGL_SHADING_LANGUAGE_VERSION_OK\\n");
 
 #define LOAD(type, variable, symbol) do { \
     variable = (type)get_gl_proc(symbol); \
