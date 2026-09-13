@@ -1187,7 +1187,7 @@ uint64_t GLMetalRenderer::createDepthStencilTarget(uint32_t width, uint32_t heig
     if (!m_device || !width || !height) return 0;
     MTLPixelFormat format = internalFormat == 0x8D48 ? MTLPixelFormatStencil8 : (internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC) ? MTLPixelFormatDepth32Float : MTLPixelFormatDepth32Float_Stencil8;
     MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];
-    descriptor.usage = MTLTextureUsageRenderTarget;
+    descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor]; if (!texture) return 0;
     std::lock_guard<std::mutex> lock(m_impl->mutex); uint64_t handle=m_impl->nextTextureHandle++; m_impl->textures[handle]=texture; return handle;
 }
