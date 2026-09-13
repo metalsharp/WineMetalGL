@@ -14,7 +14,7 @@ index 9ff082d..9b6135a 100644
                          || (ctx->base.major_version == func->major && ctx->base.minor_version >= func->minor)))
          return func->func;
 diff --git a/dlls/win32u/opengl.c b/dlls/win32u/opengl.c
-index 6ab3a03..5679212 100644
+index 6ab3a03..60724c4 100644
 --- a/dlls/win32u/opengl.c
 +++ b/dlls/win32u/opengl.c
 @@ -275,9 +275,9 @@ static void parse_current_extensions( BOOLEAN extensions[GL_EXTENSION_COUNT] )
@@ -29,6 +29,18 @@ index 6ab3a03..5679212 100644
 +        for (size_t i = 0; i < extension_count; i++) extensions[parsed_extensions[i]] = TRUE;
      }
  }
+
+@@ -2847,7 +2847,10 @@ static int get_window_swap_interval( HWND hwnd )
+
+ static struct opengl_context *win32u_context_create( HDC hdc, const int *attribs, BOOL *broken_sharing )
+ {
+-    struct opengl_context *context, *share = global_context ? global_context->driver_private : NULL;
++    /* Client contexts must not inherit the internal core-profile context. The
++     * compatibility/core mismatch marks every ordinary context as broken for
++     * wglShareLists before applications can request sharing themselves. */
++    struct opengl_context *context, *share = NULL;
+     BOOL shared = TRUE, doublebuffer;
+     int format;
 
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 index 696734f..757e7ce 100644
