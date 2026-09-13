@@ -1135,6 +1135,8 @@ void GLMetalRenderer::bindTexture(uint64_t textureHandle, uint32_t index) {
     if (m_impl->currentEncoder) [m_impl->currentEncoder setFragmentTexture:it->second atIndex:index];
 }
 
+void GLMetalRenderer::setTextureSwizzle(uint64_t textureHandle,uint32_t red,uint32_t green,uint32_t blue,uint32_t alpha) { std::lock_guard<std::mutex> lock(m_impl->mutex);auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end())return;auto map=[](uint32_t value){switch(value){case 0x1903:return MTLTextureSwizzleRed;case 0x1904:return MTLTextureSwizzleGreen;case 0x1905:return MTLTextureSwizzleBlue;case 0x1906:return MTLTextureSwizzleAlpha;case 1:return MTLTextureSwizzleOne;case 0:return MTLTextureSwizzleZero;default:return MTLTextureSwizzleRed;}};MTLTextureSwizzleChannels swizzle={map(red),map(green),map(blue),map(alpha)};id<MTLTexture> view=[it->second newTextureViewWithPixelFormat:it->second.pixelFormat textureType:it->second.textureType levels:NSMakeRange(0,it->second.mipmapLevelCount) slices:NSMakeRange(0,it->second.arrayLength) swizzle:swizzle];if(view)it->second=view; }
+
 void GLMetalRenderer::bindSampler(uint32_t index, uint32_t minFilter, uint32_t magFilter,
                                    uint32_t wrapS, uint32_t wrapT, uint32_t maxAnisotropy,
                                    float minLod, float maxLod, uint32_t compareFunc,

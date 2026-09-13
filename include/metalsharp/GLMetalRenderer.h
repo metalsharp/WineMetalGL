@@ -203,6 +203,7 @@ class GLMetalRenderer {
     /// @param textureHandle  handle returned by createTexture
     /// @param index          fragment texture slot index
     void bindTexture(uint64_t textureHandle, uint32_t index);
+    void setTextureSwizzle(uint64_t textureHandle, uint32_t red, uint32_t green, uint32_t blue, uint32_t alpha);
 
     /// Bind a sampler state using OpenGL enum values for min/mag filters and
     /// S/T wrap modes.
