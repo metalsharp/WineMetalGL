@@ -145,6 +145,7 @@ struct ExperimentalFramebuffer {
     uint32_t height = 0;
     uint32_t sampleCount = 1;
     uint32_t depthSampleCount = 1, stencilSampleCount = 1;
+    uint32_t depthWidth = 0, depthHeight = 0, stencilWidth = 0, stencilHeight = 0;
 };
 struct ExperimentalRenderbuffer { uint64_t metalHandle = 0; uint32_t width = 0, height = 0; uint32_t internalFormat = 0, sampleCount = 1; };
 std::unordered_map<uint32_t, ExperimentalRenderbuffer> g_renderbuffers;
@@ -2982,16 +2983,16 @@ extern "C" void glGenFramebuffers(int32_t n, uint32_t* framebuffers) {
 }
 extern "C" void glCreateFramebuffers(int32_t n, uint32_t* framebuffers) { glGenFramebuffers(n,framebuffers); }
 extern "C" void glNamedFramebufferTexture(uint32_t framebuffer, uint32_t attachment, uint32_t texture, int32_t level) {
-    if(metalModeEnabled()&&level==0){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& fbo=g_framebuffers[framebuffer];auto image=g_textures.find(texture);if(attachment==0x8CE0){fbo.colorTexture=texture;fbo.colorHandle=image==g_textures.end()?0:image->second.metalHandle;if(image!=g_textures.end()){fbo.width=image->second.width;fbo.height=image->second.height;fbo.sampleCount=image->second.sampleCount;}}else if(attachment==0x8D00||attachment==0x821A){fbo.depthHandle=image==g_textures.end()?0:image->second.metalHandle;if(image!=g_textures.end())fbo.depthSampleCount=image->second.sampleCount;if(attachment==0x8D00)fbo.depthTexture=texture;if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilTexture=texture;}}return;}
+    if(metalModeEnabled()&&level==0){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& fbo=g_framebuffers[framebuffer];auto image=g_textures.find(texture);if(attachment==0x8CE0){fbo.colorTexture=texture;fbo.colorHandle=image==g_textures.end()?0:image->second.metalHandle;if(image!=g_textures.end()){fbo.width=image->second.width;fbo.height=image->second.height;fbo.sampleCount=image->second.sampleCount;}}else if(attachment==0x8D00||attachment==0x821A){fbo.depthHandle=image==g_textures.end()?0:image->second.metalHandle;if(image!=g_textures.end()){fbo.depthSampleCount=image->second.sampleCount;fbo.depthWidth=image->second.width;fbo.depthHeight=image->second.height;}if(attachment==0x8D00)fbo.depthTexture=texture;if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilTexture=texture;}}return;}
     glDispatch<void,uint32_t,uint32_t,uint32_t,int32_t>("glNamedFramebufferTexture",framebuffer,attachment,texture,level);
 }
 extern "C" void glGetNamedFramebufferAttachmentParameteriv(uint32_t framebuffer,uint32_t attachment,uint32_t pname,int32_t* params) { if(!params)return;if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_framebuffers.find(framebuffer);if(it!=g_framebuffers.end()){uint32_t texture=attachment==0x8CE0?it->second.colorTexture:attachment==0x8D00?it->second.depthTexture:attachment==0x8D20?it->second.stencilTexture:0;uint32_t renderbuffer=attachment==0x8CE0?it->second.renderbuffer:attachment==0x8D00?it->second.depthRenderbuffer:attachment==0x8D20?it->second.stencilRenderbuffer:0;if(pname==0x8CD0)*params=texture?0x1702:renderbuffer?0x8D41:0;else if(pname==0x8CD1)*params=texture?static_cast<int32_t>(texture):static_cast<int32_t>(renderbuffer);else if(pname==0x8CD2||pname==0x8CD3)*params=0;else if(pname==0x8CD4)*params=static_cast<int32_t>(it->second.colorLayer);else *params=0;return;}}glDispatch<void,uint32_t,uint32_t,uint32_t,int32_t*>("glGetNamedFramebufferAttachmentParameteriv",framebuffer,attachment,pname,params); }
 extern "C" void glGetFramebufferAttachmentParameteriv(uint32_t target,uint32_t attachment,uint32_t pname,int32_t* params) { uint32_t framebuffer=target==0x8CA8?g_glBridge.state().boundReadFramebuffer:target==0x8CA9?g_glBridge.state().boundDrawFramebuffer:g_glBridge.state().boundFramebuffer;glGetNamedFramebufferAttachmentParameteriv(framebuffer,attachment,pname,params); }
 extern "C" void glNamedFramebufferRenderbuffer(uint32_t framebuffer, uint32_t attachment, uint32_t renderbufferTarget, uint32_t renderbuffer) {
-    if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& fbo=g_framebuffers[framebuffer];auto rb=g_renderbuffers.find(renderbuffer);if(attachment==0x8CE0){fbo.renderbuffer=renderbuffer;fbo.colorHandle=rb==g_renderbuffers.end()?0:rb->second.metalHandle;if(rb!=g_renderbuffers.end()){fbo.width=rb->second.width;fbo.height=rb->second.height;fbo.sampleCount=rb->second.sampleCount;}}else if(attachment==0x8D00||attachment==0x821A){fbo.depthHandle=rb==g_renderbuffers.end()?0:rb->second.metalHandle;if(rb!=g_renderbuffers.end())fbo.depthSampleCount=rb->second.sampleCount;if(attachment==0x8D00)fbo.depthRenderbuffer=renderbuffer;if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilRenderbuffer=renderbuffer;}}return;}
+    if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& fbo=g_framebuffers[framebuffer];auto rb=g_renderbuffers.find(renderbuffer);if(attachment==0x8CE0){fbo.renderbuffer=renderbuffer;fbo.colorHandle=rb==g_renderbuffers.end()?0:rb->second.metalHandle;if(rb!=g_renderbuffers.end()){fbo.width=rb->second.width;fbo.height=rb->second.height;fbo.sampleCount=rb->second.sampleCount;}}else if(attachment==0x8D00||attachment==0x821A){fbo.depthHandle=rb==g_renderbuffers.end()?0:rb->second.metalHandle;if(rb!=g_renderbuffers.end()){fbo.depthSampleCount=rb->second.sampleCount;fbo.depthWidth=rb->second.width;fbo.depthHeight=rb->second.height;}if(attachment==0x8D00)fbo.depthRenderbuffer=renderbuffer;if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilRenderbuffer=renderbuffer;}}return;}
     glDispatch<void,uint32_t,uint32_t,uint32_t,uint32_t>("glNamedFramebufferRenderbuffer",framebuffer,attachment,renderbufferTarget,renderbuffer);
 }
-extern "C" uint32_t glCheckNamedFramebufferStatus(uint32_t framebuffer, uint32_t target) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_framebuffers.find(framebuffer);return it!=g_framebuffers.end()&&it->second.colorHandle&&(!it->second.depthHandle||it->second.sampleCount==it->second.depthSampleCount)?0x8CD5:0x8CD7;} return glDispatch<uint32_t,uint32_t,uint32_t>("glCheckNamedFramebufferStatus",framebuffer,target); }
+extern "C" uint32_t glCheckNamedFramebufferStatus(uint32_t framebuffer, uint32_t target) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_framebuffers.find(framebuffer);return it!=g_framebuffers.end()&&it->second.colorHandle&&(!it->second.depthHandle||(it->second.sampleCount==it->second.depthSampleCount&&(!it->second.depthWidth||it->second.width==it->second.depthWidth)&&(!it->second.depthHeight||it->second.height==it->second.depthHeight)))?0x8CD5:0x8CD7;} return glDispatch<uint32_t,uint32_t,uint32_t>("glCheckNamedFramebufferStatus",framebuffer,target); }
 
 extern "C" void glDeleteFramebuffers(int32_t n, const uint32_t* framebuffers) {
     if (framebuffers) {
@@ -3009,7 +3010,7 @@ extern "C" void glFramebufferTexture2D(uint32_t target, uint32_t attachment, uin
         auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         auto image = g_textures.find(texture);
         if (attachment == 0x8CE0) { fbo.colorTexture=texture; if (image != g_textures.end()) { fbo.colorHandle=image->second.metalHandle; fbo.width=image->second.width; fbo.height=image->second.height; fbo.sampleCount=image->second.sampleCount; } }
-        else if (attachment == 0x8D00 || attachment == 0x821A) { fbo.depthHandle=image == g_textures.end() ? 0 : image->second.metalHandle; if(image!=g_textures.end())fbo.depthSampleCount=image->second.sampleCount; if(attachment==0x8D00)fbo.depthTexture=texture; if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilTexture=texture;} }
+        else if (attachment == 0x8D00 || attachment == 0x821A) { fbo.depthHandle=image == g_textures.end() ? 0 : image->second.metalHandle; if(image!=g_textures.end()){fbo.depthSampleCount=image->second.sampleCount;fbo.depthWidth=image->second.width;fbo.depthHeight=image->second.height;} if(attachment==0x8D00)fbo.depthTexture=texture; if(attachment==0x821A){fbo.stencilHandle=fbo.depthHandle;fbo.stencilTexture=texture;} }
     }
 }
 extern "C" void glFramebufferTextureLayer(uint32_t target, uint32_t attachment, uint32_t texture, int32_t level, int32_t layer) {
@@ -3059,7 +3060,7 @@ extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, 
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto rb = g_renderbuffers.find(renderbuffer); auto& fbo = g_framebuffers[g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer];
         if (attachment == 0x8CE0) { fbo.renderbuffer=renderbuffer; fbo.colorHandle = rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle; if (rb != g_renderbuffers.end()) { fbo.width=rb->second.width; fbo.height=rb->second.height; fbo.sampleCount=rb->second.sampleCount; } }
-        else if (attachment == 0x8D00 || attachment == 0x821A) { fbo.depthRenderbuffer=renderbuffer; fbo.depthHandle=rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle; if(rb!=g_renderbuffers.end())fbo.depthSampleCount=rb->second.sampleCount; }
+        else if (attachment == 0x8D00 || attachment == 0x821A) { fbo.depthRenderbuffer=renderbuffer; fbo.depthHandle=rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle; if(rb!=g_renderbuffers.end()){fbo.depthSampleCount=rb->second.sampleCount;fbo.depthWidth=rb->second.width;fbo.depthHeight=rb->second.height;} }
         if (attachment == 0x8D20 || attachment == 0x821A) { fbo.stencilRenderbuffer=renderbuffer; fbo.stencilHandle=rb == g_renderbuffers.end() ? 0 : rb->second.metalHandle; if (!fbo.depthHandle) fbo.depthHandle=fbo.stencilHandle; }
     }
 }
@@ -3071,7 +3072,7 @@ extern "C" uint32_t glCheckFramebufferStatus(uint32_t target) {
                                      g_glBridge.state().boundFramebuffer;
         if (!framebuffer) return 0x8CD5;
         auto fbo = g_framebuffers.find(framebuffer);
-        if (fbo != g_framebuffers.end() && fbo->second.colorHandle && (!fbo->second.depthHandle || fbo->second.sampleCount == fbo->second.depthSampleCount)) return 0x8CD5;
+        if (fbo != g_framebuffers.end() && fbo->second.colorHandle && (!fbo->second.depthHandle || (fbo->second.sampleCount == fbo->second.depthSampleCount && (!fbo->second.depthWidth || fbo->second.width == fbo->second.depthWidth) && (!fbo->second.depthHeight || fbo->second.height == fbo->second.depthHeight)))) return 0x8CD5;
         return 0x8CD7;
     }
     return glDispatch<uint32_t, uint32_t>("glCheckFramebufferStatus", target);
