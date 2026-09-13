@@ -70,6 +70,7 @@ struct ExperimentalProgram {
     std::unordered_map<std::string, uint32_t> attributeTypes;
     std::vector<std::string> attributeOrder;
     std::unordered_map<std::string, std::string> vertexOutputs;
+    std::unordered_map<std::string, std::string> geometryOutputs;
     std::unordered_map<std::string, std::string> fragmentInputs;
     std::unordered_map<int32_t, std::vector<uint8_t>> uniformValues;
     std::unordered_map<std::string, uint32_t> uniformBlockIndices;
@@ -357,7 +358,7 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
         const bool isOutput = vertexStage && (out != std::string::npos || line.rfind("out ",0)==0);
         const bool isInput = !vertexStage && (in != std::string::npos || line.rfind("in ",0)==0);
         if (isOutput || isInput) {
-            const size_t position = isOutput ? (out == std::string::npos ? 0 : out + 5) : (in == std::string::npos ? 0 : in + 4);
+            const size_t position = isOutput ? (out == std::string::npos ? 4 : out + 5) : (in == std::string::npos ? 3 : in + 4);
             std::istringstream interface(line.substr(position)); std::string type,name;
             if(interface>>type>>name){size_t terminator=name.find_first_of(";[=");if(terminator!=std::string::npos)name.resize(terminator);if(!name.empty()&&name!="gl_PerVertex"){if(isOutput)program.vertexOutputs[name]=type;else program.fragmentInputs[name]=type;}}
         }
@@ -382,6 +383,8 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
         program.attributeLocations[name] = location; program.attributeTypes[name] = glType; program.attributeOrder.push_back(name);
     }
 }
+
+static void discoverGeometryOutputs(ExperimentalProgram& program,const std::string& source) { std::istringstream lines(source);std::string line;while(std::getline(lines,line)){size_t output=line.find("out ");if(output==std::string::npos)continue;std::istringstream declaration(line.substr(output+4));std::string type,name;if(declaration>>type>>name){size_t end=name.find_first_of(";[=");if(end!=std::string::npos)name.resize(end);if(!name.empty())program.geometryOutputs[name]=type;}} }
 
 bool beginExperimentalCompute(uint32_t program) {
     if (!ensureMetalInit()) return false;
@@ -1841,10 +1844,11 @@ extern "C" void glLinkProgram(uint32_t program) {
         result.infoLog = "MetalSharp: Metal device initialization failed";
     } else {
         if (vertex) discoverShaderInterface(result, vertex->source, true);
+        if (geometry) discoverGeometryOutputs(result, geometry->source);
         if (fragment) discoverShaderInterface(result, fragment->source, false);
         result.linkSuccess = true;
-        if (vertex && fragment) for (const auto& input : result.fragmentInputs) { auto output=result.vertexOutputs.find(input.first); if(output!=result.vertexOutputs.end()&&output->second!=input.second){result.linkSuccess=false;result.infoLog="MetalSharp: vertex/fragment interface type mismatch for "+input.first;break;} }
-        if (vertex && fragment) for (const auto& input : result.fragmentInputs) if(!result.vertexOutputs.count(input.first)){result.linkSuccess=false;result.infoLog="MetalSharp: fragment input has no matching vertex output: "+input.first;break;}
+        if (vertex && fragment) for (const auto& input : result.fragmentInputs) { std::string outputType; if(geometry){auto output=result.geometryOutputs.find(input.first);if(output!=result.geometryOutputs.end())outputType=output->second;else{auto vertexOutput=result.vertexOutputs.find(input.first);if(vertexOutput!=result.vertexOutputs.end())outputType=vertexOutput->second;}}else{auto output=result.vertexOutputs.find(input.first);if(output!=result.vertexOutputs.end())outputType=output->second;} if(!outputType.empty()&&outputType!=input.second){result.linkSuccess=false;result.infoLog="MetalSharp: vertex/fragment interface type mismatch for "+input.first;break;} }
+        if (vertex && fragment) for (const auto& input : result.fragmentInputs) if(!result.vertexOutputs.count(input.first)&&!(geometry&&result.geometryOutputs.count(input.first))){result.linkSuccess=false;result.infoLog="MetalSharp: fragment input has no matching vertex output: "+input.first;break;}
     }
 
     for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
