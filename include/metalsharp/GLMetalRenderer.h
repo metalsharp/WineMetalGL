@@ -57,7 +57,9 @@ struct FixedTextureEnvironment {
     uint32_t operandRGB[3] = {0x0300,0x0300,0x0300};
     uint32_t sourceAlpha[3] = {0x1702,0x8577,0x8576};
     uint32_t operandAlpha[3] = {0x0302,0x0302,0x0302};
+    uint32_t padding = 0;
     float constantColor[4] = {0,0,0,1};
+    float rgbScale = 1.0f, alphaScale = 1.0f;
 };
 
 /// Bridges OpenGL draw calls to Metal. Each GL context owns one renderer.

@@ -37,7 +37,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
 - Basic triangle and quad tessellation evaluation draws with per-edge/inner factor extraction.
 - Simple triangle/point geometry pass-through emulation with varying interface handling, including loop-form vertex emission, and limited pass-through shader transform-feedback capture.
-- Fixed-function single-texture environment modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
+- Fixed-function single-texture environment modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, vertex attribute, and uniform, plus direct and indirect multi-draw.
 - PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, advanced texture/sampler state, swizzle state, and parameter queries, GLSL texture sampling, and 2D/3D texture readback.
@@ -179,6 +179,7 @@ WINEMETALGL_FIXED_TEXTURE_REPLACE_OK
 WINEMETALGL_FIXED_TEXTURE_ADD_OK
 WINEMETALGL_FIXED_TEXTURE_DECAL_OK
 WINEMETALGL_FIXED_TEXTURE_COMBINE_OK
+WINEMETALGL_FIXED_TEXTURE_SUBTRACT_OK
 WINEMETALGL_FIXED_TEXGEN_OK
 ```
 
