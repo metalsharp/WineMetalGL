@@ -71,6 +71,7 @@ tests/wine/opengl_contexts.c
 tests/wine/opengl_cube.c
 tests/wine/opengl_debug.c
 tests/wine/opengl_fixed_point.c
+tests/wine/opengl_fixed_line.c
 tests/wine/opengl_geometry.c
 tests/wine/opengl_glsl110.c
 tests/wine/opengl_glsl120.c

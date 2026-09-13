@@ -1,0 +1,4 @@
+#include <windows.h>
+#include <GL/gl.h>
+#include <stdio.h>
+int main(void){PIXELFORMATDESCRIPTOR p={0};HWND w;HDC dc;HGLRC c;int f;unsigned char mid[4]={0},edge[4]={0};w=CreateWindowA("STATIC","WineMetalGL line",WS_OVERLAPPEDWINDOW,0,0,64,64,0,0,0,0);if(!w)return 11;dc=GetDC(w);p.nSize=sizeof(p);p.nVersion=1;p.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL;p.iPixelType=PFD_TYPE_RGBA;p.cColorBits=32;f=ChoosePixelFormat(dc,&p);if(!f||!SetPixelFormat(dc,f,&p))return 12;c=wglCreateContext(dc);if(!c||!wglMakeCurrent(dc,c))return 13;glViewport(0,0,64,64);glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);glLineWidth(9);glColor4f(1,0,0,1);glBegin(GL_LINES);glVertex3f(-.7f,0,0);glVertex3f(.7f,0,0);glEnd();glReadPixels(32,32,1,1,GL_RGBA,GL_UNSIGNED_BYTE,mid);glReadPixels(32,28,1,1,GL_RGBA,GL_UNSIGNED_BYTE,edge);if(mid[0]<245||edge[0]<200)return 14;printf("WINEMETALGL_FIXED_LINE_WIDTH_OK\n");wglMakeCurrent(0,0);wglDeleteContext(c);ReleaseDC(w,dc);DestroyWindow(w);return 0;}

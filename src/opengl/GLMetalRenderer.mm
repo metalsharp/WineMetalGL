@@ -33,6 +33,7 @@
 #include <metalsharp/GLShaderTracker.h>
 #include <metalsharp/OpenGLBridge.h>
 #include <cstring>
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -575,7 +576,9 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     if (glState.scissorEnabled) setScissor(glState.scissorX, glState.scissorY, static_cast<uint32_t>(glState.scissorWidth), static_cast<uint32_t>(glState.scissorHeight));
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     if (!m_impl->currentEncoder) return;
-    id<MTLBuffer> buffer = [m_device newBufferWithBytes:vertices length:vertexCount * 9 * sizeof(float)
+    std::vector<float> expandedLineVertices;const float* drawVertices=vertices;size_t drawVertexCount=vertexCount;uint32_t drawPrimitive=primitiveType;
+    if(primitiveType==0x0001&&glState.lineWidth>1.0f&&vertexCount>=2){float half=glState.lineWidth*0.5f;for(size_t i=0;i+1<vertexCount;i+=2){const float* a=vertices+i*9;const float* b=vertices+(i+1)*9;float dx=b[0]-a[0],dy=b[1]-a[1],length=std::sqrt(dx*dx+dy*dy);if(length<1e-6f)continue;float nx=-dy/length*(half/(width?width:64))*2.0f,ny=dx/length*(half/(height?height:64))*2.0f;float quad[4][9];std::memcpy(quad[0],a,sizeof(quad[0]));std::memcpy(quad[1],a,sizeof(quad[1]));std::memcpy(quad[2],b,sizeof(quad[2]));std::memcpy(quad[3],b,sizeof(quad[3]));quad[0][0]+=nx;quad[0][1]+=ny;quad[1][0]-=nx;quad[1][1]-=ny;quad[2][0]+=nx;quad[2][1]+=ny;quad[3][0]-=nx;quad[3][1]-=ny;for(int index:{0,1,2,2,1,3})expandedLineVertices.insert(expandedLineVertices.end(),quad[index],quad[index]+9);}if(!expandedLineVertices.empty()){drawVertices=expandedLineVertices.data();drawVertexCount=expandedLineVertices.size()/9;drawPrimitive=0x0004;}}
+    id<MTLBuffer> buffer = [m_device newBufferWithBytes:drawVertices length:drawVertexCount * 9 * sizeof(float)
                                                 options:MTLResourceStorageModeShared];
     [m_impl->currentEncoder setRenderPipelineState:pipeline];
     [m_impl->currentEncoder setCullMode:glState.cullEnabled ? (glState.cullFace == 0x0404 ? MTLCullModeFront : MTLCullModeBack) : MTLCullModeNone];
@@ -603,7 +606,7 @@ void GLMetalRenderer::drawFixedFunction(const float* vertices, size_t vertexCoun
     }
     [m_impl->currentEncoder setVertexBuffer:buffer offset:0 atIndex:0];
     [m_impl->currentEncoder setViewport:(MTLViewport){0, 0, (double)(width ? width : 64), (double)(height ? height : 64), 0, 1}];
-    [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(primitiveType) vertexStart:0 vertexCount:vertexCount];
+    [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(drawPrimitive) vertexStart:0 vertexCount:drawVertexCount];
     [m_impl->currentEncoder endEncoding];
     if (m_impl->currentCommandBuffer && m_impl->currentDrawable) [m_impl->currentCommandBuffer presentDrawable:m_impl->currentDrawable];
     m_impl->currentEncoder = nil;

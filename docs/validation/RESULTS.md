@@ -51,7 +51,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Uniform-buffer object binding/range offsets and uniform-block name/size reflection.
 - Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
 - Arrays/elements indirect draw commands.
-- Basic fixed-function immediate-mode triangle/texture rendering, point-size state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
+- Basic fixed-function immediate-mode triangle/texture rendering, point-size and line-width state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
 - Sync/fence completion behavior and query-result buffer writes.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
 
@@ -151,6 +151,7 @@ WINEMETALGL_FIXED_SPECULAR_OK
 WINEMETALGL_FIXED_FOG_OK
 WINEMETALGL_CLIP_PLANE_OK
 WINEMETALGL_FIXED_POINT_SIZE_OK
+WINEMETALGL_FIXED_LINE_WIDTH_OK
 WINEMETALGL_BLEND_OK
 WINEMETALGL_PER_TARGET_BLEND_OK
 WINEMETALGL_BLEND_CONSTANT_OK
