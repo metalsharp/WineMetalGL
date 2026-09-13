@@ -45,14 +45,14 @@
 
 namespace {
 
-metalsharp::OpenGLBridge g_glBridge;
+thread_local metalsharp::OpenGLBridge g_glBridge;
 metalsharp::GLMetalRenderer g_metalRenderer;
-std::once_flag g_glInitFlag;
+thread_local bool g_glInitialized = false;
 std::once_flag g_metalInitFlag;
 bool g_metalAvailable = false;
 bool g_modernContextReady = false;
-std::mutex g_contextStateMutex;
-void* g_currentContextKey = nullptr;
+thread_local void* g_currentContextKey = nullptr;
+std::mutex g_contextStateMapMutex;
 std::unordered_map<void*, metalsharp::GLState> g_contextStates;
 
 struct ExperimentalProgram {
@@ -306,9 +306,7 @@ static std::vector<uint8_t> encodeTextureStorage(const std::vector<uint8_t>& can
 }
 static uint64_t createTextureFromCanonical(const ExperimentalTexture& texture) { std::vector<uint8_t> storage=encodeTextureStorage(texture.pixels,texture.internalFormat); return g_metalRenderer.createTextureFormat(texture.width,texture.height,static_cast<uint32_t>(texture.internalFormat),storage.data(),true); }
 
-void ensureGLInit() {
-    std::call_once(g_glInitFlag, [] { g_glBridge.init(); });
-}
+void ensureGLInit() { if(!g_glInitialized){g_glBridge.init();g_glInitialized=true;} }
 
 bool ensureMetalInit() {
     std::call_once(g_metalInitFlag, [] { g_metalAvailable = g_metalRenderer.init(); });
@@ -3124,7 +3122,7 @@ extern "C" int metalsharp_opengl_modern_context_ready(void) {
 }
 extern "C" void metalsharp_opengl_set_current_context(void* context) {
     if(!metalModeEnabled())return;
-    std::lock_guard<std::mutex> lock(g_contextStateMutex);
+    std::lock_guard<std::mutex> lock(g_contextStateMapMutex);
     if(context==g_currentContextKey)return;
     if(g_currentContextKey)g_contextStates[g_currentContextKey]=g_glBridge.state();
     g_currentContextKey=context;
