@@ -97,6 +97,7 @@ tests/wine/opengl_tess_draw.c
 tests/wine/opengl_tess_quad.c
 tests/wine/opengl_transform_shader.c
 tests/wine/opengl_transform.c
+tests/wine/opengl_transform_separate.c
 tests/wine/opengl_transform_varying.c
 tests/wine/probe-opengl-wow64.sh
 vendor/SPIRV-Cross/.clang-format

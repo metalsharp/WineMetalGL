@@ -165,6 +165,9 @@ std::array<uint32_t, metalsharp::kMaxTextureUnits> g_samplerUnits{};
 uint32_t g_boundStorageBuffer = 0;
 uint32_t g_boundTransformFeedbackBuffer = 0;
 size_t g_transformFeedbackBufferOffset = 0, g_transformFeedbackBufferSize = 0;
+std::array<uint32_t,16> g_transformFeedbackBuffers{};
+std::array<size_t,16> g_transformFeedbackBufferOffsets{}, g_transformFeedbackBufferSizes{};
+uint32_t g_transformFeedbackBufferMode = 0x8C8C; /* GL_INTERLEAVED_ATTRIBS */
 uint32_t g_boundUniformBuffer = 0;
 bool g_transformFeedbackActive = false;
 uint32_t g_transformFeedbackProgram = 0;
@@ -914,7 +917,7 @@ extern "C" void glNamedBufferStorage(uint32_t buffer, int64_t size, const void* 
 extern "C" void glBindBufferBase(uint32_t target, uint32_t index, uint32_t buffer) {
     glDispatch<void, uint32_t, uint32_t, uint32_t>("glBindBufferBase", target, index, buffer);
     if (target == 0x90D2 && index == 0) { g_boundStorageBuffer = buffer; g_storageBufferOffset=0; g_storageBufferSize=0; }
-    if (target == 0x8C8E && index == 0) { g_boundTransformFeedbackBuffer = buffer; g_transformFeedbackBufferOffset = 0; g_transformFeedbackBufferSize = 0; }
+    if (target == 0x8C8E && index < g_transformFeedbackBuffers.size()) { g_transformFeedbackBuffers[index] = buffer; g_transformFeedbackBufferOffsets[index] = 0; g_transformFeedbackBufferSizes[index] = 0; if (index == 0) { g_boundTransformFeedbackBuffer = buffer; g_transformFeedbackBufferOffset = 0; g_transformFeedbackBufferSize = 0; } }
     if (target == 0x8A11 && index < g_uniformBufferUnits.size()) { g_uniformBufferUnits[index] = buffer; g_uniformBufferOffsets[index]=0; g_uniformBufferSizes[index]=0; }
 }
 
@@ -929,7 +932,7 @@ extern "C" void glBindBufferRange(uint32_t target, uint32_t index, uint32_t buff
     glDispatch<void,uint32_t,uint32_t,uint32_t,int64_t,int64_t>("glBindBufferRange",target,index,buffer,offset,size);
     if(target==0x8A11&&index<g_uniformBufferUnits.size()){g_uniformBufferUnits[index]=buffer;g_uniformBufferOffsets[index]=offset>=0?static_cast<size_t>(offset):0;g_uniformBufferSizes[index]=size>=0?static_cast<size_t>(size):0;}
     else if(target==0x90D2&&index==0){g_boundStorageBuffer=buffer;g_storageBufferOffset=offset>=0?static_cast<size_t>(offset):0;g_storageBufferSize=size>=0?static_cast<size_t>(size):0;}
-    else if(target==0x8C8E&&index==0){g_boundTransformFeedbackBuffer=buffer;g_transformFeedbackBufferOffset=offset>=0?static_cast<size_t>(offset):0;g_transformFeedbackBufferSize=size>=0?static_cast<size_t>(size):0;}
+    else if(target==0x8C8E&&index<g_transformFeedbackBuffers.size()){g_transformFeedbackBuffers[index]=buffer;g_transformFeedbackBufferOffsets[index]=offset>=0?static_cast<size_t>(offset):0;g_transformFeedbackBufferSizes[index]=size>=0?static_cast<size_t>(size):0;if(index==0){g_boundTransformFeedbackBuffer=buffer;g_transformFeedbackBufferOffset=g_transformFeedbackBufferOffsets[index];g_transformFeedbackBufferSize=g_transformFeedbackBufferSizes[index];}}
 }
 
 extern "C" void glGetBufferSubData(uint32_t target, int64_t offset, int64_t size, void* data) {
@@ -1350,7 +1353,9 @@ static float transformFeedbackVaryingScale(const std::string& source, const std:
 }
 
 static void captureExperimentalTransformFeedbackVertices(const std::vector<uint32_t>& vertexIndices, int32_t baseVertex) {
-    if (!g_transformFeedbackActive || !g_transformFeedbackProgram || !g_boundTransformFeedbackBuffer || g_transformFeedbackVaryings.empty() || vertexIndices.empty()) return;
+    if (!g_transformFeedbackActive || !g_transformFeedbackProgram || g_transformFeedbackVaryings.empty() || vertexIndices.empty()) return;
+    const bool separate = g_transformFeedbackBufferMode == 0x8C8D; /* GL_SEPARATE_ATTRIBS */
+    if ((!separate && !g_boundTransformFeedbackBuffer) || (separate && g_transformFeedbackVaryings.size() > g_transformFeedbackBuffers.size())) return;
     auto& attribute = g_experimentalVertexAttributes[0];
     if (!attribute.set || attribute.type != 0x1406 || attribute.buffer == 0) return;
     std::string vertexSource;
@@ -1361,25 +1366,36 @@ static void captureExperimentalTransformFeedbackVertices(const std::vector<uint3
         if(!vertex || vertex->source.find("gl_Position")==std::string::npos)return;
         vertexSource=vertex->source;
     }
-    uint64_t sourceHandle=0,destinationHandle=0;
-    { std::lock_guard<std::mutex> lock(g_bufferMutex); auto source=g_buffers.find(attribute.buffer),destination=g_buffers.find(g_boundTransformFeedbackBuffer); if(source!=g_buffers.end())sourceHandle=source->second.metalHandle; if(destination!=g_buffers.end())destinationHandle=destination->second.metalHandle; }
-    if(!sourceHandle||!destinationHandle)return;
+    uint64_t sourceHandle=0;
+    std::array<uint64_t,16> destinationHandles{};
+    { std::lock_guard<std::mutex> lock(g_bufferMutex);
+      auto source=g_buffers.find(attribute.buffer); if(source!=g_buffers.end())sourceHandle=source->second.metalHandle;
+      if (separate) for(size_t i=0;i<g_transformFeedbackVaryings.size();++i){auto destination=g_buffers.find(g_transformFeedbackBuffers[i]);if(destination!=g_buffers.end())destinationHandles[i]=destination->second.metalHandle;}
+      else {auto destination=g_buffers.find(g_boundTransformFeedbackBuffer);if(destination!=g_buffers.end())destinationHandles[0]=destination->second.metalHandle;}
+    }
+    if(!sourceHandle)return;
     const size_t componentBytes=static_cast<size_t>(std::max(1,attribute.size))*sizeof(float), stride=attribute.stride?attribute.stride:componentBytes;
-    size_t totalComponents=0; for(const auto& name:g_transformFeedbackVaryings) totalComponents+=transformFeedbackVaryingComponents(vertexSource,name);
-    std::vector<float> output(vertexIndices.size()*totalComponents,0.0f); std::vector<uint8_t> vertex(stride);
+    std::vector<size_t> components; size_t totalComponents=0;
+    for(const auto& name:g_transformFeedbackVaryings){size_t count=transformFeedbackVaryingComponents(vertexSource,name);components.push_back(count);totalComponents+=count;}
+    std::vector<float> interleaved(vertexIndices.size()*totalComponents,0.0f);
+    std::vector<std::vector<float>> separateOutput;
+    if (separate) { separateOutput.resize(components.size()); for(size_t i=0;i<components.size();++i)separateOutput[i].resize(vertexIndices.size()*components[i],0.0f); }
+    std::vector<uint8_t> vertex(stride);
     for(size_t i=0;i<vertexIndices.size();++i){
         int64_t vertexNumber=static_cast<int64_t>(vertexIndices[i])+baseVertex;
         if(vertexNumber<0||!g_metalRenderer.readBuffer(sourceHandle,attribute.offset+static_cast<size_t>(vertexNumber)*stride,stride,vertex.data()))return;
-        const float* input=reinterpret_cast<const float*>(vertex.data()); size_t outputOffset=i*totalComponents;
-        for(const auto& name:g_transformFeedbackVaryings){
-            const size_t components=transformFeedbackVaryingComponents(vertexSource,name); const float scale=transformFeedbackVaryingScale(vertexSource,name);
-            for(size_t c=0;c<components;++c){ float value=c<static_cast<size_t>(attribute.size)?input[c]:(c==3?1.0f:0.0f); output[outputOffset+c]=value*scale; }
-            outputOffset+=components;
+        const float* input=reinterpret_cast<const float*>(vertex.data()); size_t interleavedOffset=i*totalComponents;
+        for(size_t varying=0;varying<components.size();++varying){
+            const float scale=transformFeedbackVaryingScale(vertexSource,g_transformFeedbackVaryings[varying]);
+            for(size_t c=0;c<components[varying];++c){float value=c<static_cast<size_t>(attribute.size)?input[c]:(c==3?1.0f:0.0f);if(separate)separateOutput[varying][i*components[varying]+c]=value*scale;else interleaved[interleavedOffset+c]=value*scale;}
+            interleavedOffset+=components[varying];
         }
     }
-    const size_t bytes = output.size() * sizeof(float);
-    if (g_transformFeedbackBufferSize && bytes > g_transformFeedbackBufferSize) return;
-    g_metalRenderer.updateBuffer(destinationHandle,g_transformFeedbackBufferOffset,output.data(),bytes);
+    if (separate) {
+        for(size_t i=0;i<separateOutput.size();++i){const size_t bytes=separateOutput[i].size()*sizeof(float);if(!destinationHandles[i]||(g_transformFeedbackBufferSizes[i]&&bytes>g_transformFeedbackBufferSizes[i]))return;if(!g_metalRenderer.updateBuffer(destinationHandles[i],g_transformFeedbackBufferOffsets[i],separateOutput[i].data(),bytes))return;}
+    } else {
+        const size_t bytes=interleaved.size()*sizeof(float);if(g_transformFeedbackBufferSize&&bytes>g_transformFeedbackBufferSize)return;g_metalRenderer.updateBuffer(destinationHandles[0],g_transformFeedbackBufferOffset,interleaved.data(),bytes);
+    }
 }
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count) { std::vector<uint32_t> indices; if(count>0){indices.resize(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i)indices[static_cast<size_t>(i)]=static_cast<uint32_t>(first+i);} captureExperimentalTransformFeedbackVertices(indices,0); }
 static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex) {
@@ -1398,7 +1414,7 @@ extern "C" void glEndTransformFeedback(void) {
 }
 extern "C" void glTransformFeedbackVaryings(uint32_t program, int32_t count, const char* const* varyings, uint32_t bufferMode) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t,int32_t,const char* const*,uint32_t>("glTransformFeedbackVaryings",program,count,varyings,bufferMode); return; }
-    g_transformFeedbackPositionVarying = false;g_transformFeedbackVaryings.clear();
+    g_transformFeedbackPositionVarying = false;g_transformFeedbackVaryings.clear();g_transformFeedbackBufferMode=bufferMode;
     for (int32_t i=0; varyings && i<count; ++i) if (varyings[i]) { g_transformFeedbackVaryings.emplace_back(varyings[i]); if(!std::strcmp(varyings[i],"gl_Position"))g_transformFeedbackPositionVarying=true; }
 }
 

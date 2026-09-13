@@ -58,7 +58,7 @@
     "tessellation control/evaluation compilation",
     "basic triangle and quad tessellation evaluation draw with fixed factors",
     "simple triangle/point geometry pass-through emulation",
-    "limited pass-through shader transform-feedback capture for gl_Position and simple scalar/vector-varying expressions",
+    "limited pass-through shader transform-feedback capture for gl_Position and simple scalar/vector-varying expressions with interleaved and separate buffers",
     "fixed-function blend/constant-color, scissor, and cull state",
     "color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/stencil clear readback, blit, and multisample fallback",
     "instanced/base-instance draw with depth/stencil attachments",
