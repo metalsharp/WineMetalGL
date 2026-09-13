@@ -239,7 +239,8 @@ bool metalModeEnabled() {
 }
 
 static bool simpleGeometryPassthrough(const std::string& source) {
-    return source.find("gl_in[0].gl_Position") != std::string::npos &&
+    return source.find("gl_in[") != std::string::npos &&
+           source.find("gl_Position") != std::string::npos &&
            source.find("EmitVertex") != std::string::npos &&
            source.find("EndPrimitive") != std::string::npos;
 }

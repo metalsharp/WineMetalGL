@@ -35,7 +35,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
 - Tessellation control/evaluation shader compilation through SPIR-V/MSL.
 - Basic triangle and quad tessellation evaluation draws with per-edge/inner factor extraction.
-- Simple triangle geometry pass-through emulation and limited pass-through shader transform-feedback capture.
+- Simple triangle geometry pass-through emulation, including loop-form vertex emission, and limited pass-through shader transform-feedback capture.
 - Fixed-function single-texture environment modes (replace, modulate, add, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
 - Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
 - Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, vertex attribute, and uniform, plus direct and indirect multi-draw.
