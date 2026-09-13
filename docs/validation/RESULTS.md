@@ -52,7 +52,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Compute `imageStore` to 2D RGBA8 and R32UI textures with readback.
 - Arrays/elements indirect draw commands.
 - Basic fixed-function immediate-mode triangle/texture rendering, texture replace/modulate/add/decal, display lists, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
-- Sync/fence completion behavior.
+- Sync/fence completion behavior and query-result buffer writes.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
 
 Observed markers:
@@ -115,6 +115,7 @@ WINEMETALGL_MULTISAMPLE_OK
 WINEMETALGL_MULTISAMPLE_STORAGE_OK
 WINEMETALGL_SYNC_OK
 WINEMETALGL_QUERY_OK
+WINEMETALGL_QUERY_BUFFER_OK
 WINEMETALGL_TESSELLATION_COMPILE_OK
 WINEMETALGL_TESSELLATION_DRAW_OK
 WINEMETALGL_TESSELLATION_QUAD_OK

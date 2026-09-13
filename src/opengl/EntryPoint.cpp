@@ -170,6 +170,7 @@ std::array<size_t, 16> g_uniformBufferOffsets{};
 std::array<size_t, 16> g_uniformBufferSizes{};
 size_t g_storageBufferOffset = 0;
 size_t g_storageBufferSize = 0;
+uint32_t g_boundQueryBuffer = 0;
 uint32_t g_boundIndirectBuffer = 0;
 uint32_t g_boundDispatchIndirectBuffer = 0;
 uint32_t g_boundPixelPackBuffer = 0;
@@ -836,6 +837,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
     const bool experimental = std::getenv("WINEMETALGL_EXPERIMENTAL") &&
                               std::strcmp(std::getenv("WINEMETALGL_EXPERIMENTAL"), "1") == 0;
     const uint32_t name = target == kGL_ARRAY_BUFFER ? g_glBridge.state().boundArrayBuffer :
+                          target == 0x9192 ? g_boundQueryBuffer :
                           target == kGL_ELEMENT_ARRAY_BUFFER ? g_glBridge.state().boundElementArrayBuffer :
                           target == kGL_SHADER_STORAGE_BUFFER ? g_boundStorageBuffer :
                           target == kGL_TRANSFORM_FEEDBACK_BUFFER ? g_boundTransformFeedbackBuffer :
@@ -858,7 +860,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
 }
 
 extern "C" void glGetBufferParameteriv(uint32_t target, uint32_t pname, int32_t* params) {
-    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
+    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x9192 ? g_boundQueryBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
     if (metalModeEnabled() && params && bound && (pname == 0x8764 || pname == 0x8210)) {
         std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bound);
         if (it != g_buffers.end()) { *params = pname == 0x8764 ? static_cast<int32_t>(it->second.size) : 0; return; }
@@ -866,7 +868,7 @@ extern "C" void glGetBufferParameteriv(uint32_t target, uint32_t pname, int32_t*
     glDispatch<void,uint32_t,uint32_t,int32_t*>("glGetBufferParameteriv",target,pname,params);
 }
 extern "C" void glGetBufferParameteri64v(uint32_t target, uint32_t pname, int64_t* params) {
-    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
+    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x9192 ? g_boundQueryBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
     if (metalModeEnabled() && params && bound && pname == 0x8764) { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bound); if(it!=g_buffers.end()){*params=static_cast<int64_t>(it->second.size);return;} }
     glDispatch<void,uint32_t,uint32_t,int64_t*>("glGetBufferParameteri64v",target,pname,params);
 }
@@ -904,7 +906,7 @@ extern "C" void glBindBufferRange(uint32_t target, uint32_t index, uint32_t buff
 }
 
 extern "C" void glGetBufferSubData(uint32_t target, int64_t offset, int64_t size, void* data) {
-    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
+    const uint32_t bound = target == 0x8892 ? g_glBridge.state().boundArrayBuffer : target == 0x9192 ? g_boundQueryBuffer : target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer : target == 0x90D2 ? g_boundStorageBuffer : target == 0x8C8E ? g_boundTransformFeedbackBuffer : target == 0x8A11 ? g_boundUniformBuffer : target == 0x8F3F ? g_boundIndirectBuffer : target == 0x88EB ? g_boundPixelPackBuffer : 0;
     if (metalModeEnabled() && bound && offset >= 0 && size >= 0) {
         uint64_t handle = 0;
         { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(bound); if (it != g_buffers.end()) handle = it->second.metalHandle; }
@@ -936,6 +938,7 @@ extern "C" void glCopyBufferSubData(uint32_t readTarget, uint32_t writeTarget, i
 
 extern "C" void glBufferSubData(uint32_t target, int64_t offset, int64_t size, const void* data) {
     uint32_t name = target == 0x8892 ? g_glBridge.state().boundArrayBuffer :
+                    target == 0x9192 ? g_boundQueryBuffer :
                     target == 0x8893 ? g_glBridge.state().boundElementArrayBuffer :
                     target == 0x90D2 ? g_boundStorageBuffer :
                     target == 0x8C8E ? g_boundTransformFeedbackBuffer :
@@ -1000,6 +1003,8 @@ extern "C" void glBindBuffer(uint32_t target, uint32_t buffer) {
         g_boundTransformFeedbackBuffer = buffer;
     } else if (target == kGL_UNIFORM_BUFFER) {
         g_boundUniformBuffer = buffer;
+    } else if (target == 0x9192) {
+        g_boundQueryBuffer = buffer;
     } else if (target == kGL_DRAW_INDIRECT_BUFFER) {
         g_boundIndirectBuffer = buffer;
     } else if (target == kGL_PIXEL_PACK_BUFFER) {
@@ -2329,6 +2334,11 @@ extern "C" void glGetQueryObjectuiv(uint32_t id, uint32_t pname, uint32_t* param
 extern "C" void glGetQueryObjectui64v(uint32_t id, uint32_t pname, uint64_t* params) {
     if (!params) return; if (!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint64_t*>("glGetQueryObjectui64v",id,pname,params);return;} std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); *params=it==g_queries.end()?0:it->second.value;
 }
+static bool queryResult(uint32_t id,uint64_t& value){std::lock_guard<std::mutex> lock(g_queryMutex);auto it=g_queries.find(id);if(it==g_queries.end())return false;value=it->second.value;return true;}
+extern "C" void glGetQueryBufferObjectuiv(uint32_t id,uint32_t buffer,uint32_t pname,int64_t offset) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t,int64_t>("glGetQueryBufferObjectuiv",id,buffer,pname,offset);return;}uint64_t value=0;uint32_t result=0;if(queryResult(id,value))result=static_cast<uint32_t>(value);uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(buffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}if(!handle||offset<0||!g_metalRenderer.updateBuffer(handle,static_cast<size_t>(offset),&result,sizeof(result)))metalsharp::GLErrorTracker::instance().setError(0x0502); }
+extern "C" void glGetQueryBufferObjectiv(uint32_t id,uint32_t buffer,uint32_t pname,int64_t offset) { glGetQueryBufferObjectuiv(id,buffer,pname,offset); }
+extern "C" void glGetQueryBufferObjectui64v(uint32_t id,uint32_t buffer,uint32_t pname,int64_t offset) { if(!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t,int64_t>("glGetQueryBufferObjectui64v",id,buffer,pname,offset);return;}uint64_t value=0;uint64_t handle=0;queryResult(id,value);{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(buffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}if(!handle||offset<0||!g_metalRenderer.updateBuffer(handle,static_cast<size_t>(offset),&value,sizeof(value)))metalsharp::GLErrorTracker::instance().setError(0x0502); }
+extern "C" void glGetQueryBufferObjecti64v(uint32_t id,uint32_t buffer,uint32_t pname,int64_t offset) { glGetQueryBufferObjectui64v(id,buffer,pname,offset); }
 
 // ---------------------------------------------------------------------------
 // Display lists (GL 1.0)
