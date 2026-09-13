@@ -196,6 +196,7 @@ int main(void)
     }
     printf("%s\n", success_marker);
     printf("WINEMETALGL_DEFAULT_FBO_PRESENT_OK\n");
+    SetWindowPos(window,NULL,0,0,96,48,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);UpdateWindow(window);glViewport(0,0,96,48);glDrawArrays(GL_TRIANGLES,0,3);glReadPixels(48,24,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel);if(pixel[0]<47||pixel[0]>55||pixel[1]<98||pixel[1]>106||pixel[2]<149||pixel[2]>157||pixel[3]<250)return 19;if(!SwapBuffers(dc))return 20;printf("WINEMETALGL_RESIZE_PRESENT_OK\\n");
 
     use_program(0);
     delete_program(program);

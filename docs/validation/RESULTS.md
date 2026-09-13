@@ -54,7 +54,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Arrays/elements indirect draw commands, including parameter-buffer-counted multi-draw.
 - Basic fixed-function immediate-mode triangle/texture rendering, point-size and line-width state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
 - Sync/fence completion behavior and query-result buffer writes.
-- CAMetalLayer-backed default-surface presentation through `SwapBuffers`.
+- CAMetalLayer-backed default-surface presentation through `SwapBuffers`, including drawable resize/present.
 
 Observed markers:
 
@@ -78,6 +78,7 @@ WINEMETALGL_MULTI_INDIRECT_OK
 WINEMETALGL_MULTI_ELEMENTS_INDIRECT_OK
 WINEMETALGL_METAL_SURFACE_OK
 WINEMETALGL_DEFAULT_FBO_PRESENT_OK
+WINEMETALGL_RESIZE_PRESENT_OK
 WINEMETALGL_READBACK_OK
 WINEMETALGL_GLSL110_OK
 WINEMETALGL_GLSL120_OK
