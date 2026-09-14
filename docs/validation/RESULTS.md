@@ -80,7 +80,9 @@ results, not a full conformance claim:
 The full Khronos OpenGL 4.6 suite was not run, so this release makes a
 bounded acceptance-matrix claim rather than a full-conformance claim. Features
 outside the tested support boundary remain explicitly unsupported or
-unresolved.
+unresolved. A broader `KHR-GL30.*` smoke run reaches 852/879; API coverage,
+clip-distance functional/negative behavior, and noperspective remain outside
+the release claim.
 
 Observed markers:
 
