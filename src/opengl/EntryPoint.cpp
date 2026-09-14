@@ -93,7 +93,7 @@ std::unordered_map<uint32_t, uint32_t> g_pipelineProxies;
 std::mutex g_pipelineMutex;
 std::mutex g_syncMutex;
 std::unordered_set<void*> g_syncs;
-struct ExperimentalQuery { uint32_t target = 0; bool active = false; uint64_t value = 0; };
+struct ExperimentalQuery { uint32_t target = 0; bool active = false; bool started = false; uint64_t value = 0; };
 std::mutex g_queryMutex;
 std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
 uint32_t g_transformFeedbackPrimitiveCount = 0;
@@ -918,6 +918,7 @@ static void captureExperimentalTransformFeedback(uint32_t primitiveMode, int32_t
 static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name);
 static bool hasTransformFeedbackOutput(const std::string& source, const std::string& name);
 static void markTransformFeedbackColorShadow();
+static size_t vertexAttributeScalarBytes(uint32_t type);
 static bool transformFeedbackPrimitiveCompatible(uint32_t mode) { if(!g_transformFeedbackActive)return true; if(g_transformFeedbackPrimitiveMode==0x0000)return mode==0x0000; if(g_transformFeedbackPrimitiveMode==0x0001)return mode==0x0001||mode==0x0002||mode==0x0003; if(g_transformFeedbackPrimitiveMode==0x0004)return mode==0x0004||mode==0x0005||mode==0x0006; return mode==g_transformFeedbackPrimitiveMode; }
 static void captureExperimentalTransformFeedbackIndexed(uint32_t primitiveMode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
 
@@ -1314,7 +1315,7 @@ extern "C" void* glMapBufferRange(uint32_t target, int64_t offset, int64_t lengt
 }
 extern "C" void glFlushMappedBufferRange(uint32_t target,int64_t offset,int64_t length) { if(!metalModeEnabled())glDispatch<void,uint32_t,int64_t,int64_t>("glFlushMappedBufferRange",target,offset,length); }
 extern "C" void glFlushMappedNamedBufferRange(uint32_t buffer,int64_t offset,int64_t length) { if(!metalModeEnabled())glDispatch<void,uint32_t,int64_t,int64_t>("glFlushMappedNamedBufferRange",buffer,offset,length); }
-extern "C" void glGetBufferPointerv(uint32_t target, uint32_t pname, void** params) { if(!params)return; if(metalModeEnabled()&&pname==0x88BD){uint32_t name=target==0x8892?g_glBridge.state().boundArrayBuffer:target==0x8893?g_glBridge.state().boundElementArrayBuffer:target==0x90D2?g_boundStorageBuffer:target==0x8A11?g_boundUniformBuffer:target==0x8F3F?g_boundIndirectBuffer:target==0x88EB?g_boundPixelPackBuffer:0;uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(name);if(it!=g_buffers.end())handle=it->second.metalHandle;}*params=handle?g_metalRenderer.bufferContents(handle):nullptr;return;}glDispatch<void,uint32_t,uint32_t,void**>("glGetBufferPointerv",target,pname,params); }
+extern "C" void glGetBufferPointerv(uint32_t target, uint32_t pname, void** params) { if(!params)return; if(metalModeEnabled()&&pname==0x88BD){uint32_t name=target==0x8892?g_glBridge.state().boundArrayBuffer:target==0x8893?g_glBridge.state().boundElementArrayBuffer:target==0x90D2?g_boundStorageBuffer:target==0x8C8E?g_boundTransformFeedbackBuffer:target==0x8A11?g_boundUniformBuffer:target==0x8F3F?g_boundIndirectBuffer:target==0x88EB?g_boundPixelPackBuffer:0;uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(name);if(it!=g_buffers.end())handle=it->second.metalHandle;}*params=handle?g_metalRenderer.bufferContents(handle):nullptr;return;}glDispatch<void,uint32_t,uint32_t,void**>("glGetBufferPointerv",target,pname,params); }
 extern "C" void glGetNamedBufferPointerv(uint32_t buffer, uint32_t pname, void** params) { if(!params)return; if(metalModeEnabled()&&pname==0x88BD){uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(buffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}*params=handle?g_metalRenderer.bufferContents(handle):nullptr;return;}glDispatch<void,uint32_t,uint32_t,void**>("glGetNamedBufferPointerv",buffer,pname,params); }
 extern "C" unsigned char glIsBuffer(uint32_t buffer) { if(metalModeEnabled()){std::lock_guard<std::mutex> lock(g_bufferMutex);return g_buffers.count(buffer)!=0;}return glDispatch<unsigned char,uint32_t>("glIsBuffer",buffer); }
 
@@ -2075,9 +2076,10 @@ extern "C" void glVertexAttribPointer(uint32_t index, int32_t size, uint32_t typ
 }
 extern "C" void glVertexAttribIPointer(uint32_t index, int32_t size, uint32_t type, int32_t stride, const void* pointer) {
     const uint32_t bufferName = g_glBridge.state().boundArrayBuffer;
+    if (metalModeEnabled() && type != 0x1400 && type != 0x1401 && type != 0x1402 && type != 0x1403 && type != 0x1404 && type != 0x1405) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
     if (metalModeEnabled() && bufferName && index < metalsharp::kMaxVertexAttribs) {
         uint64_t handle=0; { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it=g_buffers.find(bufferName); if(it!=g_buffers.end())handle=it->second.metalHandle; }
-        if (handle) { g_metalRenderer.setVertexAttribute(index,size,type,false,static_cast<uint32_t>(stride),handle,reinterpret_cast<size_t>(pointer)); g_experimentalVertexAttributes[index]={true,size,type,static_cast<uint32_t>(stride),bufferName,reinterpret_cast<size_t>(pointer)}; return; }
+        if (handle) { const uint32_t effectiveStride = stride > 0 ? static_cast<uint32_t>(stride) : static_cast<uint32_t>(std::max(1, size) * vertexAttributeScalarBytes(type)); g_metalRenderer.setVertexAttribute(index,size,type,false,effectiveStride,handle,reinterpret_cast<size_t>(pointer)); g_experimentalVertexAttributes[index]={true,size,type,effectiveStride,bufferName,reinterpret_cast<size_t>(pointer)}; return; }
     }
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t,const void*>("glVertexAttribIPointer",index,size,type,stride,pointer);
 }
@@ -2454,6 +2456,14 @@ extern "C" void glDeleteProgram(uint32_t program) {
 }
 
 extern "C" void glAttachShader(uint32_t program, uint32_t shader) {
+    if (metalModeEnabled()) {
+        if (isExperimentalProgram(program) && metalsharp::GLShaderTracker::instance().isShader(shader)) {
+            metalsharp::GLShaderTracker::instance().attachShader(program, shader);
+            return;
+        }
+        metalsharp::GLErrorTracker::instance().setError(0x0501);
+        return;
+    }
     if (isExperimentalProgram(program) && metalsharp::GLShaderTracker::instance().isShader(shader)) {
         metalsharp::GLShaderTracker::instance().attachShader(program, shader);
         return;
@@ -2477,7 +2487,7 @@ extern "C" void glGetProgramBinary(uint32_t program,int32_t bufSize,int32_t* len
 extern "C" void glProgramBinary(uint32_t program,uint32_t binaryFormat,const void* binary,int32_t length) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,const void*,int32_t>("glProgramBinary",program,binaryFormat,binary,length);return;}if(binaryFormat!=0x4D474C42u||!binary||length<12){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}const auto* bytes=static_cast<const uint8_t*>(binary);auto read32=[&](size_t& offset,uint32_t& value){if(offset+4>static_cast<size_t>(length))return false;std::memcpy(&value,bytes+offset,4);offset+=4;return true;};size_t offset=0;uint32_t magic=0,version=0,count=0;if(!read32(offset,magic)||!read32(offset,version)||!read32(offset,count)||magic!=0x4D474C42u||version!=1||count>3){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}ExperimentalProgram result;result.linked=true;result.linkSuccess=true;std::vector<uint32_t> shaders;for(uint32_t i=0;i<count;++i){uint32_t type=0,size=0;if(!read32(offset,type)||!read32(offset,size)||offset+size>static_cast<size_t>(length)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}uint32_t shader=metalsharp::GLShaderTracker::instance().createShader(type);auto* state=metalsharp::GLShaderTracker::instance().getShader(shader);if(!state){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}state->msl.assign(reinterpret_cast<const char*>(bytes+offset),size);state->compiled=true;state->compileSuccess=true;shaders.push_back(shader);offset+=size;}for(uint32_t shader:metalsharp::GLShaderTracker::instance().copyAttachedShaders(program))metalsharp::GLShaderTracker::instance().detachShader(program,shader);for(uint32_t shader:shaders){metalsharp::GLShaderTracker::instance().attachShader(program,shader);auto* state=metalsharp::GLShaderTracker::instance().getShader(shader);if(state&&state->stage==metalsharp::ShaderStage::Vertex)result.vertexShader=shader;if(state&&state->stage==metalsharp::ShaderStage::Pixel)result.fragmentShader=shader;}result.binary.assign(bytes,bytes+length);std::lock_guard<std::mutex> lock(g_programMutex);g_programs[program]=std::move(result); }
 extern "C" void glBindFragDataLocation(uint32_t program,uint32_t colorNumber,const char* name) { if(!isExperimentalProgram(program)&&!metalsharp::GLShaderTracker::instance().hasProgram(program)){glDispatch<void,uint32_t,uint32_t,const char*>("glBindFragDataLocation",program,colorNumber,name);return;}if(name){std::lock_guard<std::mutex> lock(g_programMutex);g_programs[program].fragDataLocations[name]=colorNumber;} }
 extern "C" void glBindFragDataLocationIndexed(uint32_t program,uint32_t colorNumber,uint32_t index,const char* name) { if(!isExperimentalProgram(program)&&!metalsharp::GLShaderTracker::instance().hasProgram(program)){glDispatch<void,uint32_t,uint32_t,uint32_t,const char*>("glBindFragDataLocationIndexed",program,colorNumber,index,name);return;}glBindFragDataLocation(program,colorNumber,name); }
-extern "C" int32_t glGetFragDataLocation(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataLocation",program,name);if(!name)return -1;std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end())return -1;auto found=it->second.fragDataLocations.find(name);return found==it->second.fragDataLocations.end()?-1:static_cast<int32_t>(found->second); }
+extern "C" int32_t glGetFragDataLocation(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataLocation",program,name);std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end()||!it->second.linkSuccess){metalsharp::GLErrorTracker::instance().setError(0x0502);return -1;}if(!name)return -1;auto found=it->second.fragDataLocations.find(name);return found==it->second.fragDataLocations.end()?-1:static_cast<int32_t>(found->second); }
 extern "C" int32_t glGetFragDataIndex(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataIndex",program,name);return name?0:-1; }
 extern "C" void glLinkProgram(uint32_t program) {
     if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
@@ -2649,6 +2659,9 @@ extern "C" void glUseProgram(uint32_t program) {
     }
     if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (isExperimentalProgram(program)) {
+        std::lock_guard<std::mutex> lock(g_programMutex);
+        auto it = g_programs.find(program);
+        if (it != g_programs.end() && !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
         g_glBridge.state().currentProgram = program;
         return;
     }
@@ -2695,7 +2708,7 @@ extern "C" int32_t glGetUniformLocation(uint32_t program, const char* name) {
     if (!name || !*name) return -1;
     std::lock_guard<std::mutex> lock(g_programMutex);
     auto it = g_programs.find(program);
-    if (it == g_programs.end()) return -1;
+    if (it == g_programs.end() || !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return -1; }
     std::string lookup=name;int32_t element=0;size_t bracket=lookup.find('[');if(bracket!=std::string::npos){size_t end=lookup.find(']',bracket);if(end==lookup.size()-1){element=std::max(0,std::atoi(lookup.substr(bracket+1,end-bracket-1).c_str()));lookup.resize(bracket);}}
     auto found = it->second.uniformLocations.find(lookup);
     if (found != it->second.uniformLocations.end()) return found->second + element;
@@ -2707,10 +2720,13 @@ extern "C" int32_t glGetUniformLocation(uint32_t program, const char* name) {
 template <typename T>
 void setExperimentalUniform(int32_t location, const T* values, size_t count) {
     const uint32_t program = g_glBridge.state().currentProgram;
-    if (!isExperimentalProgram(program) || location < 0 || !values) return;
+    if (!isExperimentalProgram(program) || !values) return;
     std::lock_guard<std::mutex> lock(g_programMutex);
     auto it = g_programs.find(program);
-    if (it == g_programs.end()) return;
+    if (it == g_programs.end() || !it->second.linkSuccess || location < 0 || static_cast<size_t>(location) >= it->second.uniformLocations.size()) {
+        metalsharp::GLErrorTracker::instance().setError(0x0502);
+        return;
+    }
     it->second.uniformValues[location] = std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(values),
                                                               reinterpret_cast<const uint8_t*>(values) + count);
 }
@@ -2721,18 +2737,23 @@ void setExperimentalProgramUniform(uint32_t program, int32_t location, const T* 
     it->second.uniformValues[location]=std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(values),reinterpret_cast<const uint8_t*>(values)+count);
 }
 
-extern "C" void glUniform1f(int32_t location, float v0) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(g_glBridge.state().currentProgram); if(it!=g_programs.end())for(const auto& entry:it->second.uniformLocations)if(entry.second==location&&entry.first=="scale"){g_texture1DLodScale=v0;g_textureLodBase=std::log2(std::max(0.000001f,v0));}else if(entry.second==location&&entry.first=="lodbase"){g_textureLodBase=v0;g_textureLodProgram=g_glBridge.state().currentProgram;}else if(entry.second==location&&entry.first=="biasshader")g_textureLodBias=v0; } else glDispatch<void, int32_t, float>("glUniform1f", location, v0); }
-extern "C" void glUniform2f(int32_t location, float v0, float v1) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float>("glUniform2f", location, v0, v1); }
-extern "C" void glUniform3f(int32_t location, float v0, float v1, float v2) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float>("glUniform3f", location, v0, v1, v2); }
-extern "C" void glUniform4f(int32_t location, float v0, float v1, float v2, float v3) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { float v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float, float>("glUniform4f", location, v0, v1, v2, v3); }
-extern "C" void glUniform1i(int32_t location, int32_t v0) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t>("glUniform1i", location, v0); }
-extern "C" void glUniform2i(int32_t location, int32_t v0, int32_t v1) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t>("glUniform2i", location, v0, v1); }
-extern "C" void glUniform3i(int32_t location, int32_t v0, int32_t v1, int32_t v2) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t>("glUniform3i", location, v0, v1, v2); }
-extern "C" void glUniform4i(int32_t location, int32_t v0, int32_t v1, int32_t v2, int32_t v3) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) { int32_t v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t, int32_t>("glUniform4i", location, v0, v1, v2, v3); }
-extern "C" void glUniform1ui(int32_t location, uint32_t v0) { if (isExperimentalProgram(g_glBridge.state().currentProgram)) setExperimentalUniform(location,&v0,sizeof(v0)); else glDispatch<void,int32_t,uint32_t>("glUniform1ui",location,v0); }
-extern "C" void glUniform2ui(int32_t location, uint32_t v0, uint32_t v1) { uint32_t v[4]={v0,v1,0,0}; if (isExperimentalProgram(g_glBridge.state().currentProgram)) setExperimentalUniform(location,v,sizeof(v)); else glDispatch<void,int32_t,uint32_t,uint32_t>("glUniform2ui",location,v0,v1); }
-extern "C" void glUniform3ui(int32_t location, uint32_t v0, uint32_t v1, uint32_t v2) { uint32_t v[4]={v0,v1,v2,0}; if (isExperimentalProgram(g_glBridge.state().currentProgram)) setExperimentalUniform(location,v,sizeof(v)); else glDispatch<void,int32_t,uint32_t,uint32_t,uint32_t>("glUniform3ui",location,v0,v1,v2); }
-extern "C" void glUniform4ui(int32_t location, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) { uint32_t v[4]={v0,v1,v2,v3}; if (isExperimentalProgram(g_glBridge.state().currentProgram)) setExperimentalUniform(location,v,sizeof(v)); else glDispatch<void,int32_t,uint32_t,uint32_t,uint32_t,uint32_t>("glUniform4ui",location,v0,v1,v2,v3); }
+static bool interceptCurrentUniformCall() {
+    if (!metalModeEnabled()) return false;
+    if (!g_glBridge.state().currentProgram) { metalsharp::GLErrorTracker::instance().setError(0x0502); return true; }
+    return isExperimentalProgram(g_glBridge.state().currentProgram);
+}
+extern "C" void glUniform1f(int32_t location, float v0) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; float v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(g_glBridge.state().currentProgram); if(it!=g_programs.end())for(const auto& entry:it->second.uniformLocations)if(entry.second==location&&entry.first=="scale"){g_texture1DLodScale=v0;g_textureLodBase=std::log2(std::max(0.000001f,v0));}else if(entry.second==location&&entry.first=="lodbase"){g_textureLodBase=v0;g_textureLodProgram=g_glBridge.state().currentProgram;}else if(entry.second==location&&entry.first=="biasshader")g_textureLodBias=v0; } else glDispatch<void, int32_t, float>("glUniform1f", location, v0); }
+extern "C" void glUniform2f(int32_t location, float v0, float v1) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; float v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float>("glUniform2f", location, v0, v1); }
+extern "C" void glUniform3f(int32_t location, float v0, float v1, float v2) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; float v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float>("glUniform3f", location, v0, v1, v2); }
+extern "C" void glUniform4f(int32_t location, float v0, float v1, float v2, float v3) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; float v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, float, float, float, float>("glUniform4f", location, v0, v1, v2, v3); }
+extern "C" void glUniform1i(int32_t location, int32_t v0) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; int32_t v[4] = {v0, 0, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t>("glUniform1i", location, v0); }
+extern "C" void glUniform2i(int32_t location, int32_t v0, int32_t v1) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; int32_t v[4] = {v0, v1, 0, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t>("glUniform2i", location, v0, v1); }
+extern "C" void glUniform3i(int32_t location, int32_t v0, int32_t v1, int32_t v2) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; int32_t v[4] = {v0, v1, v2, 0}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t>("glUniform3i", location, v0, v1, v2); }
+extern "C" void glUniform4i(int32_t location, int32_t v0, int32_t v1, int32_t v2, int32_t v3) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; int32_t v[4] = {v0, v1, v2, v3}; setExperimentalUniform(location, v, sizeof(v)); } else glDispatch<void, int32_t, int32_t, int32_t, int32_t, int32_t>("glUniform4i", location, v0, v1, v2, v3); }
+extern "C" void glUniform1ui(int32_t location, uint32_t v0) { if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; setExperimentalUniform(location,&v0,sizeof(v0)); } else glDispatch<void,int32_t,uint32_t>("glUniform1ui",location,v0); }
+extern "C" void glUniform2ui(int32_t location, uint32_t v0, uint32_t v1) { uint32_t v[4]={v0,v1,0,0}; if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; setExperimentalUniform(location,v,sizeof(v)); } else glDispatch<void,int32_t,uint32_t,uint32_t>("glUniform2ui",location,v0,v1); }
+extern "C" void glUniform3ui(int32_t location, uint32_t v0, uint32_t v1, uint32_t v2) { uint32_t v[4]={v0,v1,v2,0}; if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; setExperimentalUniform(location,v,sizeof(v)); } else glDispatch<void,int32_t,uint32_t,uint32_t,uint32_t>("glUniform3ui",location,v0,v1,v2); }
+extern "C" void glUniform4ui(int32_t location, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3) { uint32_t v[4]={v0,v1,v2,v3}; if (interceptCurrentUniformCall()) { if (!isExperimentalProgram(g_glBridge.state().currentProgram)) return; setExperimentalUniform(location,v,sizeof(v)); } else glDispatch<void,int32_t,uint32_t,uint32_t,uint32_t,uint32_t>("glUniform4ui",location,v0,v1,v2,v3); }
 #define WINEMETALGL_PROGRAM_UNIFORM_SCALAR(name,type) \
 extern "C" void name(uint32_t program,int32_t location,type v0) { if(isExperimentalProgram(program))setExperimentalProgramUniform(program,location,&v0,sizeof(v0)); else glDispatch<void,uint32_t,int32_t,type>(#name,program,location,v0); }
 WINEMETALGL_PROGRAM_UNIFORM_SCALAR(glProgramUniform1f,float)
@@ -2772,8 +2793,8 @@ WINEMETALGL_PROGRAM_UNIFORM_MATRIX(glProgramUniformMatrix4fv,16)
 
 #define WINEMETALGL_UNIFORM_ARRAY(name, scalar) \
 extern "C" void name(int32_t location, int32_t count, const scalar* values) { \
-    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { \
-        if (count > 0 && values) setExperimentalUniform(location, values, sizeof(scalar) * static_cast<size_t>(count)); \
+    if (interceptCurrentUniformCall()) { \
+        if (isExperimentalProgram(g_glBridge.state().currentProgram) && count > 0 && values) setExperimentalUniform(location, values, sizeof(scalar) * static_cast<size_t>(count)); \
     } else glDispatch<void, int32_t, int32_t, const scalar*>(#name, location, count, values); \
 }
 WINEMETALGL_UNIFORM_ARRAY(glUniform1fv, float)
@@ -2789,10 +2810,25 @@ WINEMETALGL_UNIFORM_ARRAY(glUniform2uiv, uint32_t)
 WINEMETALGL_UNIFORM_ARRAY(glUniform3uiv, uint32_t)
 WINEMETALGL_UNIFORM_ARRAY(glUniform4uiv, uint32_t)
 #undef WINEMETALGL_UNIFORM_ARRAY
+static bool currentUniformIsSampler(int32_t location) {
+    const uint32_t program = g_glBridge.state().currentProgram;
+    std::lock_guard<std::mutex> lock(g_programMutex);
+    auto it = g_programs.find(program);
+    if (it == g_programs.end()) return false;
+    for (const auto& entry : it->second.uniformLocations) if (entry.second == location) {
+        auto type = it->second.uniformTypes.find(entry.first);
+        return type != it->second.uniformTypes.end() && type->second == 0x8B5E;
+    }
+    return false;
+}
 #define WINEMETALGL_UNIFORM_MATRIX_ARRAY(name, components) \
 extern "C" void name(int32_t location, int32_t count, unsigned char transpose, const float* value) { \
-    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if(count>0&&value)setExperimentalUniform(location,value,sizeof(float)*components*static_cast<size_t>(count)); } \
-    else glDispatch<void,int32_t,int32_t,unsigned char,const float*>(#name,location,count,transpose,value); \
+    if (interceptCurrentUniformCall()) { \
+        if (isExperimentalProgram(g_glBridge.state().currentProgram) && count > 0 && value) { \
+            if (currentUniformIsSampler(location)) metalsharp::GLErrorTracker::instance().setError(0x0502); \
+            else setExperimentalUniform(location,value,sizeof(float)*components*static_cast<size_t>(count)); \
+        } \
+    } else glDispatch<void,int32_t,int32_t,unsigned char,const float*>(#name,location,count,transpose,value); \
 }
 WINEMETALGL_UNIFORM_MATRIX_ARRAY(glUniformMatrix2x3fv,6)
 WINEMETALGL_UNIFORM_MATRIX_ARRAY(glUniformMatrix2x4fv,8)
@@ -2803,13 +2839,13 @@ WINEMETALGL_UNIFORM_MATRIX_ARRAY(glUniformMatrix4x3fv,12)
 #undef WINEMETALGL_UNIFORM_MATRIX_ARRAY
 
 extern "C" void glUniformMatrix2fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
-    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 4 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix2fv", location, count, transpose, value);
+    if (interceptCurrentUniformCall()) { if (isExperimentalProgram(g_glBridge.state().currentProgram) && count > 0 && value) { if (currentUniformIsSampler(location)) metalsharp::GLErrorTracker::instance().setError(0x0502); else setExperimentalUniform(location, value, sizeof(float) * 4 * static_cast<size_t>(count)); } } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix2fv", location, count, transpose, value);
 }
 extern "C" void glUniformMatrix3fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
-    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 9 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix3fv", location, count, transpose, value);
+    if (interceptCurrentUniformCall()) { if (isExperimentalProgram(g_glBridge.state().currentProgram) && count > 0 && value) { if (currentUniformIsSampler(location)) metalsharp::GLErrorTracker::instance().setError(0x0502); else setExperimentalUniform(location, value, sizeof(float) * 9 * static_cast<size_t>(count)); } } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix3fv", location, count, transpose, value);
 }
 extern "C" void glUniformMatrix4fv(int32_t location, int32_t count, unsigned char transpose, const float* value) {
-    if (isExperimentalProgram(g_glBridge.state().currentProgram)) { if (count > 0 && value) setExperimentalUniform(location, value, sizeof(float) * 16 * static_cast<size_t>(count)); } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix4fv", location, count, transpose, value);
+    if (interceptCurrentUniformCall()) { if (isExperimentalProgram(g_glBridge.state().currentProgram) && count > 0 && value) { if (currentUniformIsSampler(location)) metalsharp::GLErrorTracker::instance().setError(0x0502); else setExperimentalUniform(location, value, sizeof(float) * 16 * static_cast<size_t>(count)); } } else glDispatch<void, int32_t, int32_t, unsigned char, const float*>("glUniformMatrix4fv", location, count, transpose, value);
 }
 extern "C" void glGetUniformfv(uint32_t program, int32_t location, float* params) {
     if (metalModeEnabled()) {
@@ -2837,6 +2873,19 @@ extern "C" void glGetUniformiv(uint32_t program, int32_t location, int32_t* para
     }
     glDispatch<void,uint32_t,int32_t,int32_t*>("glGetUniformiv",program,location,params);
 }
+extern "C" void glGetUniformuiv(uint32_t program, int32_t location, uint32_t* params) {
+    if (metalModeEnabled()) {
+        if (program == 0 || !isExperimentalProgram(program)) { metalsharp::GLErrorTracker::instance().setError(program && metalsharp::GLShaderTracker::instance().getShader(program) ? 0x0502 : 0x0501); return; }
+        std::lock_guard<std::mutex> lock(g_programMutex);
+        auto it = g_programs.find(program);
+        if (it == g_programs.end() || !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+        if (location < 0 || static_cast<size_t>(location) >= it->second.uniformLocations.size()) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+        auto value = it->second.uniformValues.find(location);
+        if (value != it->second.uniformValues.end() && params) std::memcpy(params, value->second.data(), value->second.size());
+        return;
+    }
+    glDispatch<void,uint32_t,int32_t,uint32_t*>("glGetUniformuiv",program,location,params);
+}
 extern "C" uint32_t glGetUniformBlockIndex(uint32_t program, const char* name) {
     if(!isExperimentalProgram(program))return glDispatch<uint32_t,uint32_t,const char*>("glGetUniformBlockIndex",program,name); if(!name)return 0xFFFFFFFFu;std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end())return 0xFFFFFFFFu;auto block=it->second.uniformBlockIndices.find(name);return block==it->second.uniformBlockIndices.end()?0xFFFFFFFFu:block->second;
 }
@@ -2851,6 +2900,7 @@ extern "C" void glGetProgramResourceiv(uint32_t program,uint32_t programInterfac
 extern "C" void glShaderStorageBlockBinding(uint32_t program, uint32_t storageBlockIndex, uint32_t storageBlockBinding) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,uint32_t>("glShaderStorageBlockBinding",program,storageBlockIndex,storageBlockBinding);return;}std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it!=g_programs.end()&&storageBlockIndex<it->second.storageBlockIndices.size())it->second.storageBlockBindings[storageBlockIndex]=storageBlockBinding; }
 extern "C" void glGetActiveUniformBlockName(uint32_t program, uint32_t uniformBlockIndex, int32_t bufSize, int32_t* length, char* name) { if(!isExperimentalProgram(program)){glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,char*>("glGetActiveUniformBlockName",program,uniformBlockIndex,bufSize,length,name);return;}std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end()||uniformBlockIndex>=it->second.uniformBlockIndices.size()){if(length)*length=0;if(name&&bufSize>0)*name=0;return;}std::string block;for(const auto& entry:it->second.uniformBlockIndices)if(entry.second==uniformBlockIndex){block=entry.first;break;}int32_t copied=bufSize>0?std::min<int32_t>(bufSize-1,static_cast<int32_t>(block.size())):0;if(name&&bufSize>0){std::memcpy(name,block.data(),copied);name[copied]=0;}if(length)*length=copied;}
 extern "C" void glGetActiveUniform(uint32_t program, uint32_t index, int32_t bufSize, int32_t* length, int32_t* size, uint32_t* type, char* name) {
+    if (metalModeEnabled() && !program) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     if (!isExperimentalProgram(program)) { glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,int32_t*,uint32_t*,char*>("glGetActiveUniform",program,index,bufSize,length,size,type,name); return; }
     std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it==g_programs.end()||index>=it->second.uniformOrder.size()){if(length)*length=0;return;} const auto& n=it->second.uniformOrder[index]; int32_t copied=bufSize>0?std::min<int32_t>(bufSize-1,n.size()):0; if(name&&bufSize>0){std::memcpy(name,n.data(),copied);name[copied]=0;} if(length)*length=copied;if(size)*size=it->second.uniformSizes.count(n)?it->second.uniformSizes[n]:1;if(type)*type=it->second.uniformTypes[n];
 }
@@ -2864,7 +2914,7 @@ extern "C" int32_t glGetAttribLocation(uint32_t program, const char* name) {
     if (!name) return -1;
     std::lock_guard<std::mutex> lock(g_programMutex);
     auto it = g_programs.find(program);
-    if (it == g_programs.end()) return -1;
+    if (it == g_programs.end() || !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return -1; }
     auto found = it->second.attributeLocations.find(name);
     return found == it->second.attributeLocations.end() ? -1 : found->second;
 }
@@ -2878,6 +2928,7 @@ extern "C" void glBindAttribLocation(uint32_t program, uint32_t index, const cha
     g_programs[program].attributeLocations[name] = static_cast<int32_t>(index);
 }
 extern "C" void glGetActiveAttrib(uint32_t program, uint32_t index, int32_t bufSize, int32_t* length, int32_t* size, uint32_t* type, char* name) {
+    if (metalModeEnabled() && !program) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     if (!isExperimentalProgram(program)) { glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,int32_t*,uint32_t*,char*>("glGetActiveAttrib",program,index,bufSize,length,size,type,name); return; }
     std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it==g_programs.end()||index>=it->second.attributeOrder.size()){if(length)*length=0;return;} const auto& n=it->second.attributeOrder[index]; int32_t copied=bufSize>0?std::min<int32_t>(bufSize-1,n.size()):0; if(name&&bufSize>0){std::memcpy(name,n.data(),copied);name[copied]=0;} if(length)*length=copied;if(size)*size=1;if(type)*type=it->second.attributeTypes[n];
 }
@@ -3062,11 +3113,11 @@ extern "C" void glDeleteQueries(int32_t n, const uint32_t* ids) {
 }
 extern "C" unsigned char glIsQuery(uint32_t id) {
     if (!metalModeEnabled()) return glDispatch<unsigned char,uint32_t>("glIsQuery",id);
-    std::lock_guard<std::mutex> lock(g_queryMutex); return g_queries.count(id) != 0;
+    std::lock_guard<std::mutex> lock(g_queryMutex); auto it = g_queries.find(id); return it != g_queries.end() && it->second.started;
 }
 extern "C" void glBeginQuery(uint32_t target, uint32_t id) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t,uint32_t>("glBeginQuery",target,id); return; }
-    std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); if(it==g_queries.end()||g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} it->second.target=target;it->second.active=true;it->second.value=0;g_transformFeedbackPrimitiveCount=0;g_activeQuery=id;
+    std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); if(it==g_queries.end()||g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} it->second.target=target;it->second.active=true;it->second.started=true;it->second.value=0;g_transformFeedbackPrimitiveCount=0;g_activeQuery=id;
 }
 extern "C" void glEndQuery(uint32_t target) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glEndQuery",target); return; }
@@ -3901,6 +3952,13 @@ extern "C" unsigned char glIsFramebuffer(uint32_t framebuffer) { if(metalModeEna
 extern "C" void glBlitFramebuffer(int32_t srcX0, int32_t srcY0, int32_t srcX1, int32_t srcY1,
                                    int32_t dstX0, int32_t dstY0, int32_t dstX1, int32_t dstY1,
                                    uint32_t mask, uint32_t filter) {
+    if (metalModeEnabled()) {
+        constexpr uint32_t validMask = 0x00004000 | 0x00000100 | 0x00000400;
+        if (mask & ~validMask) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
+        if ((mask & (0x00000100 | 0x00000400)) && filter == 0x2601) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+        if (mask == 0) return;
+        if (!g_glBridge.state().boundReadFramebuffer && !g_glBridge.state().boundDrawFramebuffer) return;
+    }
     if (metalModeEnabled() && (mask & 0x00000400) && srcX0 == 0 && srcY0 == 0 && dstX0 == 0 && dstY0 == 0 && srcX1 == dstX1 && srcY1 == dstY1 && srcX1 > 0 && srcY1 > 0) {
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto src=g_framebuffers.find(g_glBridge.state().boundReadFramebuffer),dst=g_framebuffers.find(g_glBridge.state().boundDrawFramebuffer); if(src!=g_framebuffers.end()&&dst!=g_framebuffers.end()){auto source=g_stencilShadow.find(src->second.stencilHandle),destination=g_stencilShadow.find(dst->second.stencilHandle);if(source!=g_stencilShadow.end()&&destination!=g_stencilShadow.end()&&source->second.width>=static_cast<uint32_t>(srcX1)&&source->second.height>=static_cast<uint32_t>(srcY1)&&destination->second.width>=static_cast<uint32_t>(dstX1)&&destination->second.height>=static_cast<uint32_t>(dstY1)){const int32_t sx=g_glBridge.state().scissorEnabled?std::max<int32_t>(0,g_glBridge.state().scissorX):0,sy=g_glBridge.state().scissorEnabled?std::max<int32_t>(0,g_glBridge.state().scissorY):0;const uint32_t sw=g_glBridge.state().scissorEnabled?std::min<uint32_t>(static_cast<uint32_t>(g_glBridge.state().scissorWidth),static_cast<uint32_t>(srcX1-sx)):static_cast<uint32_t>(srcX1),sh=g_glBridge.state().scissorEnabled?std::min<uint32_t>(static_cast<uint32_t>(g_glBridge.state().scissorHeight),static_cast<uint32_t>(srcY1-sy)):static_cast<uint32_t>(srcY1);for(uint32_t row=0;row<sh;++row)std::memcpy(destination->second.values.data()+(static_cast<size_t>(sy+static_cast<int32_t>(row))*destination->second.width)+sx,source->second.values.data()+(static_cast<size_t>(sy+static_cast<int32_t>(row))*source->second.width)+sx,static_cast<size_t>(sw));if(!(mask&0x00000100))return;}}
     }
