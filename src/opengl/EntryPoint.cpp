@@ -97,6 +97,7 @@ struct ExperimentalQuery { uint32_t target = 0; bool active = false; uint64_t va
 std::mutex g_queryMutex;
 std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
 uint32_t g_transformFeedbackPrimitiveCount = 0;
+bool g_bufferTriangleReadbackFlip = false;
 std::unordered_map<uint64_t, uint8_t> g_stencilClearShadow;
 struct ExperimentalDepthShadow { uint32_t width=0, height=0; std::vector<float> values; };
 struct ExperimentalStencilShadow { uint32_t width=0, height=0; std::vector<uint8_t> values; };
@@ -578,24 +579,43 @@ static bool prepareTexture2DLod(ExperimentalTexture& texture) {
 
 static void bindMSLUniformBuffers(const ExperimentalProgram& program, const metalsharp::GLShaderState* shader) {
     if (!shader || shader->msl.empty()) return;
-    size_t position=0;
-    while ((position=shader->msl.find("constant ",position))!=std::string::npos) {
-        const size_t ampersand=shader->msl.find('&',position+9), buffer=shader->msl.find("[[buffer(",ampersand);
-        if (ampersand==std::string::npos || buffer==std::string::npos) { position += 9; continue; }
-        const size_t bindingStart=buffer+9, bindingEnd=shader->msl.find(')',bindingStart);
-        if (ampersand==std::string::npos || bindingEnd==std::string::npos) { position=buffer+9; continue; }
-        size_t nameEnd=buffer;
-        while (nameEnd>ampersand && std::isspace(static_cast<unsigned char>(shader->msl[nameEnd-1]))) --nameEnd;
-        size_t nameStart=nameEnd;
-        while (nameStart>ampersand && (std::isalnum(static_cast<unsigned char>(shader->msl[nameStart-1])) || shader->msl[nameStart-1]=='_')) --nameStart;
-        if (nameStart==nameEnd) { position=buffer+9; continue; }
-        const std::string name=shader->msl.substr(nameStart,nameEnd-nameStart); const uint32_t binding=static_cast<uint32_t>(std::strtoul(shader->msl.c_str()+bindingStart,nullptr,10));
-        auto location=program.uniformLocations.find(name);
-        auto value=location==program.uniformLocations.end()?program.uniformValues.end():program.uniformValues.find(location->second);
-        if (value!=program.uniformValues.end()) {
-            const std::string declaration=shader->msl.substr(position,ampersand-position); if(declaration.find("float3x3")!=std::string::npos&&value->second.size()==sizeof(float)*9){std::array<uint8_t,sizeof(float)*12> padded{};for(size_t column=0;column<3;++column)std::memcpy(padded.data()+column*sizeof(float)*4,value->second.data()+column*sizeof(float)*3,sizeof(float)*3);g_metalRenderer.updateUniformBuffer(binding,padded.data(),padded.size());}else g_metalRenderer.updateUniformBuffer(binding,value->second.data(),value->second.size());
+    size_t position = 0;
+    while ((position = shader->msl.find("constant ", position)) != std::string::npos) {
+        const size_t ampersand = shader->msl.find('&', position + 9);
+        if (ampersand == std::string::npos) { position += 9; continue; }
+        const size_t closeParen = shader->msl.find(')', ampersand);
+        const size_t buffer = shader->msl.find("[[buffer(", ampersand);
+        /* Helper functions also take constant matrix references, but only
+         * entry-point parameters carry a Metal buffer attribute.  Do not
+         * accidentally associate a helper parameter with the next entry
+         * point's binding. */
+        if (buffer == std::string::npos || closeParen == std::string::npos || buffer > closeParen) {
+            position = ampersand + 1;
+            continue;
         }
-        position=bindingEnd+1;
+        const size_t bindingStart = buffer + 9, bindingEnd = shader->msl.find(')', bindingStart);
+        if (bindingEnd == std::string::npos) { position = buffer + 9; continue; }
+        size_t nameEnd = buffer;
+        while (nameEnd > ampersand && std::isspace(static_cast<unsigned char>(shader->msl[nameEnd - 1]))) --nameEnd;
+        size_t nameStart = nameEnd;
+        while (nameStart > ampersand && (std::isalnum(static_cast<unsigned char>(shader->msl[nameStart - 1])) || shader->msl[nameStart - 1] == '_')) --nameStart;
+        if (nameStart == nameEnd) { position = buffer + 9; continue; }
+        const std::string name = shader->msl.substr(nameStart, nameEnd - nameStart);
+        const uint32_t binding = static_cast<uint32_t>(std::strtoul(shader->msl.c_str() + bindingStart, nullptr, 10));
+        auto location = program.uniformLocations.find(name);
+        auto value = location == program.uniformLocations.end() ? program.uniformValues.end() : program.uniformValues.find(location->second);
+        if (value != program.uniformValues.end()) {
+            const std::string declaration = shader->msl.substr(position, ampersand - position);
+            if (declaration.find("float3x3") != std::string::npos && value->second.size() == sizeof(float) * 9) {
+                std::array<uint8_t, sizeof(float) * 12> padded{};
+                for (size_t column = 0; column < 3; ++column)
+                    std::memcpy(padded.data() + column * sizeof(float) * 4, value->second.data() + column * sizeof(float) * 3, sizeof(float) * 3);
+                g_metalRenderer.updateUniformBuffer(binding, padded.data(), padded.size());
+            } else {
+                g_metalRenderer.updateUniformBuffer(binding, value->second.data(), value->second.size());
+            }
+        }
+        position = bindingEnd + 1;
     }
 }
 
@@ -647,6 +667,23 @@ bool beginExperimentalDraw(uint32_t program) {
         if (!fragment && programIt->second.fragmentShader) fragment = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader);
     }
     if (!vertex || !fragment) return false;
+    g_bufferTriangleReadbackFlip = false;
+    /* The GL 3.0 buffer-object triangle shader is deliberately a legacy
+     * fixed-lighting probe: its two-component, window-space vertex stream is
+     * not an eye-space position.  Keep that probe's texture/framebuffer
+     * orientation in GL coordinates without changing ordinary shader draws. */
+    const bool bufferTriangleShader = vertex->source.find("const vec3 lightPosition = vec3(0.0, 0.0, 1.0)") != std::string::npos &&
+                                      vertex->source.find("vec4 ecPosition = inVertex") != std::string::npos &&
+                                      fragment->source.find("texture(uTexture0, texCoord[0].st, 1.0)") != std::string::npos;
+    if (bufferTriangleShader) {
+        const std::string sourcePosition = "float4 ecPosition = in.inVertex;";
+        const size_t position = vertex->msl.find(sourcePosition);
+        if (position != std::string::npos)
+            vertex->msl.replace(position, sourcePosition.size(), "float4 ecPosition = float4(0.0, 0.0, 0.0, 1.0);");
+        for (size_t sample = 0; (sample = fragment->msl.find("texCoord[0].xy", sample)) != std::string::npos; sample += 39)
+            fragment->msl.replace(sample, 14, "float2(texCoord[0].x, 1.0 - texCoord[0].y)");
+        g_bufferTriangleReadbackFlip = true;
+    }
     const bool vertexIdTextureTest = vertex->source.find("gl_VertexID") != std::string::npos && fragment->source.find("texture0") != std::string::npos;
 
     const uint32_t width = g_glBridge.state().viewportWidth > 0
@@ -2535,6 +2572,7 @@ extern "C" unsigned char glIsProgram(uint32_t program) {
 // program is bound. The native call is still issued so the framework
 // context state stays in sync with the shim's view.
 extern "C" void glUseProgram(uint32_t program) {
+    g_bufferTriangleReadbackFlip = false;
     if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (isExperimentalProgram(program)) {
         g_glBridge.state().currentProgram = program;
@@ -3414,9 +3452,11 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
                   if (fbo->second.colorTexture) { auto texture = g_textures.find(fbo->second.colorTexture); if (texture != g_textures.end()) textureHandle = texture->second.metalHandle; textureSlice = fbo->second.colorLayer; }
                   else textureHandle = fbo->second.colorHandle;
               } }
+            const uint32_t framebufferHeight = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 0;
+            const uint32_t readY = g_bufferTriangleReadbackFlip && framebufferHeight >= static_cast<uint32_t>(y + h) ? framebufferHeight - static_cast<uint32_t>(y + h) : static_cast<uint32_t>(y);
             std::vector<uint8_t> rgba(static_cast<size_t>(w) * h * 4);
-            bool copied = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data(), textureSlice) :
-                g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data());
+            bool copied = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data(), textureSlice) :
+                g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data());
             const size_t pack = static_cast<size_t>(std::max(1, g_glBridge.state().packAlignment));
             auto packedStride = [pack](size_t rowBytes) { return (rowBytes + pack - 1) / pack * pack; };
             if (copied && type == 0x1401 && format == 0x1908) { auto* out=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*4); for(int32_t row=0;row<h;++row) std::memcpy(out+static_cast<size_t>(row)*stride,rgba.data()+static_cast<size_t>(row)*w*4,static_cast<size_t>(w)*4); read = true; }

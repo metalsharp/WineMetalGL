@@ -71,8 +71,8 @@ results, not a full conformance claim:
 - `KHR-GL30.info.extensions`: 1/1 pass; the earlier null function-pointer
   crash was not reproduced.
 - `KHR-GL30.shaders30.*`: 651/651 pass.
-- `KHR-GL30.buffer_objects.*`: 4/5 pass; `triangles` still fails its
-  fixed-lighting raster check.
+- `KHR-GL30.buffer_objects.*`: 5/5 pass, including the fixed-lighting
+  triangle raster check.
 - `KHR-GL30.transform_feedback.*`: 21/21 pass, including vertex
   capture/query and rasterizer-discard behavior.
 
