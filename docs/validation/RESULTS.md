@@ -2,8 +2,8 @@
 
 Validation date: 2026-09-14
 
-The validated 1.9.3 artifacts are staged as a new immutable sibling beside the
-published 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
+The validated 1.9.4 artifacts are staged as a new immutable sibling beside the
+published 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
 
 ## Host gates
 
