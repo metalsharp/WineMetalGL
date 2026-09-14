@@ -357,7 +357,7 @@ index 696734f..0baa9eb 100644
      TRACE("()\n");
  
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2644,386 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2644,387 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
  
  #undef LOAD_FUNCPTR
  
@@ -467,6 +467,7 @@ index 696734f..0baa9eb 100644
 +            WINEMETALGL_BIND(glGetString);
 +            WINEMETALGL_BIND(glGetStringi);
 +            WINEMETALGL_BIND(glGetIntegerv);
++            WINEMETALGL_BIND(glGetError);
 +            WINEMETALGL_BIND(glGetFloatv);
 +            WINEMETALGL_BIND(glGetDoublev);
 +            WINEMETALGL_BIND(glGetBooleanv);

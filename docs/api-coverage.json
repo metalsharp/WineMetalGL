@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.9.12",
+  "release": "1.9.13",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -21,7 +21,7 @@
     },
     "gl_legacy": {
       "forwarded": "Wine's compatibility path covers the exported OpenGL 1.0-2.1 surface",
-      "metal_owned": ["glViewport", "glClear", "glFlush", "glFinish", "glReadPixels", "glGetStringi", "glGetIntegerv"]
+      "metal_owned": ["glViewport", "glClear", "glFlush", "glFinish", "glReadPixels", "glGetError", "glGetStringi", "glGetIntegerv"]
     },
     "gl_resources": {
       "metal_owned": [
