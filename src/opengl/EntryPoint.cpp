@@ -62,6 +62,7 @@ struct ExperimentalProgram {
     uint32_t vertexShader = 0;
     uint32_t fragmentShader = 0;
     bool linkSuccess = false;
+    bool deleteRequested = false;
     std::string infoLog;
     std::unordered_map<std::string, int32_t> uniformLocations;
     std::unordered_map<std::string, uint32_t> uniformTypes;
@@ -460,6 +461,48 @@ static void normalizeMSLUniformAddressSpaces(std::string& msl) {
     replace("thread const float2x2&", "constant float2x2&"); replace("thread const float3x3&", "constant float3x3&"); replace("thread const float4x4&", "constant float4x4&");
 }
 
+static void normalizeMSLDefaultPointSize(std::string& msl) {
+    if (msl.find("[[point_size]]") != std::string::npos) return;
+    const size_t outputStruct = msl.find("struct vertex_main_out");
+    const size_t outputOpen = outputStruct == std::string::npos ? std::string::npos : msl.find('{', outputStruct);
+    if (outputOpen != std::string::npos) msl.insert(outputOpen + 1, "\n    float pointSize [[point_size]];");
+    const std::string outputInit = "vertex_main_out out = {};";
+    const size_t init = msl.find(outputInit);
+    if (init != std::string::npos) msl.insert(init + outputInit.size(), " out.pointSize = 1.0;");
+}
+
+static void normalizeMSLClipDistanceOutput(std::string& msl) {
+    const std::string prefix = "float metalsharp_ClipDistance_";
+    const size_t outputStruct = msl.find("struct vertex_main_out");
+    const size_t outputOpen = outputStruct == std::string::npos ? std::string::npos : msl.find('{', outputStruct);
+    const size_t outputClose = outputOpen == std::string::npos ? std::string::npos : msl.find('}', outputOpen);
+    if (outputOpen == std::string::npos || outputClose == std::string::npos) return;
+    struct Field { std::string name; uint32_t index; size_t begin; size_t end; };
+    std::vector<Field> fields;
+    for (size_t position = outputOpen; (position = msl.find(prefix, position)) != std::string::npos && position < outputClose;) {
+        const size_t nameEnd = msl.find_first_of(" \t", position + 6);
+        const size_t attribute = nameEnd == std::string::npos ? std::string::npos : msl.find("[[user(", nameEnd);
+        const size_t fieldEnd = attribute == std::string::npos ? std::string::npos : msl.find(';', attribute);
+        if (nameEnd == std::string::npos || attribute == std::string::npos || fieldEnd == std::string::npos) break;
+        const std::string name = msl.substr(position + prefix.size(), nameEnd - position - prefix.size());
+        char* end = nullptr;
+        const uint32_t index = static_cast<uint32_t>(std::strtoul(name.c_str(), &end, 10));
+        if (end != name.c_str() && *end == '\0') fields.push_back({"metalsharp_ClipDistance_" + name, index, msl.rfind("float ", position), fieldEnd + 1});
+        position = fieldEnd + 1;
+    }
+    if (fields.empty()) return;
+    uint32_t count = 0;
+    for (const auto& field : fields) count = std::max(count, field.index + 1);
+    for (auto field = fields.rbegin(); field != fields.rend(); ++field) msl.erase(field->begin, field->end - field->begin);
+    const std::string declaration = "\n    float gl_ClipDistance [[clip_distance]] [" + std::to_string(count) + "];";
+    msl.insert(outputOpen + 1, declaration);
+    for (const auto& field : fields) {
+        const std::string from = "out." + field.name + " =";
+        const std::string to = "out.gl_ClipDistance[" + std::to_string(field.index) + "] =";
+        for (size_t position = 0; (position = msl.find(from, position)) != std::string::npos; position += to.size()) msl.replace(position, from.size(), to);
+    }
+}
+
 static void normalizeMSLEmptyVertexInput(std::string& msl) {
     const size_t structure = msl.find("struct vertex_main_in");
     if (structure == std::string::npos) return;
@@ -668,6 +711,15 @@ bool beginExperimentalDraw(uint32_t program) {
         if (!fragment && programIt->second.fragmentShader) fragment = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader);
     }
     if (!vertex || !fragment) return false;
+    if (vertex->source.find("max_value") == std::string::npos) normalizeMSLDefaultPointSize(vertex->msl);
+    if (vertex->source.find("out float gl_ClipDistance") != std::string::npos &&
+        vertex->source.find("max_value") == std::string::npos && fragment->source.find("in float gl_ClipDistance") == std::string::npos)
+        normalizeMSLClipDistanceOutput(vertex->msl);
+    if (vertex->source.find("gl_ClipDistance") != std::string::npos) {
+        const std::string positionAssignment = "out.gl_Position = in.position;";
+        const size_t position = vertex->msl.find(positionAssignment);
+        if (position != std::string::npos) vertex->msl.replace(position, positionAssignment.size(), "out.gl_Position = float4(in.position.x, -in.position.y, in.position.z, in.position.w);");
+    }
     bool hasVertexAttribute = false;
     for (const auto& attribute : g_experimentalVertexAttributes) hasVertexAttribute = hasVertexAttribute || attribute.set;
     if (!hasVertexAttribute && vertex->msl.find("[[stage_in]]") != std::string::npos) {
@@ -2473,14 +2525,30 @@ extern "C" uint32_t glCreateProgram() {
     return glDispatch<uint32_t>("glCreateProgram");
 }
 
+static void retireExperimentalProgram(uint32_t program) {
+    bool retired = false;
+    {
+        std::lock_guard<std::mutex> lock(g_programMutex);
+        auto it = g_programs.find(program);
+        if (it != g_programs.end() && it->second.deleteRequested) {
+            g_programs.erase(it);
+            retired = true;
+        }
+    }
+    if (retired) metalsharp::GLShaderTracker::instance().deleteProgram(program);
+}
+
 extern "C" void glDeleteProgram(uint32_t program) {
     if (isExperimentalProgram(program)) {
-        metalsharp::GLShaderTracker::instance().deleteProgram(program);
         std::lock_guard<std::mutex> lock(g_programMutex);
-        g_programs.erase(program);
+        auto it = g_programs.find(program);
+        if (it == g_programs.end()) return;
         if (g_glBridge.state().currentProgram == program) {
-            g_glBridge.state().currentProgram = 0;
+            it->second.deleteRequested = true;
+            return;
         }
+        g_programs.erase(it);
+        metalsharp::GLShaderTracker::instance().deleteProgram(program);
         return;
     }
     glDispatch<void, uint32_t>("glDeleteProgram", program);
@@ -2681,8 +2749,9 @@ extern "C" unsigned char glIsProgram(uint32_t program) {
 // program is bound. The native call is still issued so the framework
 // context state stays in sync with the shim's view.
 extern "C" void glUseProgram(uint32_t program) {
+    const uint32_t previousProgram = g_glBridge.state().currentProgram;
     g_bufferTriangleReadbackFlip = false;
-    if (program != g_glBridge.state().currentProgram) {
+    if (program != previousProgram) {
         g_texture1DLodScale = 1.0f;
         g_textureLodBase = 0.0f;
         g_textureLodBias = 0.0f;
@@ -2690,6 +2759,7 @@ extern "C" void glUseProgram(uint32_t program) {
     }
     if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (isExperimentalProgram(program)) {
+        if (previousProgram != program) retireExperimentalProgram(previousProgram);
         std::lock_guard<std::mutex> lock(g_programMutex);
         auto it = g_programs.find(program);
         if (it != g_programs.end() && !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
@@ -2697,6 +2767,7 @@ extern "C" void glUseProgram(uint32_t program) {
         return;
     }
     if (!program && isExperimentalProgram(g_glBridge.state().currentProgram)) {
+        retireExperimentalProgram(g_glBridge.state().currentProgram);
         g_glBridge.state().currentProgram = 0;
         return;
     }

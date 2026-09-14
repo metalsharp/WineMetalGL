@@ -2,9 +2,9 @@
 
 Validation date: 2026-09-13
 
-The validated 1.9.0 artifacts are staged separately from the immutable
-published 1.8.0 release; the 1.9.0 release directory is a new sibling and does
-not replace any prior release.
+The validated 1.9.1 artifacts are staged separately from the immutable
+published 1.9.0 and 1.8.0 releases; the 1.9.1 release directory is a new
+sibling and does not replace any prior release.
 
 ## Host gates
 
@@ -80,8 +80,8 @@ results, not a full conformance claim:
 The full Khronos OpenGL 4.6 suite was not run, so this release makes a
 bounded acceptance-matrix claim rather than a full-conformance claim. Features
 outside the tested support boundary remain explicitly unsupported or
-unresolved. A broader `KHR-GL30.*` smoke run reaches 855/879; clip-distance functional
-behavior remains outside the release claim.
+unresolved. The broader `KHR-GL30.*` smoke run reaches 856/879 with zero failures; its
+23 explicitly unsupported cases remain outside the release claim.
 
 Observed markers:
 
