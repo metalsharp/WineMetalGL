@@ -2,8 +2,8 @@
 
 Validation date: 2026-09-14
 
-The validated 1.9.4 artifacts are staged as a new immutable sibling beside the
-published 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
+The validated 1.9.5 artifacts are staged as a new immutable sibling beside the
+published 1.9.4, 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
 
 ## Host gates
 
@@ -30,7 +30,7 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Window DC, pixel format, legacy and modern context creation, extension discovery, per-context state across concurrent threads, swap interval routing, post-creation display-list sharing, and shared sidecar object visibility.
 - GLSL 1.10/1.20 simple vertex/fragment translation, Metal draw/readback, compatibility FBO/readback, and shading-language version reporting.
 - GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
-- Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including target-0 per-target blend/color-mask entry points.
+- Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including OpenGL-to-Metal depth-range mapping and target-0 per-target blend/color-mask entry points.
 - OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
 - Bounded `glReadnPixels` robustness path.
 - MetalSharp program-binary serialization/restoration with subsequent draw/readback.
