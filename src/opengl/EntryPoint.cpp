@@ -1768,9 +1768,10 @@ static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t 
 extern "C" void glBeginTransformFeedback(uint32_t primitiveMode) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glBeginTransformFeedback",primitiveMode); return; }
     if (g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
-    const uint32_t transformProgram=g_glBridge.state().currentProgram; if(!transformProgram){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} std::vector<std::string> transformVaryings; uint32_t transformMode=0x8C8C;
+    const uint32_t transformProgram=g_glBridge.state().currentProgram; std::vector<std::string> transformVaryings; uint32_t transformMode=0x8C8C;
     { std::lock_guard<std::mutex> lock(g_programMutex); auto programState=g_programs.find(transformProgram); if(programState!=g_programs.end()){transformVaryings=programState->second.transformFeedbackVaryings;transformMode=programState->second.transformFeedbackBufferMode;} }
-    if (transformVaryings.empty() || (transformMode == 0x8C8D && !g_transformFeedbackBuffers[0]) || (transformMode != 0x8C8D && !g_boundTransformFeedbackBuffer)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    const bool fixedTransformFeedback = !transformProgram && g_transformFeedbackVaryings.empty();
+    if ((!fixedTransformFeedback && !transformProgram) || (transformProgram && transformVaryings.empty()) || (!fixedTransformFeedback && ((transformMode == 0x8C8D && !g_transformFeedbackBuffers[0]) || (transformMode != 0x8C8D && !g_boundTransformFeedbackBuffer)))) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     g_transformFeedbackActive = true;
     g_transformFeedbackProgram = g_glBridge.state().currentProgram;
     g_transformFeedbackPrimitiveMode = primitiveMode;
