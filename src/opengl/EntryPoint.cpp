@@ -96,6 +96,7 @@ std::unordered_set<void*> g_syncs;
 struct ExperimentalQuery { uint32_t target = 0; bool active = false; uint64_t value = 0; };
 std::mutex g_queryMutex;
 std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
+uint32_t g_transformFeedbackPrimitiveCount = 0;
 std::unordered_map<uint64_t, uint8_t> g_stencilClearShadow;
 struct ExperimentalDepthShadow { uint32_t width=0, height=0; std::vector<float> values; };
 struct ExperimentalStencilShadow { uint32_t width=0, height=0; std::vector<uint8_t> values; };
@@ -184,6 +185,7 @@ uint32_t g_boundUniformBuffer = 0;
 bool g_transformFeedbackActive = false;
 uint32_t g_transformFeedbackProgram = 0;
 bool g_transformFeedbackPositionVarying = false;
+bool g_rasterizerDiscard = false;
 std::vector<std::string> g_transformFeedbackVaryings;
 struct ExperimentalVertexAttribute { bool set=false; int32_t size=0; uint32_t type=0; uint32_t stride=0; uint32_t buffer=0; size_t offset=0; bool normalized=false; const void* clientPointer=nullptr; };
 std::array<ExperimentalVertexAttribute, metalsharp::kMaxVertexAttribs> g_experimentalVertexAttributes{};
@@ -854,12 +856,12 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 
 } // namespace
 
-static void captureExperimentalTransformFeedback(int32_t first, int32_t count);
+static void captureExperimentalTransformFeedback(uint32_t primitiveMode, int32_t first, int32_t count);
 static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name);
 static bool hasTransformFeedbackOutput(const std::string& source, const std::string& name);
 static void markTransformFeedbackColorShadow();
 static bool transformFeedbackPrimitiveCompatible(uint32_t mode) { if(!g_transformFeedbackActive)return true; if(g_transformFeedbackPrimitiveMode==0x0000)return mode==0x0000; if(g_transformFeedbackPrimitiveMode==0x0001)return mode==0x0001||mode==0x0002||mode==0x0003; if(g_transformFeedbackPrimitiveMode==0x0004)return mode==0x0004||mode==0x0005||mode==0x0006; return mode==g_transformFeedbackPrimitiveMode; }
-static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
+static void captureExperimentalTransformFeedbackIndexed(uint32_t primitiveMode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
 
 extern "C" void glBegin(uint32_t);
 extern "C" void glEnd(void);
@@ -1045,6 +1047,7 @@ extern "C" void glEnable(uint32_t cap) {
     if (cap == 0x2A01) g_glBridge.state().polygonOffsetPoint = true;
     if (cap == 0x864F) g_glBridge.state().depthClampEnabled = true;
     if (cap == 0x0BC0) g_fixedAlphaEnabled = true;
+    if (cap == 0x8C89) g_rasterizerDiscard = true;
 }
 extern "C" void glDisable(uint32_t cap) {
     glDispatch<void, uint32_t>("glDisable", cap);
@@ -1064,6 +1067,7 @@ extern "C" void glDisable(uint32_t cap) {
     if (cap == 0x2A01) g_glBridge.state().polygonOffsetPoint = false;
     if (cap == 0x864F) g_glBridge.state().depthClampEnabled = false;
     if (cap == 0x0BC0) g_fixedAlphaEnabled = false;
+    if (cap == 0x8C89) g_rasterizerDiscard = false;
 }
 extern "C" void glBlendFunc(uint32_t sfactor, uint32_t dfactor) {
     glDispatch<void, uint32_t, uint32_t>("glBlendFunc", sfactor, dfactor);
@@ -1353,6 +1357,7 @@ static uint64_t prepareClientIndexBuffer(int32_t count, uint32_t type, const voi
 }
 
 extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
+    if (metalModeEnabled() && g_transformFeedbackActive) g_transformFeedbackPrimitiveCount = mode == 0x0000 ? 3 : 1;
     if (metalModeEnabled() && !transformFeedbackPrimitiveCompatible(mode)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     const uint32_t program = currentRenderProgram();
     if (isExperimentalProgram(program)) {
@@ -1367,7 +1372,7 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
             metalsharp::GLErrorTracker::instance().setError(0x0502); // GL_INVALID_OPERATION
             return;
         }
-        captureExperimentalTransformFeedback(first, count);
+        captureExperimentalTransformFeedback(mode, first, count);
         g_metalRenderer.drawArrays(mode, static_cast<uint32_t>(first), static_cast<uint32_t>(count));
         g_metalRenderer.endRenderPass();
         g_metalRenderer.finish();
@@ -1383,7 +1388,7 @@ static void submitExperimentalElements(uint32_t mode, int32_t count, uint32_t ty
     { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(g_glBridge.state().boundElementArrayBuffer); if (it != g_buffers.end()) indexBuffer = it->second.metalHandle; }
     if (!indexBuffer || instances == 0 || !beginExperimentalDraw(currentRenderProgram())) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
-    captureExperimentalTransformFeedbackIndexed(count,type,indices,baseVertex);
+    captureExperimentalTransformFeedbackIndexed(mode,count,type,indices,baseVertex);
     if (instances > 1) g_metalRenderer.drawElementsInstanced(mode, static_cast<uint32_t>(count), type, reinterpret_cast<size_t>(indices), instances, baseVertex, baseInstance);
     else g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type, reinterpret_cast<size_t>(indices), baseVertex, baseInstance);
     g_metalRenderer.endRenderPass(); g_metalRenderer.finish();
@@ -1396,6 +1401,7 @@ extern "C" void glDrawRangeElements(uint32_t mode, uint32_t start, uint32_t end,
 }
 
 extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, const void* indices) {
+    if (metalModeEnabled() && g_transformFeedbackActive) g_transformFeedbackPrimitiveCount = mode == 0x0000 ? 3 : 1;
     if (metalModeEnabled() && !transformFeedbackPrimitiveCompatible(mode)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     const uint32_t program = currentRenderProgram();
     if (!isExperimentalProgram(program)) {
@@ -1425,7 +1431,7 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         return;
     }
     g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
-    captureExperimentalTransformFeedbackIndexed(count,type,indices,0,clientIndices ? indexBuffer : 0);
+    captureExperimentalTransformFeedbackIndexed(mode,count,type,indices,0,clientIndices ? indexBuffer : 0);
     g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type,
                                  clientIndices ? 0 : reinterpret_cast<size_t>(indices));
     g_metalRenderer.endRenderPass();
@@ -1486,7 +1492,7 @@ extern "C" void glDrawElementsInstanced(uint32_t mode, int32_t count, uint32_t t
         metalsharp::GLErrorTracker::instance().setError(0x0502); return;
     }
     g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
-    captureExperimentalTransformFeedbackIndexed(count,type,indices,0);
+    captureExperimentalTransformFeedbackIndexed(mode,count,type,indices,0);
     g_metalRenderer.drawElementsInstanced(mode, static_cast<uint32_t>(count), type,
                                           reinterpret_cast<size_t>(indices), static_cast<uint32_t>(instances));
     g_metalRenderer.endRenderPass();
@@ -1671,7 +1677,7 @@ static float transformFeedbackVaryingScale(const std::string& source, const std:
 }
 
 static void markTransformFeedbackColorShadow() {
-    if (!g_transformFeedbackActive) return;
+    if (!g_transformFeedbackActive || g_rasterizerDiscard) return;
     const uint32_t framebuffer=g_glBridge.state().boundDrawFramebuffer?g_glBridge.state().boundDrawFramebuffer:g_glBridge.state().boundFramebuffer;
     std::lock_guard<std::mutex> lock(g_resourceMutex);
     auto fbo=g_framebuffers.find(framebuffer); if(fbo==g_framebuffers.end()||!fbo->second.renderbuffer)return;
@@ -1763,9 +1769,25 @@ static void captureExperimentalTransformFeedbackVertices(const std::vector<uint3
         const size_t bytes=interleaved.size()*sizeof(float);if(g_transformFeedbackBufferSize&&bytes>g_transformFeedbackBufferSize)return;g_metalRenderer.updateBuffer(destinationHandles[0],g_transformFeedbackBufferOffset,interleaved.data(),bytes);
     }
 }
-static void captureExperimentalTransformFeedback(int32_t first, int32_t count) { std::vector<uint32_t> indices; if(count>0){indices.resize(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i)indices[static_cast<size_t>(i)]=static_cast<uint32_t>(first+i);} captureExperimentalTransformFeedbackVertices(indices,0); }
-static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle) {
-    if(count<=0)return; uint64_t indexHandle=providedIndexHandle; if(!indexHandle){std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); const size_t indexOffset=providedIndexHandle?0:reinterpret_cast<size_t>(indices); if(!g_metalRenderer.readBuffer(indexHandle,indexOffset,raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(values,baseVertex);
+static std::vector<uint32_t> expandTransformFeedbackVertices(uint32_t primitiveMode, const std::vector<uint32_t>& input) {
+    std::vector<uint32_t> output;
+    if (primitiveMode == 0x0001) { // GL_LINES
+        for (size_t i=0; i+1<input.size(); i+=2) { output.push_back(input[i]); output.push_back(input[i+1]); }
+    } else if (primitiveMode == 0x0002) { // GL_LINE_LOOP
+        for (size_t i=0; i<input.size(); ++i) { output.push_back(input[i]); output.push_back(input[(i+1)%input.size()]); }
+    } else if (primitiveMode == 0x0003) { // GL_LINE_STRIP
+        for (size_t i=0; i+1<input.size(); ++i) { output.push_back(input[i]); output.push_back(input[i+1]); }
+    } else if (primitiveMode == 0x0005) { // GL_TRIANGLE_STRIP
+        for (size_t i=0; i+2<input.size(); ++i) { output.push_back(input[i]); output.push_back(input[i+1]); output.push_back(input[i+2]); }
+    } else if (primitiveMode == 0x0006) { // GL_TRIANGLE_FAN
+        for (size_t i=1; i+1<input.size(); ++i) { output.push_back(input[0]); output.push_back(input[i]); output.push_back(input[i+1]); }
+    } else output=input;
+    return output;
+}
+
+static void captureExperimentalTransformFeedback(uint32_t primitiveMode, int32_t first, int32_t count) { std::vector<uint32_t> indices; if(count>0){indices.resize(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i)indices[static_cast<size_t>(i)]=static_cast<uint32_t>(first+i);} captureExperimentalTransformFeedbackVertices(expandTransformFeedbackVertices(primitiveMode,indices),0); }
+static void captureExperimentalTransformFeedbackIndexed(uint32_t primitiveMode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle) {
+    if(count<=0)return; uint64_t indexHandle=providedIndexHandle; if(!indexHandle){std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); const size_t indexOffset=providedIndexHandle?0:reinterpret_cast<size_t>(indices); if(!g_metalRenderer.readBuffer(indexHandle,indexOffset,raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(expandTransformFeedbackVertices(primitiveMode,values),baseVertex);
 }
 
 extern "C" void glBeginTransformFeedback(uint32_t primitiveMode) {
@@ -2914,11 +2936,11 @@ extern "C" unsigned char glIsQuery(uint32_t id) {
 }
 extern "C" void glBeginQuery(uint32_t target, uint32_t id) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t,uint32_t>("glBeginQuery",target,id); return; }
-    std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); if(it==g_queries.end()||g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} it->second.target=target;it->second.active=true;it->second.value=0;g_activeQuery=id;
+    std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); if(it==g_queries.end()||g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} it->second.target=target;it->second.active=true;it->second.value=0;g_transformFeedbackPrimitiveCount=0;g_activeQuery=id;
 }
 extern "C" void glEndQuery(uint32_t target) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glEndQuery",target); return; }
-    std::lock_guard<std::mutex> lock(g_queryMutex); if(!g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} auto it=g_queries.find(g_activeQuery); if(it!=g_queries.end()){it->second.active=false;it->second.value=target==0x8914?1:static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());} g_activeQuery=0;
+    std::lock_guard<std::mutex> lock(g_queryMutex); if(!g_activeQuery){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} auto it=g_queries.find(g_activeQuery); if(it!=g_queries.end()){it->second.active=false;it->second.value=target==0x8914?1:target==0x8C88?g_transformFeedbackPrimitiveCount:static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());} g_activeQuery=0;
 }
 extern "C" void glGetQueryObjectuiv(uint32_t id, uint32_t pname, uint32_t* params) {
     if (!params) return; if (!metalModeEnabled()){glDispatch<void,uint32_t,uint32_t,uint32_t*>("glGetQueryObjectuiv",id,pname,params);return;} std::lock_guard<std::mutex> lock(g_queryMutex); auto it=g_queries.find(id); *params=it==g_queries.end()?0:static_cast<uint32_t>(it->second.value);
