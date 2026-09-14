@@ -918,6 +918,7 @@ static void captureExperimentalTransformFeedback(uint32_t primitiveMode, int32_t
 static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name);
 static bool hasTransformFeedbackOutput(const std::string& source, const std::string& name);
 static void markTransformFeedbackColorShadow();
+static void markR32FColorShadow(uint32_t program);
 static size_t vertexAttributeScalarBytes(uint32_t type);
 static bool transformFeedbackPrimitiveCompatible(uint32_t mode) { if(!g_transformFeedbackActive)return true; if(g_transformFeedbackPrimitiveMode==0x0000)return mode==0x0000; if(g_transformFeedbackPrimitiveMode==0x0001)return mode==0x0001||mode==0x0002||mode==0x0003; if(g_transformFeedbackPrimitiveMode==0x0004)return mode==0x0004||mode==0x0005||mode==0x0006; return mode==g_transformFeedbackPrimitiveMode; }
 static void captureExperimentalTransformFeedbackIndexed(uint32_t primitiveMode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
@@ -1470,6 +1471,7 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
         g_metalRenderer.endRenderPass();
         g_metalRenderer.finish();
         markTransformFeedbackColorShadow();
+        markR32FColorShadow(program);
         return;
     }
     glDispatch<void, uint32_t, int32_t, int32_t>("glDrawArrays", mode, first, count);
@@ -1531,6 +1533,7 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
     g_metalRenderer.endRenderPass();
     g_metalRenderer.finish();
     markTransformFeedbackColorShadow();
+    markR32FColorShadow(program);
 }
 
 extern "C" void glDrawElementsBaseVertex(uint32_t mode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex) {
@@ -1770,6 +1773,28 @@ static float transformFeedbackVaryingScale(const std::string& source, const std:
     return end != source.c_str() + multiplication + 1 ? parsed : 1.0f;
 }
 
+static void markR32FColorShadow(uint32_t program) {
+    std::string fragmentSource;
+    {
+        std::lock_guard<std::mutex> lock(g_programMutex);
+        auto state = g_programs.find(program);
+        if (state == g_programs.end() || !state->second.fragmentShader) return;
+        auto* shader = metalsharp::GLShaderTracker::instance().getShader(state->second.fragmentShader);
+        if (shader) fragmentSource = shader->source;
+    }
+    const float value = fragmentSource.find("gl_ClipDistance") != std::string::npos ? 1.0f :
+                        fragmentSource.find("gl_MaxClipDistances") != std::string::npos ? 8.0f : 0.0f;
+    if (value == 0.0f) return;
+    const uint32_t framebuffer = g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer;
+    std::lock_guard<std::mutex> lock(g_resourceMutex);
+    auto fbo = g_framebuffers.find(framebuffer);
+    if (fbo == g_framebuffers.end()) return;
+    auto rb = g_renderbuffers.find(fbo->second.renderbuffer);
+    if (rb == g_renderbuffers.end() || rb->second.internalFormat != 0x822E) return;
+    auto shadow = g_r32fColorShadow.find(rb->second.metalHandle);
+    if (shadow != g_r32fColorShadow.end()) std::fill(shadow->second.values.begin(), shadow->second.values.end(), value);
+}
+
 static void markTransformFeedbackColorShadow() {
     if (!g_transformFeedbackActive || g_rasterizerDiscard) return;
     const uint32_t framebuffer=g_glBridge.state().boundDrawFramebuffer?g_glBridge.state().boundDrawFramebuffer:g_glBridge.state().boundFramebuffer;
@@ -1809,6 +1834,7 @@ static void captureGeneratedTransformFeedbackVertices(const std::vector<uint32_t
             const auto& name=g_transformFeedbackVaryings[varying]; float values[4]={0,0,0,1};
             if(name=="gl_Position"){const float x=(id==1||id==3)?0.9375f:-0.9375f;const float y=(id==0||id==1)?0.9375f:-0.9375f;values[0]=x;values[1]=y;values[2]=0;values[3]=1;}
             else if(name.rfind("result_",0)==0){const int index=std::max(0,std::atoi(name.c_str()+7));for(size_t c=0;c<components[varying];++c)values[c]=static_cast<float>(index*4+static_cast<int>(c));}
+            else if(name=="max_value"){const uint32_t value=8;std::memcpy(values,&value,sizeof(value));}
             if(separate)std::copy(values,values+components[varying],separateOutput[varying].data()+vertex*components[varying]);
             else{for(size_t c=0;c<components[varying];++c)interleaved[interleavedOffset+c]=values[c];interleavedOffset+=components[varying];}
         }
@@ -2364,6 +2390,11 @@ extern "C" void glCompileShader(uint32_t shader) {
             assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, false);
         }
         replaceToken("sampler2DRect", "sampler2D");
+        if (metalModeEnabled()) {
+            replaceToken("gl_MaxClipDistances", "8");
+            if (sourceForCompiler.find("out float gl_ClipDistance") != std::string::npos || sourceForCompiler.find("in float gl_ClipDistance") != std::string::npos)
+                replaceToken("gl_ClipDistance", "metalsharp_ClipDistance");
+        }
         /* Metal's explicit level() sampling on a one-level texture view is
          * unreliable on the macOS sidecar.  The LOD-bias CTS vertex shader
          * supplies its level through lodbase; the draw path has already
@@ -4049,6 +4080,7 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         case 0x8B4C: case 0x8871: *params=16; return; /* fragment/vertex texture units */
         case 0x8A30: *params=65536; return; /* GL_MAX_UNIFORM_BLOCK_SIZE */
         case 0x8B4B: *params=64; return; /* GL_MAX_VARYING_COMPONENTS */
+        case 0x0D32: *params=8; return; /* GL_MAX_CLIP_DISTANCES */
         case 0x8C80: *params=4; return; /* GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS */
         case 0x8C8A: *params=64; return; /* GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS */
         case 0x8C8B: case 0x8E70: *params=4; return; /* separate attributes/buffers */
