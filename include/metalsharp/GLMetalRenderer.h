@@ -186,6 +186,7 @@ class GLMetalRenderer {
     /// and component count to an MTLVertexFormat.
     void setVertexAttribute(uint32_t index, int32_t size, uint32_t type, bool normalized,
                             uint32_t stride, uint64_t bufferHandle, size_t offset);
+    void bindVertexAttributes();
 
     /// Allocate/update a uniform buffer at the given binding index.
     /// @param binding  fragment-shader uniform buffer binding slot

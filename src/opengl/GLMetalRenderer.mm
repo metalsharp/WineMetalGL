@@ -187,10 +187,10 @@ bool GLMetalRenderer::createTessellationPipeline(const GLShaderState& evaluation
         if (attribute.index >= 31 || attribute.format == MTLVertexFormatInvalid) continue;
         descriptor.vertexDescriptor.attributes[attribute.index].format = attribute.format;
         descriptor.vertexDescriptor.attributes[attribute.index].offset = attribute.offset;
-        descriptor.vertexDescriptor.attributes[attribute.index].bufferIndex = 0;
-        descriptor.vertexDescriptor.layouts[0].stride = attribute.stride;
+        descriptor.vertexDescriptor.attributes[attribute.index].bufferIndex = 30;
+        descriptor.vertexDescriptor.layouts[30].stride = attribute.stride;
     }
-    descriptor.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerPatchControlPoint;
+    descriptor.vertexDescriptor.layouts[30].stepFunction = MTLVertexStepFunctionPerPatchControlPoint;
     m_impl->tessellationPipeline = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
     return m_impl->tessellationPipeline != nil;
 }
@@ -334,22 +334,22 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
             if (attribute.index >= 31 || attribute.format == MTLVertexFormatInvalid) continue;
             desc.vertexDescriptor.attributes[attribute.index].format = attribute.format;
             desc.vertexDescriptor.attributes[attribute.index].offset = attribute.offset;
-            desc.vertexDescriptor.attributes[attribute.index].bufferIndex = 0;
-            desc.vertexDescriptor.layouts[0].stride = attribute.stride;
+            desc.vertexDescriptor.attributes[attribute.index].bufferIndex = 30;
+            desc.vertexDescriptor.layouts[30].stride = attribute.stride;
         }
-        desc.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+        desc.vertexDescriptor.layouts[30].stepFunction = MTLVertexStepFunctionPerVertex;
     } else if (m_impl->vertexStride != 0 && !m_impl->vertexAttributeFormats.empty()) {
         // Compatibility API for callers that provide a complete interleaved
         // layout in one shot.
-        desc.vertexDescriptor.layouts[0].stride = m_impl->vertexStride;
-        desc.vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+        desc.vertexDescriptor.layouts[30].stride = m_impl->vertexStride;
+        desc.vertexDescriptor.layouts[30].stepFunction = MTLVertexStepFunctionPerVertex;
 
         const uint32_t count = static_cast<uint32_t>(m_impl->vertexAttributeFormats.size());
         for (uint32_t i = 0; i < count; ++i) {
             desc.vertexDescriptor.attributes[i].format =
                 static_cast<MTLVertexFormat>(m_impl->vertexAttributeFormats[i]);
             desc.vertexDescriptor.attributes[i].offset = m_impl->vertexAttributeOffsets[i];
-            desc.vertexDescriptor.attributes[i].bufferIndex = 0;
+            desc.vertexDescriptor.attributes[i].bufferIndex = 30;
         }
     }
 
@@ -419,11 +419,7 @@ void GLMetalRenderer::drawArrays(uint32_t primitiveType, uint32_t first, uint32_
         return;
     {
         std::lock_guard<std::mutex> lock(m_impl->mutex);
-        for (const auto& attribute : m_impl->vertexAttributes) {
-            auto it = m_impl->buffers.find(attribute.bufferHandle);
-            if (it != m_impl->buffers.end())
-                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
-        }
+        bindVertexAttributes();
     }
     // Map GL primitive type to Metal
     MTLPrimitiveType mtlType = MTLPrimitiveTypeTriangle;
@@ -642,10 +638,7 @@ static uint16_t halfFromFloat(float value) {
 void GLMetalRenderer::drawPatches(uint32_t patchControlPoints, uint32_t patchCount, float tessellationFactor, bool quad, const float* outerFactors, const float* innerFactors) {
     if (!m_impl->currentEncoder || !m_impl->tessellationPipeline || !patchCount) return;
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    for (const auto& attribute : m_impl->vertexAttributes) {
-        auto it = m_impl->buffers.find(attribute.bufferHandle);
-        if (it != m_impl->buffers.end()) [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
-    }
+    bindVertexAttributes();
     [m_impl->currentEncoder setRenderPipelineState:m_impl->tessellationPipeline];
     auto factorAt=[&](const float* values,size_t index){return halfFromFloat(std::max(1.0f,std::min(64.0f,values?values[index]:tessellationFactor)));};
     uint16_t outer0=factorAt(outerFactors,0),outer1=factorAt(outerFactors,1),outer2=factorAt(outerFactors,2),outer3=factorAt(outerFactors,3),inner0=factorAt(innerFactors,0),inner1=factorAt(innerFactors,1);
@@ -663,11 +656,7 @@ void GLMetalRenderer::drawArraysInstanced(uint32_t primitiveType, uint32_t first
     if (!m_impl->currentEncoder || !count || !instances) return;
     {
         std::lock_guard<std::mutex> lock(m_impl->mutex);
-        for (const auto& attribute : m_impl->vertexAttributes) {
-            auto it = m_impl->buffers.find(attribute.bufferHandle);
-            if (it != m_impl->buffers.end())
-                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
-        }
+        bindVertexAttributes();
     }
     [m_impl->currentEncoder drawPrimitives:metalPrimitiveType(primitiveType)
                                vertexStart:first vertexCount:count instanceCount:instances baseInstance:baseInstance];
@@ -679,11 +668,7 @@ void GLMetalRenderer::drawElements(uint32_t primitiveType, uint32_t count, uint3
         return;
     {
         std::lock_guard<std::mutex> lock(m_impl->mutex);
-        for (const auto& attribute : m_impl->vertexAttributes) {
-            auto it = m_impl->buffers.find(attribute.bufferHandle);
-            if (it != m_impl->buffers.end())
-                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
-        }
+        bindVertexAttributes();
     }
     MTLIndexType mtlIndexType;
     switch (indexType) {
@@ -705,11 +690,7 @@ void GLMetalRenderer::drawElementsInstanced(uint32_t primitiveType, uint32_t cou
     if (!m_impl->currentEncoder || !m_impl->currentIndexBuffer || !count || !instances) return;
     {
         std::lock_guard<std::mutex> lock(m_impl->mutex);
-        for (const auto& attribute : m_impl->vertexAttributes) {
-            auto it = m_impl->buffers.find(attribute.bufferHandle);
-            if (it != m_impl->buffers.end())
-                [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:0];
-        }
+        bindVertexAttributes();
     }
     MTLIndexType mtlIndexType;
     switch (indexType) {
@@ -1192,6 +1173,33 @@ void GLMetalRenderer::setVertexAttribute(uint32_t index, int32_t size, uint32_t 
     Impl::VertexAttribute attribute{index, format, stride, bufferHandle, offset};
     if (it == m_impl->vertexAttributes.end()) m_impl->vertexAttributes.push_back(attribute);
     else *it = attribute;
+}
+
+void GLMetalRenderer::bindVertexAttributes()
+{
+    if (!m_impl->currentEncoder || m_impl->vertexAttributes.empty()) return;
+
+    // All shader attributes use one Metal vertex-buffer slot.  A draw may
+    // have reached here through the VBO interleaving path, in which case
+    // every attribute points at the same staging buffer.  Binding that
+    // buffer once at offset zero preserves each descriptor attribute offset;
+    // repeatedly binding it with each attribute's offset would leave only
+    // the last attribute visible and double-apply the descriptor offsets.
+    uint64_t commonHandle = m_impl->vertexAttributes.front().bufferHandle;
+    bool common = commonHandle != 0;
+    for (const auto& attribute : m_impl->vertexAttributes)
+        common = common && attribute.bufferHandle == commonHandle;
+    if (common) {
+        auto it = m_impl->buffers.find(commonHandle);
+        if (it != m_impl->buffers.end())
+            [m_impl->currentEncoder setVertexBuffer:it->second offset:0 atIndex:30];
+        return;
+    }
+    for (const auto& attribute : m_impl->vertexAttributes) {
+        auto it = m_impl->buffers.find(attribute.bufferHandle);
+        if (it != m_impl->buffers.end())
+            [m_impl->currentEncoder setVertexBuffer:it->second offset:attribute.offset atIndex:30];
+    }
 }
 
 void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, size_t size) {

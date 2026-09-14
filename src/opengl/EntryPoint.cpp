@@ -446,6 +446,25 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
 
 static void discoverGeometryOutputs(ExperimentalProgram& program,const std::string& source) { std::istringstream lines(source);std::string line;while(std::getline(lines,line)){size_t output=line.find("out ");if(output==std::string::npos)continue;std::istringstream declaration(line.substr(output+4));std::string type,name;if(declaration>>type>>name){size_t end=name.find_first_of(";[=");if(end!=std::string::npos)name.resize(end);if(!name.empty())program.geometryOutputs[name]=type;}} }
 
+static void normalizeMSLUniformAddressSpaces(std::string& msl) {
+    auto replace=[&](const std::string& from,const std::string& to){for(size_t position=0;(position=msl.find(from,position))!=std::string::npos;position+=to.size())msl.replace(position,from.size(),to);};
+    replace("thread const float2x2&", "constant float2x2&"); replace("thread const float3x3&", "constant float3x3&"); replace("thread const float4x4&", "constant float4x4&");
+}
+
+static void assignLegacyInterfaceLocations(std::string& source, bool vertexStage, bool oldSyntax) {
+    std::istringstream lines(source); std::ostringstream rewritten; std::string line; int32_t inputLocation=0, outputLocation=0;
+    while (std::getline(lines, line)) {
+        const size_t first=line.find_first_not_of(" \\t"); const std::string trimmed=first==std::string::npos?std::string():line.substr(first);
+        const char* keyword=nullptr; size_t keywordLength=0; bool input=false;
+        if (oldSyntax) { if(trimmed.rfind("attribute ",0)==0){keyword="attribute ";keywordLength=10;input=true;} else if(trimmed.rfind("varying ",0)==0){keyword="varying ";keywordLength=8;input=!vertexStage;} }
+        else if ((trimmed.rfind("in ",0)==0 || trimmed.rfind("out ",0)==0) && trimmed.find('{')==std::string::npos && trimmed.find("layout")!=0) { input=trimmed[0]=='i'; keyword=input?"in ":"out "; keywordLength=input?3:4; }
+        if (keyword && first!=std::string::npos) {
+            std::istringstream declaration(trimmed.substr(keywordLength)); std::string type,name; if(declaration>>type>>name){int32_t span=1;size_t bracket=name.find('[');if(bracket!=std::string::npos){size_t close=name.find(']',bracket);if(close!=std::string::npos&&close>bracket+1)span=std::max(1,std::atoi(name.substr(bracket+1,close-bracket-1).c_str()));}int32_t& location=input?inputLocation:outputLocation;const bool varying=oldSyntax?(trimmed.rfind("varying ",0)==0):((vertexStage&&!input)||(!vertexStage&&input));int32_t assigned=location;if(varying&&name.rfind("color",0)==0)assigned=0;else if(varying&&name.rfind("texCoord",0)==0)assigned=1;const std::string replacement="layout(location="+std::to_string(assigned)+") "+(oldSyntax?(input?"in ":"out "):"");if(oldSyntax)line.replace(first,keywordLength,replacement);else line.insert(first,replacement);location=std::max(location,assigned+span);}}
+        rewritten<<line<<'\n';
+    }
+    source=rewritten.str();
+}
+
 static void prepareTexture1DLod(ExperimentalTexture& texture) {
     if (texture.target != 0x0DE0 || texture.mipLevels.size() <= 1 || texture.metalHandle == 0) return;
     const uint32_t maxAvailable = static_cast<uint32_t>(texture.mipLevels.size() - 1);
@@ -516,6 +535,29 @@ static bool prepareTexture2DLod(ExperimentalTexture& texture) {
     }
     const std::vector<uint8_t> storage = encodeTextureStorage(output, texture.internalFormat);
     return g_metalRenderer.updateTextureLevel(texture.metalHandle, 0, texture.width, texture.height, storage.data(), storage.size() / texture.height);
+}
+
+static void bindMSLUniformBuffers(const ExperimentalProgram& program, const metalsharp::GLShaderState* shader) {
+    if (!shader || shader->msl.empty()) return;
+    size_t position=0;
+    while ((position=shader->msl.find("constant ",position))!=std::string::npos) {
+        const size_t ampersand=shader->msl.find('&',position+9), buffer=shader->msl.find("[[buffer(",ampersand);
+        if (ampersand==std::string::npos || buffer==std::string::npos) { position += 9; continue; }
+        const size_t bindingStart=buffer+9, bindingEnd=shader->msl.find(')',bindingStart);
+        if (ampersand==std::string::npos || bindingEnd==std::string::npos) { position=buffer+9; continue; }
+        size_t nameEnd=buffer;
+        while (nameEnd>ampersand && std::isspace(static_cast<unsigned char>(shader->msl[nameEnd-1]))) --nameEnd;
+        size_t nameStart=nameEnd;
+        while (nameStart>ampersand && (std::isalnum(static_cast<unsigned char>(shader->msl[nameStart-1])) || shader->msl[nameStart-1]=='_')) --nameStart;
+        if (nameStart==nameEnd) { position=buffer+9; continue; }
+        const std::string name=shader->msl.substr(nameStart,nameEnd-nameStart); const uint32_t binding=static_cast<uint32_t>(std::strtoul(shader->msl.c_str()+bindingStart,nullptr,10));
+        auto location=program.uniformLocations.find(name);
+        auto value=location==program.uniformLocations.end()?program.uniformValues.end():program.uniformValues.find(location->second);
+        if (value!=program.uniformValues.end()) {
+            const std::string declaration=shader->msl.substr(position,ampersand-position); if(declaration.find("float3x3")!=std::string::npos&&value->second.size()==sizeof(float)*9){std::array<uint8_t,sizeof(float)*12> padded{};for(size_t column=0;column<3;++column)std::memcpy(padded.data()+column*sizeof(float)*4,value->second.data()+column*sizeof(float)*3,sizeof(float)*3);g_metalRenderer.updateUniformBuffer(binding,padded.data(),padded.size());}else g_metalRenderer.updateUniformBuffer(binding,value->second.data(),value->second.size());
+        }
+        position=bindingEnd+1;
+    }
 }
 
 bool beginExperimentalCompute(uint32_t program) {
@@ -652,17 +694,8 @@ bool beginExperimentalDraw(uint32_t program) {
     g_metalRenderer.setRasterState(g_glBridge.state());
     g_metalRenderer.setBlendColor(g_glBridge.state());
 
-    /* OpenGL uniform locations are opaque integers. The first Metal ABI
-     * reserves buffer(0) for a tightly packed 16-byte slot per queried
-     * location; this provides deterministic scalar/vector/matrix updates and
-     * keeps the canonical values independent of the legacy GL context. */
-    std::vector<uint8_t> uniformData;
-    for (const auto& entry : drawInfo->uniformValues) {
-        const size_t offset = static_cast<size_t>(entry.first) * 16;
-        if (offset + entry.second.size() > uniformData.size()) uniformData.resize(offset + entry.second.size());
-        std::memcpy(uniformData.data() + offset, entry.second.data(), entry.second.size());
-    }
-    if (!uniformData.empty()) g_metalRenderer.updateUniformBuffer(0, uniformData.data(), uniformData.size());
+    bindMSLUniformBuffers(*drawInfo, vertex);
+    bindMSLUniformBuffers(*drawInfo, fragment);
     return true;
 }
 
@@ -1005,10 +1038,11 @@ extern "C" void glPatchParameterfv(uint32_t pname,const float* values) { glDispa
 // ---------------------------------------------------------------------------
 // Buffer objects (GL 1.5)
 // ---------------------------------------------------------------------------
-GL_PASSTHROUGH2(void, glGenBuffers, int32_t, n, uint32_t*, buffers)
+extern "C" void glGenBuffers(int32_t n, uint32_t* buffers) { if(metalModeEnabled()&&n<0){metalsharp::GLErrorTracker::instance().setError(0x0501);return;} glDispatch<void,int32_t,uint32_t*>("glGenBuffers",n,buffers); if(metalModeEnabled()&&buffers){std::lock_guard<std::mutex> lock(g_bufferMutex);for(int32_t i=0;i<n;++i)g_buffers.try_emplace(buffers[i],ExperimentalBuffer{});} }
 extern "C" void glCreateBuffers(int32_t n, uint32_t* buffers) { glGenBuffers(n,buffers); }
 
 extern "C" void glDeleteBuffers(int32_t n, const uint32_t* buffers) {
+    if (metalModeEnabled() && n < 0) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     if (buffers) {
         std::lock_guard<std::mutex> lock(g_bufferMutex);
         for (int32_t i = 0; i < n; ++i) g_buffers.erase(buffers[i]);
@@ -1039,6 +1073,7 @@ extern "C" void glBufferData(uint32_t target, int64_t size, const void* data, ui
                           target == kGL_PIXEL_PACK_BUFFER ? g_boundPixelPackBuffer :
                           target == kGL_PIXEL_UNPACK_BUFFER ? g_boundPixelUnpackBuffer :
                           target == kGL_DISPATCH_INDIRECT_BUFFER ? g_boundDispatchIndirectBuffer : 0;
+    if (experimental && !name) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (experimental && name && size > 0 && ensureMetalInit()) {
         uint64_t handle = g_metalRenderer.createBuffer(data, static_cast<size_t>(size));
         if (handle) {
@@ -1142,6 +1177,7 @@ extern "C" void glBufferSubData(uint32_t target, int64_t offset, int64_t size, c
                     target == 0x8A11 ? g_boundUniformBuffer :
                     target == 0x8F3F ? g_boundIndirectBuffer :
                     target == 0x88EB ? g_boundPixelPackBuffer : 0;
+    if (metalModeEnabled() && !name) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (metalModeEnabled() && name && offset >= 0 && size >= 0) {
         uint64_t handle = 0;
         { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(name); if (it != g_buffers.end()) handle = it->second.metalHandle; }
@@ -1237,6 +1273,18 @@ static void prepareClientVertexAttributes(uint32_t first, uint32_t maxVertex) {
         attribute.offset = 0;
     }
 }
+static void prepareInterleavedVBOAttributes(uint32_t first, uint32_t count) {
+    uint32_t firstBuffer=0, distinctBuffers=0;
+    for (const auto& attribute : g_experimentalVertexAttributes) if (attribute.set && !attribute.clientPointer && attribute.buffer) { if(!firstBuffer)firstBuffer=attribute.buffer; if(attribute.buffer!=firstBuffer)distinctBuffers=2; }
+    if (!firstBuffer || distinctBuffers < 2 || !count) return;
+    std::array<size_t, metalsharp::kMaxVertexAttribs> offsets{}; size_t stride=0;
+    for (uint32_t index=0; index<g_experimentalVertexAttributes.size(); ++index) { const auto& attribute=g_experimentalVertexAttributes[index]; if(!attribute.set||attribute.clientPointer||!attribute.buffer)continue; if(attribute.type!=0x1406||attribute.size<=0)return; offsets[index]=stride; stride+=static_cast<size_t>(attribute.size)*sizeof(float); }
+    if(!stride||static_cast<size_t>(count)>std::numeric_limits<size_t>::max()/stride)return;
+    std::vector<uint8_t> interleaved(static_cast<size_t>(count)*stride), source;
+    for (uint32_t index=0; index<g_experimentalVertexAttributes.size(); ++index) { const auto& attribute=g_experimentalVertexAttributes[index]; if(!attribute.set||attribute.clientPointer||!attribute.buffer)continue; uint64_t handle=0; {std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(attribute.buffer);if(it!=g_buffers.end())handle=it->second.metalHandle;} if(!handle)return; const size_t componentBytes=static_cast<size_t>(attribute.size)*sizeof(float), sourceStride=attribute.stride?attribute.stride:componentBytes; source.resize(componentBytes); for(uint32_t vertex=0;vertex<count;++vertex){if(!g_metalRenderer.readBuffer(handle,attribute.offset+static_cast<size_t>(first+vertex)*sourceStride,componentBytes,source.data()))return;std::memcpy(interleaved.data()+static_cast<size_t>(vertex)*stride+offsets[index],source.data(),componentBytes);} }
+    const uint64_t staging=g_metalRenderer.createBuffer(interleaved.data(),interleaved.size()); if(!staging)return;
+    for (uint32_t index=0; index<g_experimentalVertexAttributes.size(); ++index) { const auto& attribute=g_experimentalVertexAttributes[index]; if(attribute.set&&!attribute.clientPointer&&attribute.buffer)g_metalRenderer.setVertexAttribute(index,attribute.size,attribute.type,attribute.normalized,static_cast<uint32_t>(stride),staging,offsets[index]); }
+}
 static uint64_t prepareClientIndexBuffer(int32_t count, uint32_t type, const void* indices, uint32_t& maxIndex) {
     if (count <= 0 || !indices) return 0;
     const size_t indexSize = type == 0x1401 ? 1 : type == 0x1403 ? 2 : type == 0x1405 ? 4 : 0;
@@ -1264,7 +1312,7 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
             g_metalRenderer.drawPatches(patchVertices, static_cast<uint32_t>(count) / patchVertices, g_tessellationFactor, g_tessellationQuad, g_tessellationOuterFactors, g_tessellationInnerFactors);
             g_metalRenderer.endRenderPass(); g_metalRenderer.finish(); return;
         }
-        if (count > 0) prepareClientVertexAttributes(static_cast<uint32_t>(std::max(0, first)), static_cast<uint32_t>(std::max(0, first) + count - 1));
+        if (count > 0) { prepareClientVertexAttributes(static_cast<uint32_t>(std::max(0, first)), static_cast<uint32_t>(std::max(0, first) + count - 1)); prepareInterleavedVBOAttributes(static_cast<uint32_t>(std::max(0, first)), static_cast<uint32_t>(count)); }
         if (!beginExperimentalDraw(program)) {
             metalsharp::GLErrorTracker::instance().setError(0x0502); // GL_INVALID_OPERATION
             return;
@@ -1309,6 +1357,16 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         if (it != g_buffers.end()) indexBuffer = it->second.metalHandle;
     }
     if (!indexBuffer) { indexBuffer = prepareClientIndexBuffer(count, type, indices, maxIndex); clientIndices = indexBuffer != 0; if (clientIndices) prepareClientVertexAttributes(0, maxIndex); }
+    if (indexBuffer && count > 0) {
+        const size_t indexSize = type == 0x1401 ? 1 : type == 0x1403 ? 2 : type == 0x1405 ? 4 : 0;
+        if (indexSize && static_cast<size_t>(count) <= std::numeric_limits<size_t>::max() / indexSize) {
+            std::vector<uint8_t> raw(static_cast<size_t>(count) * indexSize);
+            if (g_metalRenderer.readBuffer(indexBuffer, reinterpret_cast<size_t>(indices), raw.size(), raw.data())) {
+                maxIndex=0; for (int32_t i=0;i<count;++i) { uint32_t value=0; if(indexSize==1)value=raw[i]; else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+static_cast<size_t>(i)*2,2);value=v;} else std::memcpy(&value,raw.data()+static_cast<size_t>(i)*4,4); maxIndex=std::max(maxIndex,value); }
+                prepareInterleavedVBOAttributes(0, maxIndex + 1);
+            }
+        }
+    }
     if (!indexBuffer || !beginExperimentalDraw(program)) {
         metalsharp::GLErrorTracker::instance().setError(0x0502);
         return;
@@ -1986,7 +2044,11 @@ extern "C" void glCompileShader(uint32_t shader) {
         // randomness in glslang or SPIRV-Cross on our code paths.
         std::string sourceForCompiler = state->source; metalsharp::GLSLVersion compilerVersion=state->glslVersion;
         auto replaceToken=[&](const std::string& from,const std::string& to){for(size_t position=0;(position=sourceForCompiler.find(from,position))!=std::string::npos;position+=to.size())sourceForCompiler.replace(position,from.size(),to);};
-        if (metalsharp::packedGLSLVersion(state->glslVersion) == 110 || metalsharp::packedGLSLVersion(state->glslVersion) == 120) { compilerVersion={4,50,false,true}; replaceToken("#version 110","#version 450 core");replaceToken("#version 120","#version 450 core");replaceToken("attribute", "layout(location=0) in");replaceToken("varying", state->stage==metalsharp::ShaderStage::Vertex?"layout(location=0) out":"layout(location=0) in");if(state->stage==metalsharp::ShaderStage::Pixel){replaceToken("gl_FragColor","metalsharp_FragColor");size_t newline=sourceForCompiler.find('\n');if(newline!=std::string::npos)sourceForCompiler.insert(newline+1,"layout(location=0) out vec4 metalsharp_FragColor;\n");} }
+        if (metalsharp::packedGLSLVersion(state->glslVersion) == 110 || metalsharp::packedGLSLVersion(state->glslVersion) == 120) {
+            compilerVersion={4,50,false,true}; replaceToken("#version 110","#version 450 core"); replaceToken("#version 120","#version 450 core");
+            assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, true);
+            if(state->stage==metalsharp::ShaderStage::Pixel){replaceToken("gl_FragColor","metalsharp_FragColor");size_t newline=sourceForCompiler.find('\n');if(newline!=std::string::npos)sourceForCompiler.insert(newline+1,"layout(location=0) out vec4 metalsharp_FragColor;\n");}
+        }
         const bool legacyDesktop = !state->glslVersion.isES && metalsharp::packedGLSLVersion(state->glslVersion) > 120 && metalsharp::packedGLSLVersion(state->glslVersion) < 330;
         if (legacyDesktop) {
             const size_t version = sourceForCompiler.find("#version");
@@ -1995,15 +2057,7 @@ extern "C" void glCompileShader(uint32_t shader) {
                 sourceForCompiler.replace(version, (lineEnd == std::string::npos ? sourceForCompiler.size() : lineEnd) - version, "#version 450 core");
             }
             compilerVersion = {4,50,false,true};
-            std::istringstream sourceLines(sourceForCompiler); std::ostringstream rewritten; std::string line;
-            while (std::getline(sourceLines, line)) {
-                const size_t first = line.find_first_not_of(" \\t");
-                const std::string trimmed = first == std::string::npos ? std::string() : line.substr(first);
-                if ((trimmed.rfind("in ", 0) == 0 || trimmed.rfind("out ", 0) == 0) && trimmed.find("layout") == std::string::npos && trimmed.find('{') == std::string::npos)
-                    line.insert(first == std::string::npos ? 0 : first, "layout(location=0) ");
-                rewritten << line << '\n';
-            }
-            sourceForCompiler = rewritten.str();
+            assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, false);
         }
         replaceToken("sampler2DRect", "sampler2D");
         /* Metal's explicit level() sampling on a one-level texture view is
@@ -2024,6 +2078,7 @@ extern "C" void glCompileShader(uint32_t shader) {
             metalsharp::GLShaderCache::instance().lookupMSL(sourceForCompiler, static_cast<uint32_t>(state->stage));
         if (cached) {
             state->msl = *cached;
+            normalizeMSLUniformAddressSpaces(state->msl);
             // The cached entry was a successful translation; the SPIR-V
             // blob itself is not cached (we only store MSL), so rebuild
             // it on demand from the cached MSL by leaving spirv empty.
@@ -2042,6 +2097,7 @@ extern "C" void glCompileShader(uint32_t shader) {
                                                            state->spirv, errorLog);
         if (ok) {
             ok = metalsharp::GLSLCompiler::translateSPIRVtoMSL(state->spirv, state->stage, state->msl, errorLog);
+            normalizeMSLUniformAddressSpaces(state->msl);
         }
         state->compiled = true;
         state->compileSuccess = ok;
