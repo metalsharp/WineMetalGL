@@ -167,6 +167,7 @@ class GLMetalRenderer {
     bool readDepth32(uint64_t depthTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readStencil8(uint64_t stencilTextureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
     bool readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data, uint32_t slice = 0);
+    bool readTextureFloatRGBA(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float* data, uint32_t slice = 0);
     bool blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height, uint32_t sourceX = 0, uint32_t sourceY = 0, uint32_t destinationX = 0, uint32_t destinationY = 0);
     bool clearColorTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float red, float green, float blue, float alpha);
     bool clearDefaultColorRegion(uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t regionWidth, uint32_t regionHeight, float red, float green, float blue, float alpha);
@@ -206,8 +207,13 @@ class GLMetalRenderer {
     bool updateTextureLevel(uint64_t textureHandle, uint32_t level, uint32_t width, uint32_t height, const void* data, size_t bytesPerRow);
     uint64_t createTextureCube(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* const* faces);
     uint64_t createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data);
+    uint64_t createTexture3DFormat(uint32_t width, uint32_t height, uint32_t depth, uint32_t glInternalFormat, const void* data);
+    uint64_t createTexture1DArray(uint32_t width, uint32_t layers, const void* data);
+    uint64_t createTexture1DArrayFormat(uint32_t width, uint32_t layers, uint32_t glInternalFormat, const void* data);
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
+    uint64_t createTexture2DArrayFormat(uint32_t width, uint32_t height, uint32_t layers, uint32_t glInternalFormat, const void* data);
     uint64_t createMultisampleTexture2D(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
+    uint64_t createMultisampleTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, uint32_t glInternalFormat, uint32_t samples);
     uint64_t createMultisampleDepthStencilTarget(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
     uint32_t textureSampleCount(uint64_t textureHandle) const;
     uint64_t createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat);

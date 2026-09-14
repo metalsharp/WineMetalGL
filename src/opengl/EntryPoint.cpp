@@ -281,6 +281,12 @@ static bool simpleGeometryPassthrough(const std::string& source) {
 
 static float halfToFloat(uint16_t value) { uint32_t sign=(value>>15)&1, exponent=(value>>10)&0x1f, mantissa=value&0x3ff; uint32_t bits; if(!exponent) bits=sign<<31; else if(exponent==0x1f) bits=(sign<<31)|0x7f800000|(mantissa<<13); else bits=(sign<<31)|(static_cast<uint32_t>(static_cast<int32_t>(exponent)-15+127)<<23)|(mantissa<<13); float result; std::memcpy(&result,&bits,sizeof(result)); return result; }
 static uint16_t floatToHalf(float value) { union { float f; uint32_t u; } bits={value}; uint32_t sign=(bits.u>>16)&0x8000u; int32_t exponent=static_cast<int32_t>((bits.u>>23)&0xff)-127+15; uint32_t mantissa=bits.u&0x7fffff; if(exponent<=0)return static_cast<uint16_t>(sign); if(exponent>=31)return static_cast<uint16_t>(sign|0x7c00u); return static_cast<uint16_t>(sign|(static_cast<uint32_t>(exponent)<<10)|(mantissa>>13)); }
+static uint32_t normalizedColorComponents(int32_t internalFormat) { switch(internalFormat){case 0x8229:case 0x8F94:case 0x822A:case 0x8F98:return 1;case 0x822B:case 0x8F95:case 0x822C:case 0x8F99:return 2;case 0x8051:case 0x8F96:case 0x8052:case 0x8053:case 0x8054:case 0x8F9A:return 3;case 0x8058:case 0x8F97:case 0x8059:case 0x805A:case 0x805B:case 0x8F9B:return 4;default:return 0;} }
+static bool normalized16Format(int32_t internalFormat) { switch(internalFormat){case 0x822A:case 0x822C:case 0x8054:case 0x805B:case 0x8F98:case 0x8F99:case 0x8F9A:case 0x8F9B:return true;default:return false;} }
+static bool convertPixelsToRGBA16F(int32_t width, int32_t height, uint32_t format, uint32_t type, const void* data, std::vector<uint8_t>& output, int32_t unpackAlignment, bool signedValues, uint32_t componentCount=4) {
+    if(width<=0||height<=0||!data||type!=0x1406)return false;const bool bgra=format==0x80E1,bgr=format==0x80E0;const uint32_t channels=format==0x1908||bgra?4:format==0x1907||bgr?3:format==0x8227?2:1;const size_t scalar=sizeof(float),alignment=static_cast<size_t>(std::max(1,unpackAlignment)),stride=(static_cast<size_t>(width)*channels*scalar+alignment-1)/alignment*alignment;output.resize(static_cast<size_t>(width)*height*8);const uint8_t* bytes=static_cast<const uint8_t*>(data);for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const uint8_t* source=bytes+static_cast<size_t>(y)*stride+static_cast<size_t>(x)*channels*scalar;float values[4]={0,0,0,1};for(uint32_t c=0;c<channels&&c<4;++c)std::memcpy(&values[c],source+static_cast<size_t>(c)*scalar,sizeof(float));if(bgra||bgr){std::swap(values[0],values[2]);if(channels==3)values[3]=1;}if(componentCount==1){values[1]=values[2]=0;values[3]=1;}else if(componentCount==2){values[2]=0;values[3]=1;}else if(componentCount==3)values[3]=1;for(uint32_t c=0;c<4;++c)values[c]=signedValues?std::clamp(values[c],-1.0f,1.0f):std::clamp(values[c],0.0f,1.0f);uint16_t half[4]={floatToHalf(values[0]),floatToHalf(values[1]),floatToHalf(values[2]),floatToHalf(values[3])};std::memcpy(output.data()+(static_cast<size_t>(y)*width+x)*8,half,8);}return true; }
+static void maskCanonicalColorChannels(std::vector<uint8_t>& pixels, int32_t internalFormat) { const uint32_t components=normalizedColorComponents(internalFormat);if(!components)return;for(size_t i=0;i+3<pixels.size();i+=4){const uint8_t red=pixels[i+2],green=pixels[i+1],blue=pixels[i];if(components==1){pixels[i]=0;pixels[i+1]=0;pixels[i+2]=red;pixels[i+3]=255;}else if(components==2){pixels[i]=0;pixels[i+1]=green;pixels[i+2]=red;pixels[i+3]=255;}else if(components==3)pixels[i+3]=255;else {pixels[i]=blue;pixels[i+1]=green;pixels[i+2]=red;}} }
+
 static bool convertPixelsToBGRA(int32_t width, int32_t height, uint32_t format, uint32_t type,
                                 const void* data, std::vector<uint8_t>& output, int32_t unpackAlignment = 1) {
     if (width <= 0 || height <= 0 || !data) return false;
@@ -368,6 +374,7 @@ static std::vector<uint8_t> encodeTextureStorage(const std::vector<uint8_t>& can
         }
         return out;
     }
+    if (normalized16Format(internalFormat)) { std::vector<uint8_t> out(canonical.size() * 2); for(size_t pixel=0;pixel<canonical.size()/4;++pixel){uint16_t values[4]={floatToHalf(canonical[pixel*4+2]/255.0f),floatToHalf(canonical[pixel*4+1]/255.0f),floatToHalf(canonical[pixel*4+0]/255.0f),floatToHalf(canonical[pixel*4+3]/255.0f)};std::memcpy(out.data()+pixel*8,values,8);} return out; }
     if (rgba32) {
         std::vector<uint8_t> out(canonical.size() * sizeof(uint32_t));
         for (size_t pixel = 0; pixel < canonical.size() / 4; ++pixel)
@@ -487,6 +494,32 @@ static void normalizeMSLDefaultPointSize(std::string& msl) {
     const std::string outputInit = "vertex_main_out out = {};";
     const size_t init = msl.find(outputInit);
     if (init != std::string::npos) msl.insert(init + outputInit.size(), " out.pointSize = 1.0;");
+}
+
+static void normalizeMSLMultisampleFetchIndex(std::string& msl, uint32_t sampleIndex) {
+    for (size_t search = 0;;) {
+        const size_t read = msl.find(".read(", search);
+        if (read == std::string::npos) return;
+        size_t close = msl.find(").", read + 6);
+        while (close != std::string::npos) {
+            const size_t comma = msl.rfind(',', close);
+            if (comma != std::string::npos && comma > read + 6) {
+                size_t first = comma + 1;
+                while (first < close && std::isspace(static_cast<unsigned char>(msl[first]))) ++first;
+                size_t last = close;
+                while (last > first && std::isspace(static_cast<unsigned char>(msl[last - 1]))) --last;
+                bool decimal = first < last;
+                for (size_t i = first; i < last; ++i) if (!std::isdigit(static_cast<unsigned char>(msl[i]))) decimal = false;
+                if (decimal) { msl.replace(first, last - first, std::to_string(sampleIndex)); break; }
+            }
+            close = msl.find(").", close + 2);
+        }
+        search = read + 6;
+    }
+}
+
+static void normalizeMSLScalarColorOutput(std::string& msl) {
+    const size_t outputStruct=msl.find("struct fragment_main_out"),outputOpen=outputStruct==std::string::npos?std::string::npos:msl.find('{',outputStruct),outputClose=outputOpen==std::string::npos?std::string::npos:msl.find('}',outputOpen);if(outputOpen==std::string::npos||outputClose==std::string::npos)return;const size_t color=msl.find("[[color(0)]]",outputOpen);if(color==std::string::npos||color>outputClose)return;const size_t lineStart=msl.rfind('\n',color),typeStart=msl.find("float ",lineStart==std::string::npos?outputOpen:lineStart);if(typeStart==std::string::npos||typeStart>color)return;const size_t nameStart=typeStart+6,nameEnd=msl.find(' ',nameStart);if(nameEnd==std::string::npos||nameEnd>color)return;const std::string name=msl.substr(nameStart,nameEnd-nameStart);if(name.empty()||msl.find("float4 "+name+" [[color(0)]]",typeStart)!=std::string::npos)return;msl.replace(typeStart,6,"float4 ");const std::string assignment="out."+name+" = ";const size_t assignmentStart=msl.find(assignment,outputClose),expressionStart=assignmentStart==std::string::npos?std::string::npos:assignmentStart+assignment.size(),expressionEnd=expressionStart==std::string::npos?std::string::npos:msl.find(';',expressionStart);if(expressionStart==std::string::npos||expressionEnd==std::string::npos)return;const std::string expression=msl.substr(expressionStart,expressionEnd-expressionStart);msl.replace(expressionStart,expression.size(),"float4(("+expression+"), ("+expression+"), ("+expression+"), 1.0)");
 }
 
 static void normalizeMSLCoordinateSpace(std::string& msl, bool flipY) {
@@ -847,6 +880,8 @@ bool beginExperimentalDraw(uint32_t program) {
             if (!colorTexture) return false;
         }
     }
+    if (colorFormat == 0x822A || colorFormat == 0x8F98) normalizeMSLScalarColorOutput(fragment->msl);
+    if (fragment->source.find("sampler2DMS") != std::string::npos || fragment->source.find("sampler2DMSArray") != std::string::npos) { uint32_t sourceSamples=1; bool arrayFallback=false; std::lock_guard<std::mutex> resourceLock(g_resourceMutex); if(!g_textureUnits.empty()){auto texture=g_textures.find(g_textureUnits[0]);if(texture!=g_textures.end()&&(texture->second.target==0x9100||texture->second.target==0x9102)){sourceSamples=g_metalRenderer.textureSampleCount(texture->second.metalHandle);arrayFallback=texture->second.target==0x9102&&sourceSamples<=1;}} if(arrayFallback){size_t type=0;while((type=fragment->msl.find("texture2d_ms_array<",type))!=std::string::npos){fragment->msl.replace(type,19,"texture2d_array<");type+=16;}} normalizeMSLMultisampleFetchIndex(fragment->msl,0); }
     if (!g_metalRenderer.createPipeline(*vertex, *fragment, g_glBridge.state(), rasterSampleCount, colorFormat)) return false;
     g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1],
                                    g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
@@ -2551,6 +2586,7 @@ extern "C" void glCompileShader(uint32_t shader) {
             compilerVersion = {4,50,false,true};
             assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, false);
         }
+        replaceToken("texelFetch(data, ivec2(0))", "texelFetch(data, ivec2(0), 0)");
         replaceToken("sampler2DRect", "sampler2D");
         if (metalModeEnabled()) {
             replaceToken("gl_MaxClipDistances", "8");
@@ -3576,12 +3612,13 @@ extern "C" void glGetInternalformativ(uint32_t target, uint32_t internalFormat, 
     else params[0] = 0;
     for (int32_t i = 1; i < bufSize; ++i) params[i] = 0;
 }
-extern "C" void glTexImage1D(uint32_t target,int32_t level,int32_t internalFormat,int32_t width,int32_t border,uint32_t format,uint32_t type,const void* data) { const uint32_t textureName=g_activeTextureUnit<g_textureUnits.size()?g_textureUnits[g_activeTextureUnit]:0;if(metalModeEnabled()&&target==0x0DE0&&level>0&&width>0&&textureName){std::vector<uint8_t> pixels;if(!data)pixels.assign(static_cast<size_t>(width)*4,0);else if(!convertPixelsToBGRA(width,1,format,type,data,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(textureName);if(it!=g_textures.end()){if(it->second.mipLevels.size()<=static_cast<size_t>(level))it->second.mipLevels.resize(static_cast<size_t>(level)+1);it->second.mipLevels[static_cast<size_t>(level)]=std::move(pixels);return;}}
-if(metalModeEnabled()&&target==0x0DE0&&level==0&&width>0&&textureName){std::vector<uint8_t> pixels,unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=pixelUploadBytes(width,1,1,format,type,g_glBridge.state().unpackAlignment);if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(!source)pixels.assign(static_cast<size_t>(width)*4,0);else if(!convertPixelsToBGRA(width,1,format,type,source,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}std::vector<uint8_t> storage=encodeTextureStorage(pixels,internalFormat);uint64_t handle=g_metalRenderer.createTexture1D(width,static_cast<uint32_t>(internalFormat),storage.data(),true);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=1;texture.depth=1;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);texture.mipLevels.clear();texture.mipLevels.resize(1);texture.mipLevels[0]=texture.pixels;return;}glDispatch<void,uint32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t,const void*>("glTexImage1D",target,level,internalFormat,width,border,format,type,data); }
+extern "C" void glTexImage1D(uint32_t target,int32_t level,int32_t internalFormat,int32_t width,int32_t border,uint32_t format,uint32_t type,const void* data) { const uint32_t textureName=g_activeTextureUnit<g_textureUnits.size()?g_textureUnits[g_activeTextureUnit]:0;if(metalModeEnabled()&&target==0x0DE0&&level>0&&width>0&&textureName){std::vector<uint8_t> pixels;if(!data)pixels.assign(static_cast<size_t>(width)*4,0);else if(!convertPixelsToBGRA(width,1,format,type,data,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}maskCanonicalColorChannels(pixels,internalFormat);std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_textures.find(textureName);if(it!=g_textures.end()){if(it->second.mipLevels.size()<=static_cast<size_t>(level))it->second.mipLevels.resize(static_cast<size_t>(level)+1);it->second.mipLevels[static_cast<size_t>(level)]=std::move(pixels);return;}}
+if(metalModeEnabled()&&target==0x0DE0&&level==0&&width>0&&textureName){std::vector<uint8_t> pixels,unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=pixelUploadBytes(width,1,1,format,type,g_glBridge.state().unpackAlignment);if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(!source)pixels.assign(static_cast<size_t>(width)*4,0);else if(!convertPixelsToBGRA(width,1,format,type,source,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}maskCanonicalColorChannels(pixels,internalFormat);std::vector<uint8_t> storage;if(normalized16Format(internalFormat)&&type==0x1406&&!convertPixelsToRGBA16F(width,1,format,type,source,storage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))storage=encodeTextureStorage(pixels,internalFormat);else if(normalized16Format(internalFormat)&&format==0x1908&&type==0x1406)convertPixelsToRGBA16F(width,1,format,type,source,storage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat));else storage=encodeTextureStorage(pixels,internalFormat);uint64_t handle=g_metalRenderer.createTexture1D(width,static_cast<uint32_t>(internalFormat),storage.data(),true);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=1;texture.depth=1;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);texture.mipLevels.clear();texture.mipLevels.resize(1);texture.mipLevels[0]=texture.pixels;return;}glDispatch<void,uint32_t,int32_t,int32_t,int32_t,int32_t,uint32_t,uint32_t,const void*>("glTexImage1D",target,level,internalFormat,width,border,format,type,data); }
 
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if (metalModeEnabled() && target == 0x8C18 && level == 0 && w > 0 && h > 0 && textureName && type == 0x1406 && normalizedColorComponents(internalFormat)) { std::vector<uint8_t> pixels; if(!convertPixelsToBGRA(w,h,format,type,data,pixels,g_glBridge.state().unpackAlignment)){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}maskCanonicalColorChannels(pixels,internalFormat);std::vector<uint8_t> normalizedStorage;uint64_t handle=0;if(normalized16Format(internalFormat)&&format==0x1908&&convertPixelsToRGBA16F(w,h,format,type,data,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))handle=g_metalRenderer.createTexture1DArrayFormat(static_cast<uint32_t>(w),static_cast<uint32_t>(h),static_cast<uint32_t>(internalFormat),normalizedStorage.data());else handle=g_metalRenderer.createTexture1DArray(static_cast<uint32_t>(w),static_cast<uint32_t>(h),pixels.data());if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=1;texture.depth=h;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return; }
     const bool integer32Texture = (internalFormat == 0x8236 && format == 0x8D94) ||
                                   (internalFormat == 0x823C && format == 0x8228);
     if (metalModeEnabled() && target == 0x0DE1 && w > 0 && h > 0 && textureName && integer32Texture && type == 0x1405) {
@@ -3634,9 +3671,12 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         if (g_boundPixelUnpackBuffer) { size_t bytes=pixelUploadBytes(w,h,1,format,type,g_glBridge.state().unpackAlignment); if(!readPixelUnpackBuffer(data,bytes,unpacked)){ metalsharp::GLErrorTracker::instance().setError(0x0501);return;} uploadData=unpacked.data(); }
         if (!uploadData) pixels.assign(static_cast<size_t>(w) * h * 4, 0);
         else if (!convertPixelsToBGRA(w, h, format, type, uploadData, pixels, g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+        maskCanonicalColorChannels(pixels, internalFormat);
         if (cubeFace) { std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.target=0x8513;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.cubeFaceMask|=static_cast<uint8_t>(1u<<cubeFaceIndex);texture.cubePixels[cubeFaceIndex]=pixels;const void* faces[6]={};for(uint32_t face=0;face<6;++face)if(!texture.cubePixels[face].empty())faces[face]=texture.cubePixels[face].data();texture.metalHandle=g_metalRenderer.createTextureCube(w,h,static_cast<uint32_t>(internalFormat),faces);texture.pixels=pixels;return; }
         ExperimentalTexture uploadTexture; uploadTexture.width=static_cast<uint32_t>(w); uploadTexture.height=static_cast<uint32_t>(h); uploadTexture.internalFormat=internalFormat; uploadTexture.pixels=pixels;
-        uint64_t handle = createTextureFromCanonical(uploadTexture);
+        std::vector<uint8_t> normalizedStorage; uint64_t handle = 0;
+        if(normalized16Format(internalFormat)&&format==0x1908&&type==0x1406&&convertPixelsToRGBA16F(w,h,format,type,uploadData,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat))) handle=g_metalRenderer.createTextureFormat(static_cast<uint32_t>(w),static_cast<uint32_t>(h),0x881A,normalizedStorage.data(),true);
+        else handle=createTextureFromCanonical(uploadTexture);
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& texture = g_textures[textureName];
@@ -3702,13 +3742,14 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
 extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFormat, int32_t width, int32_t height,
                               int32_t depth, int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
-    if (metalModeEnabled() && (target == 0x806F || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && format == 0x1908 && type == 0x1401 && textureName) {
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && textureName && type == 0x1406 && normalizedColorComponents(internalFormat)) { std::vector<uint8_t> pixels; if (!convertPixelsToBGRA(width,height,format,type,data,pixels,g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } maskCanonicalColorChannels(pixels,internalFormat); std::vector<uint8_t> normalizedStorage; uint64_t handle=0; if((target==0x806F||target==0x8C1A)&&normalized16Format(internalFormat)&&format==0x1908&&convertPixelsToRGBA16F(width,height,format,type,data,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))handle=target==0x806F?g_metalRenderer.createTexture3DFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()):g_metalRenderer.createTexture2DArrayFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()); else handle=target==0x806F?g_metalRenderer.createTexture3D(width,height,depth,pixels.data()):target==0x8C18?g_metalRenderer.createTexture1DArray(width,depth,pixels.data()):g_metalRenderer.createTexture2DArray(width,height,depth,pixels.data()); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=height;texture.depth=depth;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && format == 0x1908 && type == 0x1401 && textureName) {
         size_t bytes = static_cast<size_t>(width) * height * depth * 4u;
         std::vector<uint8_t> rgba(bytes, 0), unpacked;
         const void* uploadData=data;
         if(g_boundPixelUnpackBuffer){size_t uploadBytes=pixelUploadBytes(width,height,depth,format,type,g_glBridge.state().unpackAlignment);if(!readPixelUnpackBuffer(data,uploadBytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}uploadData=unpacked.data();}
         if (uploadData) std::memcpy(rgba.data(), uploadData, bytes);
-        uint64_t handle = target == 0x806F ? g_metalRenderer.createTexture3D(width, height, depth, rgba.data()) : g_metalRenderer.createTexture2DArray(width, height, depth, rgba.data());
+        uint64_t handle = target == 0x806F ? g_metalRenderer.createTexture3D(width, height, depth, rgba.data()) : target == 0x8C18 ? g_metalRenderer.createTexture1DArray(width, depth, rgba.data()) : g_metalRenderer.createTexture2DArray(width, height, depth, rgba.data());
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba);
@@ -3719,7 +3760,7 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
 extern "C" void glTexSubImage3D(uint32_t target, int32_t level, int32_t xoffset, int32_t yoffset, int32_t zoffset,
                                   int32_t width, int32_t height, int32_t depth, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
-    if (metalModeEnabled() && (target == 0x806F || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 &&
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 &&
         xoffset >= 0 && yoffset >= 0 && zoffset >= 0 && (data || g_boundPixelUnpackBuffer) && textureName && format == 0x1908 && type == 0x1401) {
         std::vector<uint8_t> unpacked; const void* uploadData=data;
         if(g_boundPixelUnpackBuffer){size_t uploadBytes=pixelUploadBytes(width,height,depth,format,type,g_glBridge.state().unpackAlignment);if(!readPixelUnpackBuffer(data,uploadBytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}uploadData=unpacked.data();}
@@ -3738,7 +3779,9 @@ extern "C" void glTexSubImage3D(uint32_t target, int32_t level, int32_t xoffset,
             }
             it->second.metalHandle = target == 0x806F
                 ? g_metalRenderer.createTexture3D(it->second.width, it->second.height, it->second.depth, it->second.pixels.data())
-                : g_metalRenderer.createTexture2DArray(it->second.width, it->second.height, it->second.depth, it->second.pixels.data());
+                : target == 0x8C18
+                    ? g_metalRenderer.createTexture1DArray(it->second.width, it->second.depth, it->second.pixels.data())
+                    : g_metalRenderer.createTexture2DArray(it->second.width, it->second.height, it->second.depth, it->second.pixels.data());
             if (it->second.metalHandle) return;
         }
     }
@@ -3794,6 +3837,8 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         std::vector<uint8_t> pixelPackScratch;
         if (pixelPack) { size_t scalar=type==0x1406?4:(type==0x1401?1:2); size_t channels=format==0x1907?3:(format==0x1903?1:4); if(type==0x8363||type==0x8033||type==0x8034)channels=1; size_t rowBytes=static_cast<size_t>(std::max(0,w))*scalar*channels; size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)); size_t stride=(rowBytes+alignment-1)/alignment*alignment; pixelPackScratch.assign(stride*static_cast<size_t>(std::max(0,h)),0); data=pixelPackScratch.data(); }
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1903 && type == 0x1406) {
+            uint64_t floatTextureHandle=0; int32_t floatTextureFormat=0; { std::lock_guard<std::mutex> lock(g_resourceMutex); const uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end()){if(fbo->second.colorTexture){auto texture=g_textures.find(fbo->second.colorTexture);if(texture!=g_textures.end()){floatTextureHandle=texture->second.metalHandle;floatTextureFormat=texture->second.internalFormat;}}else {floatTextureHandle=fbo->second.colorHandle;auto rb=g_renderbuffers.find(fbo->second.renderbuffer);if(rb!=g_renderbuffers.end())floatTextureFormat=rb->second.internalFormat;}} }
+            if(floatTextureHandle){std::vector<float> values(static_cast<size_t>(w)*h*4);if(g_metalRenderer.readTextureFloatRGBA(floatTextureHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),values.data())){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(w)*sizeof(float)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){float value=values[(static_cast<size_t>(row)*w+column)*4];if(floatTextureFormat>=0x8F94&&floatTextureFormat<=0x8F9B)value=std::clamp(value,0.0f,1.0f);std::memcpy(out+static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(float),&value,sizeof(value));}return;}}
             std::vector<float> shadow; uint32_t shadowWidth=0, shadowHeight=0;
             { std::lock_guard<std::mutex> lock(g_resourceMutex); const uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end()){auto rb=g_renderbuffers.find(fbo->second.renderbuffer);if(rb!=g_renderbuffers.end()&&rb->second.internalFormat==0x822E){auto it=g_r32fColorShadow.find(rb->second.metalHandle);if(it!=g_r32fColorShadow.end()&&x+w<=static_cast<int32_t>(it->second.width)&&y+h<=static_cast<int32_t>(it->second.height)){shadow=it->second.values;shadowWidth=it->second.width;shadowHeight=it->second.height;}}} }
             const bool shadowHasData = std::any_of(shadow.begin(), shadow.end(), [](float value) { return value != 0.0f; });
@@ -3907,7 +3952,7 @@ extern "C" void glDeleteTextures(int32_t n, const uint32_t* textures) {
 
 extern "C" void glBindTexture(uint32_t target, uint32_t texture) {
     glDispatch<void, uint32_t, uint32_t>("glBindTexture", target, texture);
-    if ((target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x9100 || target == 0x806F || target == 0x8C1A || target == 0x8513 || (target >= 0x8515 && target <= 0x851A)) && g_activeTextureUnit < g_textureUnits.size()) {
+    if ((target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x9100 || target == 0x806F || target == 0x8C18 || target == 0x8C1A || target == 0x9102 || target == 0x8513 || (target >= 0x8515 && target <= 0x851A)) && g_activeTextureUnit < g_textureUnits.size()) {
         g_textureUnits[g_activeTextureUnit] = texture;
         g_glBridge.state().boundTexture2D = texture;
     }
@@ -3921,7 +3966,7 @@ extern "C" void glActiveTexture(uint32_t texture) {
 
 extern "C" void glTexParameteri(uint32_t target, uint32_t pname, int32_t param) {
     glDispatch<void, uint32_t, uint32_t, int32_t>("glTexParameteri", target, pname, param);
-    if ((target != 0x0DE0 && target != 0x0DE1 && target != 0x84F5 && target != 0x8513 && (target < 0x8515 || target > 0x851A)) || g_activeTextureUnit >= g_textureUnits.size()) return;
+    if ((target != 0x0DE0 && target != 0x0DE1 && target != 0x84F5 && target != 0x8C18 && target != 0x9102 && target != 0x8513 && (target < 0x8515 || target > 0x851A)) || g_activeTextureUnit >= g_textureUnits.size()) return;
     std::lock_guard<std::mutex> lock(g_resourceMutex);
     auto it = g_textures.find(g_textureUnits[g_activeTextureUnit]);
     if (it == g_textures.end()) return;
@@ -3974,7 +4019,7 @@ extern "C" void glTexStorage2D(uint32_t target, int32_t levels, uint32_t interna
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t,int32_t>("glTexStorage2D",target,levels,internalFormat,width,height);
 }
 extern "C" void glTexStorage3D(uint32_t target, int32_t levels, uint32_t internalFormat, int32_t width, int32_t height, int32_t depth) {
-    if (metalModeEnabled() && (target == 0x806F || target == 0x8C1A) && levels > 0 && width > 0 && height > 0 && depth > 0) { std::vector<uint8_t> zeros(static_cast<size_t>(width)*height*depth*4,0); glTexImage3D(target,0,static_cast<int32_t>(internalFormat),width,height,depth,0,0x1908,0x1401,zeros.data()); return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && levels > 0 && width > 0 && height > 0 && depth > 0) { std::vector<uint8_t> zeros(static_cast<size_t>(width)*height*depth*4,0); glTexImage3D(target,0,static_cast<int32_t>(internalFormat),width,height,depth,0,0x1908,0x1401,zeros.data()); return; }
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t,int32_t,int32_t>("glTexStorage3D",target,levels,internalFormat,width,height,depth);
 }
 extern "C" void glGenerateMipmap(uint32_t target) {
@@ -4020,7 +4065,7 @@ static bool textureFormatMetadata(uint32_t format, int32_t bits[6], uint32_t typ
 extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_t pname, int32_t* params) {
     if (metalModeEnabled() && params && level == 0 && g_activeTextureUnit < g_textureUnits.size()) {
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);
-        if (it != g_textures.end() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x8513 || (target >= 0x8515 && target <= 0x851A) || target == 0x806F || target == 0x8C1A || target == 0x9100)) {
+        if (it != g_textures.end() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x8513 || (target >= 0x8515 && target <= 0x851A) || target == 0x806F || target == 0x8C18 || target == 0x8C1A || target == 0x9100 || target == 0x9102)) {
             if (pname == 0x1000) *params=static_cast<int32_t>(it->second.width); else if (pname == 0x1001) *params=static_cast<int32_t>(it->second.height); else if (pname == 0x8071) *params=static_cast<int32_t>(it->second.depth); else if (pname == 0x9106) *params=static_cast<int32_t>(it->second.sampleCount); else if (pname == 0x9107) *params=it->second.sampleCount>1; else if (pname == 0x1003) *params=it->second.internalFormat; else { int32_t bits[6]; uint32_t types[5]; if (!textureFormatMetadata(static_cast<uint32_t>(it->second.internalFormat),bits,types)) { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } if(pname==0x805C)*params=bits[0];else if(pname==0x805D)*params=bits[1];else if(pname==0x805E)*params=bits[2];else if(pname==0x805F)*params=bits[3];else if(pname==0x884A)*params=bits[4];else if(pname==0x88F1)*params=bits[5];else if(pname==0x8C10)*params=static_cast<int32_t>(types[0]);else if(pname==0x8C11)*params=static_cast<int32_t>(types[1]);else if(pname==0x8C12)*params=static_cast<int32_t>(types[2]);else if(pname==0x8C13)*params=static_cast<int32_t>(types[3]);else if(pname==0x8C16)*params=static_cast<int32_t>(types[4]);else { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } } return;
         }
     }
@@ -4171,6 +4216,22 @@ extern "C" void glTexImage2DMultisample(uint32_t target, int32_t samples, uint32
     glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t, unsigned char>("glTexImage2DMultisample", target, samples, internalformat, width, height, fixedsamplelocations);
     const uint32_t textureName=g_activeTextureUnit<g_textureUnits.size()?g_textureUnits[g_activeTextureUnit]:0;
     if(metalModeEnabled()&&target==0x9100&&width>0&&height>0&&textureName){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.target=target;texture.width=width;texture.height=height;texture.depth=1;texture.internalFormat=internalformat;texture.sampleCount=static_cast<uint32_t>(std::max(1,samples));texture.pixels.assign(static_cast<size_t>(width)*height*4,0);bool depth=(internalformat==0x1902||internalformat==0x81A5||internalformat==0x81A6||internalformat==0x8CAC||internalformat==0x8D48);texture.metalHandle=depth?g_metalRenderer.createMultisampleDepthStencilTarget(width,height,internalformat,texture.sampleCount):g_metalRenderer.createMultisampleTexture2D(width,height,internalformat,texture.sampleCount);if(texture.metalHandle)texture.sampleCount=g_metalRenderer.textureSampleCount(texture.metalHandle);}
+}
+extern "C" void glTexImage3DMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, unsigned char fixedsamplelocations) {
+    glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t, int32_t, unsigned char>("glTexImage3DMultisample", target, samples, internalformat, width, height, depth, fixedsamplelocations);
+    const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    if (metalModeEnabled() && target == 0x9102 && width > 0 && height > 0 && depth > 0 && textureName) {
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
+        auto& texture = g_textures[textureName];
+        texture.target = target; texture.width = width; texture.height = height; texture.depth = depth;
+        texture.internalFormat = internalformat; texture.sampleCount = static_cast<uint32_t>(std::max(1, samples));
+        texture.pixels.assign(static_cast<size_t>(width) * height * depth * 4, 0);
+        texture.metalHandle = g_metalRenderer.createMultisampleTexture2DArray(width, height, depth, internalformat, texture.sampleCount);
+        if (texture.metalHandle) texture.sampleCount = g_metalRenderer.textureSampleCount(texture.metalHandle);
+    }
+}
+extern "C" void glTexStorage3DMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, unsigned char fixedsamplelocations) {
+    glTexImage3DMultisample(target, samples, internalformat, width, height, depth, fixedsamplelocations);
 }
 extern "C" void glFramebufferRenderbuffer(uint32_t target, uint32_t attachment, uint32_t renderbuffertarget, uint32_t renderbuffer) {
     glDispatch<void, uint32_t, uint32_t, uint32_t, uint32_t>("glFramebufferRenderbuffer", target, attachment, renderbuffertarget, renderbuffer);

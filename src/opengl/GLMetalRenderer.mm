@@ -229,7 +229,8 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
 
     // Match the Metal render-target format. The OpenGL R32F renderbuffer
     // path is used by clip-distance coverage and scalar readback tests.
-    desc.colorAttachments[0].pixelFormat = colorFormat == 0x822E ? MTLPixelFormatR32Float : MTLPixelFormatBGRA8Unorm;
+    const bool normalized16 = colorFormat == 0x822A || colorFormat == 0x822C || colorFormat == 0x8054 || colorFormat == 0x805B || colorFormat == 0x8F98 || colorFormat == 0x8F99 || colorFormat == 0x8F9A || colorFormat == 0x8F9B;
+    desc.colorAttachments[0].pixelFormat = colorFormat == 0x822E ? MTLPixelFormatR32Float : normalized16 ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm;
     // Blend state from GL state. Unsupported factors fall back to the
     // conservative GL default (one, zero) rather than silently selecting a
     // different blend equation.
@@ -954,6 +955,8 @@ bool GLMetalRenderer::readTextureRGBA8(uint64_t textureHandle, uint32_t x, uint3
     return true;
 }
 
+bool GLMetalRenderer::readTextureFloatRGBA(uint64_t textureHandle,uint32_t x,uint32_t y,uint32_t width,uint32_t height,float* data,uint32_t slice) { if(!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||it->second.pixelFormat!=MTLPixelFormatRGBA16Float||slice>=it->second.arrayLength)return false;id<MTLTexture> texture=it->second;const NSUInteger bytesPerRow=(static_cast<NSUInteger>(width)*8+255)&~static_cast<NSUInteger>(255),bufferSize=bytesPerRow*static_cast<NSUInteger>(height);id<MTLBuffer> staging=[m_device newBufferWithLength:bufferSize options:MTLResourceStorageModeShared];id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(!staging||!command||!blit||x+width>texture.width||y+height>texture.height)return false;[blit copyFromTexture:texture sourceSlice:slice sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bufferSize];[blit endEncoding];[command commit];[command waitUntilCompleted];if(command.status!=MTLCommandBufferStatusCompleted)return false;const uint8_t* bytes=static_cast<const uint8_t*>(staging.contents);for(uint32_t row=0;row<height;++row)for(uint32_t column=0;column<width;++column){const uint16_t* value=reinterpret_cast<const uint16_t*>(bytes+static_cast<size_t>(row)*bytesPerRow+static_cast<size_t>(column)*8);float* output=data+(static_cast<size_t>(row)*width+column)*4;for(int c=0;c<4;++c)output[c]=metalHalfToFloat(value[c]);}return true; }
+
 bool GLMetalRenderer::readTextureScalar32(uint64_t textureHandle,uint32_t x,uint32_t y,uint32_t width,uint32_t height,void* data) { if(!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||it->second.pixelFormat!=MTLPixelFormatR32Uint&&it->second.pixelFormat!=MTLPixelFormatR32Float)return false;id<MTLTexture> texture=it->second;if(x+width>texture.width||y+height>texture.height)return false;NSUInteger rowBytes=(static_cast<NSUInteger>(width)*4+255)&~static_cast<NSUInteger>(255);id<MTLBuffer> staging=[m_device newBufferWithLength:rowBytes*height options:MTLResourceStorageModeShared];id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(!staging||!command||!blit)return false;[blit copyFromTexture:texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:rowBytes destinationBytesPerImage:rowBytes*height];[blit endEncoding];[command commit];[command waitUntilCompleted];if(command.status!=MTLCommandBufferStatusCompleted)return false;for(uint32_t row=0;row<height;++row)std::memcpy(static_cast<uint8_t*>(data)+static_cast<size_t>(row)*width*4,static_cast<const uint8_t*>(staging.contents)+static_cast<size_t>(row)*rowBytes,static_cast<size_t>(width)*4);return true; }
 
 bool GLMetalRenderer::blitTexture(uint64_t sourceHandle, uint64_t destinationHandle, uint32_t width, uint32_t height, uint32_t sourceX, uint32_t sourceY, uint32_t destinationX, uint32_t destinationY) {
@@ -1257,11 +1260,11 @@ void GLMetalRenderer::updateUniformBuffer(uint32_t binding, const void* data, si
     }
 }
 
-uint64_t GLMetalRenderer::createTexture1D(uint32_t width,uint32_t glInternalFormat,const void* data,bool mipmapped) { if(!m_device||!width)return 0;MTLPixelFormat format=glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;size_t bpp=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;MTLTextureDescriptor* descriptor=[[MTLTextureDescriptor alloc] init];descriptor.textureType=MTLTextureType1D;descriptor.pixelFormat=format;descriptor.width=width;descriptor.height=1;descriptor.depth=1;descriptor.mipmapLevelCount=1;descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bpp];std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
+uint64_t GLMetalRenderer::createTexture1D(uint32_t width,uint32_t glInternalFormat,const void* data,bool mipmapped) { if(!m_device||!width)return 0;const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;size_t bpp=format==MTLPixelFormatR8Unorm?1:format==MTLPixelFormatRG8Unorm?2:format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Float?16:4;MTLTextureDescriptor* descriptor=[[MTLTextureDescriptor alloc] init];descriptor.textureType=MTLTextureType1D;descriptor.pixelFormat=format;descriptor.width=width;descriptor.height=1;descriptor.depth=1;descriptor.mipmapLevelCount=1;descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data)[texture replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:0 withBytes:data bytesPerRow:static_cast<size_t>(width)*bpp];std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
 bool GLMetalRenderer::updateTexture1DLevel(uint64_t textureHandle,uint32_t level,uint32_t width,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level))return false;[it->second replaceRegion:MTLRegionMake1D(0,width) mipmapLevel:level withBytes:data bytesPerRow:bytesPerRow];return true; }
 
 uint64_t GLMetalRenderer::createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped) {
-    if(!m_device||!width||!height)return 0; MTLPixelFormat format=glInternalFormat==0x8231?MTLPixelFormatR8Sint:glInternalFormat==0x8232?MTLPixelFormatR8Uint:glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x8237?MTLPixelFormatRG8Sint:glInternalFormat==0x8238?MTLPixelFormatRG8Uint:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x8234?MTLPixelFormatR16Uint:glInternalFormat==0x8233?MTLPixelFormatR16Sint:glInternalFormat==0x823A?MTLPixelFormatRG16Uint:glInternalFormat==0x8239?MTLPixelFormatRG16Sint:glInternalFormat==0x8235?MTLPixelFormatR32Sint:glInternalFormat==0x8236?MTLPixelFormatR32Uint:glInternalFormat==0x823B?MTLPixelFormatRG32Sint:glInternalFormat==0x823C?MTLPixelFormatRG32Uint:glInternalFormat==0x822E?MTLPixelFormatR32Float:glInternalFormat==0x1902||glInternalFormat==0x81A5||glInternalFormat==0x81A6||glInternalFormat==0x8CAC||glInternalFormat==0x88F0||glInternalFormat==0x8D48?MTLPixelFormatR32Float:glInternalFormat==0x8D8E?MTLPixelFormatRGBA8Sint:glInternalFormat==0x8D7C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x8D88?MTLPixelFormatRGBA16Sint:glInternalFormat==0x8D76?MTLPixelFormatRGBA16Uint:glInternalFormat==0x8D82?MTLPixelFormatRGBA32Sint:glInternalFormat==0x8D70?MTLPixelFormatRGBA32Uint:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm||format==MTLPixelFormatR8Sint||format==MTLPixelFormatR8Uint?1:format==MTLPixelFormatRG8Unorm||format==MTLPixelFormatRG8Sint||format==MTLPixelFormatRG8Uint?2:format==MTLPixelFormatR16Sint||format==MTLPixelFormatR16Uint?2:format==MTLPixelFormatRG16Sint||format==MTLPixelFormatRG16Uint?4:format==MTLPixelFormatR32Float||format==MTLPixelFormatR32Sint||format==MTLPixelFormatR32Uint?4:format==MTLPixelFormatRG32Sint||format==MTLPixelFormatRG32Uint?8:format==MTLPixelFormatRGBA8Uint||format==MTLPixelFormatRGBA8Sint?4:format==MTLPixelFormatRGBA16Uint||format==MTLPixelFormatRGBA16Sint||format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Uint||format==MTLPixelFormatRGBA32Sint||format==MTLPixelFormatRGBA32Float?16:4;
+    if(!m_device||!width||!height)return 0; const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B; MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:glInternalFormat==0x8231?MTLPixelFormatR8Sint:glInternalFormat==0x8232?MTLPixelFormatR8Uint:glInternalFormat==0x8229?MTLPixelFormatR8Unorm:glInternalFormat==0x8237?MTLPixelFormatRG8Sint:glInternalFormat==0x8238?MTLPixelFormatRG8Uint:glInternalFormat==0x822B?MTLPixelFormatRG8Unorm:glInternalFormat==0x8234?MTLPixelFormatR16Uint:glInternalFormat==0x8233?MTLPixelFormatR16Sint:glInternalFormat==0x823A?MTLPixelFormatRG16Uint:glInternalFormat==0x8239?MTLPixelFormatRG16Sint:glInternalFormat==0x8235?MTLPixelFormatR32Sint:glInternalFormat==0x8236?MTLPixelFormatR32Uint:glInternalFormat==0x823B?MTLPixelFormatRG32Sint:glInternalFormat==0x823C?MTLPixelFormatRG32Uint:glInternalFormat==0x822E?MTLPixelFormatR32Float:glInternalFormat==0x1902||glInternalFormat==0x81A5||glInternalFormat==0x81A6||glInternalFormat==0x8CAC||glInternalFormat==0x88F0||glInternalFormat==0x8D48?MTLPixelFormatR32Float:glInternalFormat==0x8D8E?MTLPixelFormatRGBA8Sint:glInternalFormat==0x8D7C?MTLPixelFormatRGBA8Uint:glInternalFormat==0x8D88?MTLPixelFormatRGBA16Sint:glInternalFormat==0x8D76?MTLPixelFormatRGBA16Uint:glInternalFormat==0x8D82?MTLPixelFormatRGBA32Sint:glInternalFormat==0x8D70?MTLPixelFormatRGBA32Uint:glInternalFormat==0x881A?MTLPixelFormatRGBA16Float:glInternalFormat==0x8814?MTLPixelFormatRGBA32Float:glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm; size_t bytesPerPixel=format==MTLPixelFormatR8Unorm||format==MTLPixelFormatR8Sint||format==MTLPixelFormatR8Uint?1:format==MTLPixelFormatRG8Unorm||format==MTLPixelFormatRG8Sint||format==MTLPixelFormatRG8Uint?2:format==MTLPixelFormatR16Sint||format==MTLPixelFormatR16Uint?2:format==MTLPixelFormatRG16Sint||format==MTLPixelFormatRG16Uint?4:format==MTLPixelFormatR32Float||format==MTLPixelFormatR32Sint||format==MTLPixelFormatR32Uint?4:format==MTLPixelFormatRG32Sint||format==MTLPixelFormatRG32Uint?8:format==MTLPixelFormatRGBA8Uint||format==MTLPixelFormatRGBA8Sint?4:format==MTLPixelFormatRGBA16Uint||format==MTLPixelFormatRGBA16Sint||format==MTLPixelFormatRGBA16Float?8:format==MTLPixelFormatRGBA32Uint||format==MTLPixelFormatRGBA32Sint||format==MTLPixelFormatRGBA32Float?16:4;
     MTLTextureDescriptor* descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:mipmapped]; descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget; id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;if(data){std::vector<uint8_t> upload(static_cast<size_t>(width)*height*bytesPerPixel);for(uint32_t row=0;row<height;++row)std::memcpy(upload.data()+static_cast<size_t>(row)*width*bytesPerPixel,static_cast<const uint8_t*>(data)+static_cast<size_t>(height-1-row)*width*bytesPerPixel,static_cast<size_t>(width)*bytesPerPixel);[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:upload.data() bytesPerRow:static_cast<size_t>(width)*bytesPerPixel];}if(mipmapped && format != MTLPixelFormatR8Sint && format != MTLPixelFormatR8Uint && format != MTLPixelFormatRG8Sint && format != MTLPixelFormatRG8Uint && format != MTLPixelFormatR16Sint && format != MTLPixelFormatR16Uint && format != MTLPixelFormatRG16Sint && format != MTLPixelFormatRG16Uint && format != MTLPixelFormatRGBA8Sint && format != MTLPixelFormatRGBA8Uint && format != MTLPixelFormatRGBA16Sint && format != MTLPixelFormatRGBA16Uint && format != MTLPixelFormatRGBA32Sint && format != MTLPixelFormatRGBA32Uint){id<MTLCommandBuffer> commandBuffer=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[commandBuffer blitCommandEncoder];if(blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[commandBuffer commit];[commandBuffer waitUntilCompleted];}}
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
@@ -1270,58 +1273,73 @@ uint64_t GLMetalRenderer::createTextureCube(uint32_t width,uint32_t height,uint3
 
 uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped, bool srgb) { return createTextureFormat(width,height,srgb?0x8C43:0x8058,data,mipmapped); }
 
-uint64_t GLMetalRenderer::createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data) {
+uint64_t GLMetalRenderer::createTexture3D(uint32_t width, uint32_t height, uint32_t depth, const void* data) { return createTexture3DFormat(width, height, depth, 0x8058, data); }
+uint64_t GLMetalRenderer::createTexture3DFormat(uint32_t width, uint32_t height, uint32_t depth, uint32_t glInternalFormat, const void* data) {
     if (!m_device || !width || !height || !depth) return 0;
-    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-    descriptor.textureType = MTLTextureType3D;
-    descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    descriptor.width = width; descriptor.height = height; descriptor.depth = depth;
-    descriptor.mipmapLevelCount = 1; descriptor.arrayLength = 1;
-    descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
-    id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
-    if (!texture) return 0;
-    if (data) {
-        std::vector<uint8_t> upload(static_cast<size_t>(width) * height * depth * 4);
-        for (size_t i=0;i<upload.size();i+=4) { upload[i]=static_cast<const uint8_t*>(data)[i+2]; upload[i+1]=static_cast<const uint8_t*>(data)[i+1]; upload[i+2]=static_cast<const uint8_t*>(data)[i]; upload[i+3]=static_cast<const uint8_t*>(data)[i+3]; }
-        MTLRegion region = MTLRegionMake3D(0, 0, 0, width, height, depth);
-        [texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:upload.data() bytesPerRow:width * 4 bytesPerImage:width * height * 4];
-    }
-    std::lock_guard<std::mutex> lock(m_impl->mutex);
-    uint64_t handle = m_impl->nextTextureHandle++;
-    m_impl->textures[handle] = texture;
-    return handle;
+    const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;const MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:MTLPixelFormatBGRA8Unorm;const size_t bpp=normalized16?8:4;
+    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init]; descriptor.textureType = MTLTextureType3D; descriptor.pixelFormat = format; descriptor.width = width; descriptor.height = height; descriptor.depth = depth; descriptor.mipmapLevelCount = 1; descriptor.arrayLength = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
+    id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor]; if (!texture) return 0;
+    if (data) { const size_t bytes=static_cast<size_t>(width)*height*depth*bpp;std::vector<uint8_t> upload(bytes);if(normalized16)std::memcpy(upload.data(),data,bytes);else for(size_t i=0;i<bytes;i+=4){upload[i]=static_cast<const uint8_t*>(data)[i+2];upload[i+1]=static_cast<const uint8_t*>(data)[i+1];upload[i+2]=static_cast<const uint8_t*>(data)[i];upload[i+3]=static_cast<const uint8_t*>(data)[i+3];}MTLRegion region=MTLRegionMake3D(0,0,0,width,height,depth);[texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:upload.data() bytesPerRow:width*bpp bytesPerImage:static_cast<size_t>(width)*height*bpp];}
+    std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
 
-uint64_t GLMetalRenderer::createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data) {
+uint64_t GLMetalRenderer::createTexture1DArray(uint32_t width, uint32_t layers, const void* data) { return createTexture1DArrayFormat(width, layers, 0x8058, data); }
+uint64_t GLMetalRenderer::createTexture1DArrayFormat(uint32_t width, uint32_t layers, uint32_t glInternalFormat, const void* data) {
+    if (!m_device || !width || !layers) return 0;
+    const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;
+    const MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:MTLPixelFormatBGRA8Unorm;const size_t bpp=normalized16?8:4;
+    MTLTextureDescriptor* descriptor=[[MTLTextureDescriptor alloc] init];descriptor.textureType=MTLTextureType1DArray;descriptor.pixelFormat=format;descriptor.width=width;descriptor.height=1;descriptor.depth=1;descriptor.arrayLength=layers;descriptor.mipmapLevelCount=1;descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;
+    if(data){const size_t layerBytes=static_cast<size_t>(width)*bpp;MTLRegion region=MTLRegionMake2D(0,0,width,1);for(uint32_t layer=0;layer<layers;++layer)[texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:static_cast<const uint8_t*>(data)+static_cast<size_t>(layer)*layerBytes bytesPerRow:width*bpp bytesPerImage:layerBytes];}
+    std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
+}
+
+uint64_t GLMetalRenderer::createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data) { return createTexture2DArrayFormat(width, height, layers, 0x8058, data); }
+uint64_t GLMetalRenderer::createTexture2DArrayFormat(uint32_t width, uint32_t height, uint32_t layers, uint32_t glInternalFormat, const void* data) {
     if (!m_device || !width || !height || !layers) return 0;
-    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init];
-    descriptor.textureType = MTLTextureType2DArray;
-    descriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    descriptor.width = width; descriptor.height = height; descriptor.depth = 1; descriptor.arrayLength = layers;
-    descriptor.mipmapLevelCount = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
-    id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
-    if (!texture) return 0;
-    if (data) {
-        const size_t layerBytes = static_cast<size_t>(width) * height * 4;
-        std::vector<uint8_t> upload(layerBytes * layers);
-        for (size_t i=0;i<upload.size();i+=4) { upload[i]=static_cast<const uint8_t*>(data)[i+2]; upload[i+1]=static_cast<const uint8_t*>(data)[i+1]; upload[i+2]=static_cast<const uint8_t*>(data)[i]; upload[i+3]=static_cast<const uint8_t*>(data)[i+3]; }
-        MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-        [texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:upload.data() bytesPerRow:width * 4 bytesPerImage:layerBytes];
-        for (uint32_t layer = 1; layer < layers; ++layer)
-            [texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:upload.data() + static_cast<size_t>(layer) * layerBytes bytesPerRow:width * 4 bytesPerImage:layerBytes];
-    }
-    std::lock_guard<std::mutex> lock(m_impl->mutex);
-    uint64_t handle = m_impl->nextTextureHandle++;
-    m_impl->textures[handle] = texture;
-    return handle;
+    const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;const MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:MTLPixelFormatBGRA8Unorm;const size_t bpp=normalized16?8:4;
+    MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init]; descriptor.textureType = MTLTextureType2DArray; descriptor.pixelFormat = format; descriptor.width = width; descriptor.height = height; descriptor.depth = 1; descriptor.arrayLength = layers; descriptor.mipmapLevelCount = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
+    id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor]; if (!texture) return 0;
+    if (data) { const size_t layerBytes=static_cast<size_t>(width)*height*bpp; std::vector<uint8_t> upload(layerBytes*layers); if(normalized16)std::memcpy(upload.data(),data,upload.size());else for(size_t i=0;i<upload.size();i+=4){upload[i]=static_cast<const uint8_t*>(data)[i+2];upload[i+1]=static_cast<const uint8_t*>(data)[i+1];upload[i+2]=static_cast<const uint8_t*>(data)[i];upload[i+3]=static_cast<const uint8_t*>(data)[i+3];} MTLRegion region=MTLRegionMake2D(0,0,width,height);for(uint32_t layer=0;layer<layers;++layer)[texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:upload.data()+static_cast<size_t>(layer)*layerBytes bytesPerRow:width*bpp bytesPerImage:layerBytes]; }
+    std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
 
 uint64_t GLMetalRenderer::createMultisampleTexture2D(uint32_t width,uint32_t height,uint32_t glInternalFormat,uint32_t samples) {
     if(!m_device||!width||!height||samples<2)return createTextureFormat(width,height,glInternalFormat,nullptr,false);
-    MTLPixelFormat format=(glInternalFormat==0x8C43)?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;uint32_t selected=samples;if(![m_device supportsTextureSampleCount:selected]){selected=samples>=4&&[m_device supportsTextureSampleCount:4]?4:[m_device supportsTextureSampleCount:2]?2:1;}if(selected<2)return createTextureFormat(width,height,glInternalFormat,nullptr,false);
-    MTLTextureDescriptor* multisample=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];multisample.textureType=MTLTextureType2DMultisample;multisample.sampleCount=selected;multisample.usage=MTLTextureUsageRenderTarget;id<MTLTexture> msaa=[m_device newTextureWithDescriptor:multisample];if(!msaa)return 0;
+    const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:(glInternalFormat==0x8C43)?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;uint32_t selected=samples;if(![m_device supportsTextureSampleCount:selected]){selected=samples>=4&&[m_device supportsTextureSampleCount:4]?4:[m_device supportsTextureSampleCount:2]?2:1;}if(selected<2)return createTextureFormat(width,height,glInternalFormat,nullptr,false);
+    MTLTextureDescriptor* multisample=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];multisample.textureType=MTLTextureType2DMultisample;multisample.sampleCount=selected;multisample.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;id<MTLTexture> msaa=[m_device newTextureWithDescriptor:multisample];if(!msaa)return 0;
     MTLTextureDescriptor* resolve=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];resolve.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;id<MTLTexture> resolved=[m_device newTextureWithDescriptor:resolve];if(!resolved)return 0;
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++,resolveHandle=m_impl->nextTextureHandle++;m_impl->textures[handle]=msaa;m_impl->textures[resolveHandle]=resolved;m_impl->resolveTextures[handle]=resolveHandle;m_impl->textureSampleCounts[handle]=selected;return handle;
+}
+
+uint64_t GLMetalRenderer::createMultisampleTexture2DArray(uint32_t width, uint32_t height, uint32_t layers,
+                                                          uint32_t glInternalFormat, uint32_t samples) {
+    if (!m_device || !width || !height || !layers || samples < 2) return 0;
+
+    const bool normalized16 = glInternalFormat == 0x822A || glInternalFormat == 0x822C || glInternalFormat == 0x8054 || glInternalFormat == 0x805B || glInternalFormat == 0x8F98 || glInternalFormat == 0x8F99 || glInternalFormat == 0x8F9A || glInternalFormat == 0x8F9B;
+    const MTLPixelFormat format = normalized16 ? MTLPixelFormatRGBA16Float : glInternalFormat == 0x8C43 ? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatBGRA8Unorm;
+    uint32_t selected = samples;
+    if (![m_device supportsTextureSampleCount:selected])
+        selected = samples >= 4 && [m_device supportsTextureSampleCount:4] ? 4 : [m_device supportsTextureSampleCount:2] ? 2 : 1;
+    if (selected < 2) return createTexture2DArrayFormat(width, height, layers, glInternalFormat, nullptr);
+    MTLTextureDescriptor* multisample = [[MTLTextureDescriptor alloc] init];
+    multisample.textureType = MTLTextureType2DMultisampleArray;
+    multisample.pixelFormat = format;
+    multisample.width = width; multisample.height = height; multisample.depth = 1;
+    multisample.arrayLength = layers; multisample.sampleCount = selected;
+    multisample.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    id<MTLTexture> msaa = [m_device newTextureWithDescriptor:multisample];
+    if (!msaa) return createTexture2DArrayFormat(width, height, layers, glInternalFormat, nullptr);
+    MTLTextureDescriptor* resolve = [[MTLTextureDescriptor alloc] init];
+    resolve.textureType = MTLTextureType2DArray; resolve.pixelFormat = format;
+    resolve.width = width; resolve.height = height; resolve.depth = 1; resolve.arrayLength = layers;
+    resolve.mipmapLevelCount = 1; resolve.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    id<MTLTexture> resolved = [m_device newTextureWithDescriptor:resolve];
+    if (!resolved) return createTexture2DArrayFormat(width, height, layers, glInternalFormat, nullptr);
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    uint64_t handle = m_impl->nextTextureHandle++, resolveHandle = m_impl->nextTextureHandle++;
+    m_impl->textures[handle] = msaa; m_impl->textures[resolveHandle] = resolved;
+    m_impl->resolveTextures[handle] = resolveHandle; m_impl->textureSampleCounts[handle] = selected;
+    return handle;
 }
 
 uint32_t GLMetalRenderer::textureSampleCount(uint64_t textureHandle) const { std::lock_guard<std::mutex> lock(m_impl->mutex); auto it=m_impl->textureSampleCounts.find(textureHandle); return it==m_impl->textureSampleCounts.end()?1:it->second; }

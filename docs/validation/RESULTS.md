@@ -2,8 +2,8 @@
 
 Validation date: 2026-09-14
 
-The validated 1.9.7 artifacts are staged as a new immutable sibling beside the
-published 1.9.6, 1.9.5, 1.9.4, 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
+The validated 1.9.8 artifacts are staged as a new immutable sibling beside the
+published 1.9.7, 1.9.6, 1.9.5, 1.9.4, 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
 
 ## Host gates
 
@@ -79,9 +79,10 @@ results, not a full conformance claim:
   plus copy-buffer validation are covered by the GL 3.1 API gate.
 - `KHR-GL31.primitive_restart.restart_mode`: 1/1 pass, including points,
   lines, line strips/loops, triangle strips/fans, and triangles.
-- `KHR-GL31.*`: 855/889 pass, 1 internal error in texture-size-promotion,
-  and 33 explicitly unsupported cases. The texture-size-promotion result
-  remains outside the bounded release claim.
+- `KHR-GL31.texture_size_promotion.functional`: pass, including signed-
+  normalized, array, 3D, multisample, and multisample-array paths.
+- `KHR-GL31.*`: 856/889 pass, with 33 explicitly unsupported cases and no
+  functional failures in the exercised group.
 
 The full Khronos OpenGL 4.6 suite was not run, so this release makes a
 bounded acceptance-matrix claim rather than a full-conformance claim. Features

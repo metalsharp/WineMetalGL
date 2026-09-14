@@ -85,6 +85,15 @@ index 9ff082d..d88f1e8 100644
          else format_array[i] = &wgl_formats[i];
      }
  
+@@ -2241,5 +2241,8 @@ int WINAPI wglGetLayerPaletteEntries( HDC hdc, int plane, int start, int count,
+ PROC WINAPI wglGetProcAddress( LPCSTR name )
+ {
+     const struct registry_entry *func;
++    /* dEQP uses the historical name for the array multisample allocation
++     * entry point; Wine's generated table exposes the core storage spelling. */
++    if (!strcmp(name, "glTexImage3DMultisample")) name = "glTexStorage3DMultisample";
+     const enum opengl_extension *ext;
+     struct context *ctx;
 @@ -2259,6 +2270,10 @@ PROC WINAPI wglGetProcAddress( LPCSTR name )
          LeaveCriticalSection( &wgl_cs );
      }
@@ -348,7 +357,7 @@ index 696734f..0baa9eb 100644
      TRACE("()\n");
  
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2644,383 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2644,385 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
  
  #undef LOAD_FUNCPTR
  
@@ -596,6 +605,8 @@ index 696734f..0baa9eb 100644
 +            WINEMETALGL_BIND(glGetRenderbufferParameteriv);
 +            WINEMETALGL_BIND(glRenderbufferStorageMultisample);
 +            WINEMETALGL_BIND(glTexImage2DMultisample);
++            WINEMETALGL_BIND(glTexImage3DMultisample);
++            WINEMETALGL_BIND(glTexStorage3DMultisample);
 +            WINEMETALGL_BIND(glGenFramebuffers);
 +            WINEMETALGL_BIND(glCreateFramebuffers);
 +            WINEMETALGL_BIND(glDeleteFramebuffers);
