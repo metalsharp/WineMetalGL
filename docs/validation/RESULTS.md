@@ -64,8 +64,7 @@ The VK-GL-CTS executable at
 was run in fresh WoW64 prefixes with the current sidecar. These are targeted
 results, not a full conformance claim:
 
-- `KHR-GL30.texture_repeat_mode.*`: 132/162 pass; the R32UI/RG32UI
-  implicit-mipmap cases remain unresolved.
+- `KHR-GL30.texture_repeat_mode.*`: 162/162 pass.
 - `KHR-GL30.texture_lod_basic.*`: 1/1 pass.
 - `KHR-GL30.texture_lod_bias.*`: 1/1 pass.
 - `KHR-GL30.framebuffer_blit.*`: 3/3 pass.

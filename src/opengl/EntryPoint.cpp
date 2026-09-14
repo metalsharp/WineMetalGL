@@ -3095,6 +3095,23 @@ if(metalModeEnabled()&&target==0x0DE0&&level==0&&width>0&&textureName){std::vect
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    const bool integer32Texture = (internalFormat == 0x8236 && format == 0x8D94) ||
+                                  (internalFormat == 0x823C && format == 0x8228);
+    if (metalModeEnabled() && target == 0x0DE1 && w > 0 && h > 0 && textureName && integer32Texture && type == 0x1405) {
+        const uint32_t components = internalFormat == 0x823C ? 2 : 1;
+        const size_t rowBytes=static_cast<size_t>(w)*components*sizeof(uint32_t), alignment=static_cast<size_t>(std::max(1,g_glBridge.state().unpackAlignment)), stride=(rowBytes+alignment-1)/alignment*alignment;
+        std::vector<uint8_t> raw(static_cast<size_t>(w)*h*components*sizeof(uint32_t),0);
+        if(data)for(int32_t row=0;row<h;++row)std::memcpy(raw.data()+static_cast<size_t>(row)*rowBytes,static_cast<const uint8_t*>(data)+static_cast<size_t>(row)*stride,rowBytes);
+        std::lock_guard<std::mutex> lock(g_resourceMutex); auto& texture=g_textures[textureName];
+        std::vector<std::vector<uint8_t>> pending=std::move(texture.mipLevels);
+        if(pending.size()<=static_cast<size_t>(level))pending.resize(static_cast<size_t>(level)+1);
+        pending[static_cast<size_t>(level)]=raw;
+        if(level==0||texture.width==0){texture.width=static_cast<uint32_t>(w);texture.height=static_cast<uint32_t>(h);texture.depth=1;texture.target=target;texture.internalFormat=internalFormat;}
+        if(level==0){texture.pixels.assign(static_cast<size_t>(w)*h*4,0);for(size_t i=0;i<static_cast<size_t>(w)*h;++i){uint32_t red=0,green=0;std::memcpy(&red,raw.data()+i*components*sizeof(uint32_t),4);if(components==2)std::memcpy(&green,raw.data()+i*2*sizeof(uint32_t)+4,4);texture.pixels[i*4]=static_cast<uint8_t>(red>>24);texture.pixels[i*4+1]=static_cast<uint8_t>(green>>24);texture.pixels[i*4+3]=255;}texture.metalHandle=g_metalRenderer.createTextureFormat(static_cast<uint32_t>(w),static_cast<uint32_t>(h),static_cast<uint32_t>(internalFormat),raw.data(),true);if(!texture.metalHandle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}for(uint32_t mip=1;mip<pending.size();++mip)if(!pending[mip].empty()){const uint32_t mipWidth=std::max<uint32_t>(1,texture.width>>mip),mipHeight=std::max<uint32_t>(1,texture.height>>mip);g_metalRenderer.updateTextureLevel(texture.metalHandle,mip,mipWidth,mipHeight,pending[mip].data(),static_cast<size_t>(mipWidth)*components*sizeof(uint32_t));}}
+        else if(texture.metalHandle)g_metalRenderer.updateTextureLevel(texture.metalHandle,static_cast<uint32_t>(level),static_cast<uint32_t>(w),static_cast<uint32_t>(h),raw.data(),rowBytes);
+        texture.mipLevels=std::move(pending);
+        return;
+    }
     if (metalModeEnabled() && target == 0x0DE1 && level > 0 && w > 0 && h > 0 && textureName) {
         uint64_t handle=0; int32_t textureFormat=internalFormat;
         { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(textureName); if(it!=g_textures.end()){handle=it->second.metalHandle;if(handle&&it->second.internalFormat)textureFormat=it->second.internalFormat;} }
@@ -3110,9 +3127,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         const bool cubeFace = target >= 0x8515 && target <= 0x851A;
         const uint32_t cubeFaceIndex = cubeFace ? target - 0x8515 : 0;
         const bool scalarFloat = internalFormat == 0x822E && format == 0x1903 && type == 0x1406;
-        const bool scalarUnsigned = internalFormat == 0x8236 && format == 0x8D94 && type == 0x1405;
         if (scalarFloat) { std::vector<uint8_t> raw(static_cast<size_t>(w)*h*4,0),unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=static_cast<size_t>(w)*h*4;if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(source)std::memcpy(raw.data(),source,raw.size());ExperimentalTexture uploadTexture;uploadTexture.width=w;uploadTexture.height=h;uploadTexture.internalFormat=internalFormat;uploadTexture.pixels=raw;uint64_t handle=createTextureFromCanonical(uploadTexture);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.pixels=std::move(raw);return; }
-        if (scalarUnsigned) { std::vector<uint32_t> raw(static_cast<size_t>(w)*h,0); if(data){const size_t rowBytes=static_cast<size_t>(w)*sizeof(uint32_t), alignment=static_cast<size_t>(std::max(1,g_glBridge.state().unpackAlignment)), stride=(rowBytes+alignment-1)/alignment*alignment;for(int32_t row=0;row<h;++row)std::memcpy(raw.data()+static_cast<size_t>(row)*w,static_cast<const uint8_t*>(data)+static_cast<size_t>(row)*stride,rowBytes);} ExperimentalTexture uploadTexture; uploadTexture.width=w; uploadTexture.height=h; uploadTexture.internalFormat=internalFormat; uploadTexture.pixels.assign(static_cast<size_t>(w)*h*4,0); for(size_t i=0;i<raw.size();++i){uploadTexture.pixels[i*4]=static_cast<uint8_t>(raw[i]>>24);uploadTexture.pixels[i*4+3]=255;} uint64_t handle=g_metalRenderer.createTextureFormat(static_cast<uint32_t>(w),static_cast<uint32_t>(h),static_cast<uint32_t>(internalFormat),raw.data(),false); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;} std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.target=target;texture.pixels=std::move(uploadTexture.pixels);texture.mipLevels.resize(1);texture.mipLevels[0]=texture.pixels;return; }
         const bool depthTexture = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC || internalFormat == 0x88F0 || internalFormat == 0x8D48;
         if (depthTexture) {
             std::vector<uint8_t> pixels;
