@@ -84,14 +84,8 @@ void GLShaderTracker::deleteShader(uint32_t name) {
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    m_shaders.erase(name);
-
-    // Detach from any program that referenced this shader. We don't delete
-    // the program; that's the caller's responsibility via deleteProgram().
-    for (auto& kv : m_programs) {
-        auto& attached = kv.second;
-        attached.erase(std::remove(attached.begin(), attached.end(), name), attached.end());
-    }
+    auto shader = m_shaders.find(name);
+    if (shader != m_shaders.end()) shader->second.deleteRequested = true;
 }
 
 GLShaderState* GLShaderTracker::getShader(uint32_t name) {
@@ -106,6 +100,13 @@ GLShaderState* GLShaderTracker::getShader(uint32_t name) {
         return nullptr;
     }
     return &it->second;
+}
+
+bool GLShaderTracker::isShader(uint32_t name) const {
+    if (name == 0) return false;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_shaders.find(name);
+    return it != m_shaders.end() && !it->second.deleteRequested;
 }
 
 uint32_t GLShaderTracker::createProgram() {
@@ -136,6 +137,8 @@ void GLShaderTracker::attachShader(uint32_t program, uint32_t shader) {
     if (it == m_programs.end()) {
         return;
     }
+    auto shaderIt = m_shaders.find(shader);
+    if (shaderIt == m_shaders.end() || shaderIt->second.deleteRequested) return;
 
     auto& attached = it->second;
     if (std::find(attached.begin(), attached.end(), shader) == attached.end()) {

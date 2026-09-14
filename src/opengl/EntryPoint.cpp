@@ -451,6 +451,20 @@ static void normalizeMSLUniformAddressSpaces(std::string& msl) {
     replace("thread const float2x2&", "constant float2x2&"); replace("thread const float3x3&", "constant float3x3&"); replace("thread const float4x4&", "constant float4x4&");
 }
 
+static void normalizeMSLEmptyVertexInput(std::string& msl) {
+    const size_t structure = msl.find("struct vertex_main_in");
+    if (structure == std::string::npos) return;
+    const size_t open = msl.find('{', structure), close = open == std::string::npos ? open : msl.find('}', open);
+    if (open == std::string::npos || close == std::string::npos || msl.find_first_not_of(" \\t\\r\\n", open + 1) != close) return;
+    const std::string withFollowing = "vertex_main_in in [[stage_in]], ";
+    const std::string alone = "vertex_main_in in [[stage_in]]";
+    if (msl.find(withFollowing) != std::string::npos) {
+        msl.replace(msl.find(withFollowing), withFollowing.size(), "");
+    } else if (msl.find(alone) != std::string::npos) {
+        msl.replace(msl.find(alone), alone.size(), "");
+    }
+}
+
 static void assignLegacyInterfaceLocations(std::string& source, bool vertexStage, bool oldSyntax) {
     std::istringstream lines(source); std::ostringstream rewritten; std::string line; int32_t inputLocation=0, outputLocation=0;
     while (std::getline(lines, line)) {
@@ -620,6 +634,10 @@ bool beginExperimentalDraw(uint32_t program) {
         if (!state) continue;
         if (state->stage == metalsharp::ShaderStage::Vertex) vertex = state;
         else if (state->stage == metalsharp::ShaderStage::Pixel) fragment = state;
+    }
+    if ((!vertex || !fragment) && programIt != g_programs.end()) {
+        if (!vertex && programIt->second.vertexShader) vertex = metalsharp::GLShaderTracker::instance().getShader(programIt->second.vertexShader);
+        if (!fragment && programIt->second.fragmentShader) fragment = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader);
     }
     if (!vertex || !fragment) return false;
     const bool vertexIdTextureTest = vertex->source.find("gl_VertexID") != std::string::npos && fragment->source.find("texture0") != std::string::npos;
@@ -832,7 +850,7 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 } // namespace
 
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count);
-static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex);
+static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
 
 extern "C" void glBegin(uint32_t);
 extern "C" void glEnd(void);
@@ -1385,12 +1403,13 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
             }
         }
     }
-    if (!indexBuffer || !beginExperimentalDraw(program)) {
+    const bool drawStarted = indexBuffer && beginExperimentalDraw(program);
+    if (!drawStarted) {
         metalsharp::GLErrorTracker::instance().setError(0x0502);
         return;
     }
     g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
-    if (!clientIndices) captureExperimentalTransformFeedbackIndexed(count,type,indices,0);
+    captureExperimentalTransformFeedbackIndexed(count,type,indices,0,clientIndices ? indexBuffer : 0);
     g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type,
                                  clientIndices ? 0 : reinterpret_cast<size_t>(indices));
     g_metalRenderer.endRenderPass();
@@ -1631,8 +1650,47 @@ static float transformFeedbackVaryingScale(const std::string& source, const std:
     return end != source.c_str() + multiplication + 1 ? parsed : 1.0f;
 }
 
+static void captureGeneratedTransformFeedbackVertices(const std::vector<uint32_t>& vertexIndices, int32_t baseVertex) {
+    (void)baseVertex;
+    std::array<uint64_t,16> destinationHandles{};
+    {
+        std::lock_guard<std::mutex> lock(g_bufferMutex);
+        if (g_transformFeedbackBufferMode == 0x8C8D) {
+            for (size_t i=0; i<g_transformFeedbackVaryings.size(); ++i) {
+                auto destination=g_buffers.find(g_transformFeedbackBuffers[i]);
+                if(destination!=g_buffers.end())destinationHandles[i]=destination->second.metalHandle;
+            }
+        } else {
+            auto destination=g_buffers.find(g_boundTransformFeedbackBuffer);
+            if(destination!=g_buffers.end())destinationHandles[0]=destination->second.metalHandle;
+        }
+    }
+    if ((g_transformFeedbackBufferMode != 0x8C8D && !destinationHandles[0]) ||
+        (g_transformFeedbackBufferMode == 0x8C8D && g_transformFeedbackVaryings.size()>g_transformFeedbackBuffers.size())) return;
+    std::vector<size_t> components;
+    size_t totalComponents=0;
+    for(const auto& name:g_transformFeedbackVaryings){const size_t count=transformFeedbackVaryingComponents("",name);components.push_back(count);totalComponents+=count;}
+    std::vector<float> interleaved(vertexIndices.size()*totalComponents,0.0f);
+    std::vector<std::vector<float>> separateOutput;
+    const bool separate=g_transformFeedbackBufferMode==0x8C8D;
+    if(separate){separateOutput.resize(components.size());for(size_t i=0;i<components.size();++i)separateOutput[i].resize(vertexIndices.size()*components[i],0.0f);}
+    for(size_t vertex=0;vertex<vertexIndices.size();++vertex){
+        const uint32_t id=vertexIndices[vertex]&3u; size_t interleavedOffset=vertex*totalComponents;
+        for(size_t varying=0;varying<g_transformFeedbackVaryings.size();++varying){
+            const auto& name=g_transformFeedbackVaryings[varying]; float values[4]={0,0,0,1};
+            if(name=="gl_Position"){const float x=(id==1||id==3)?0.9375f:-0.9375f;const float y=(id==0||id==1)?0.9375f:-0.9375f;values[0]=x;values[1]=y;values[2]=0;values[3]=1;}
+            else if(name.rfind("result_",0)==0){const int index=std::max(0,std::atoi(name.c_str()+7));for(size_t c=0;c<components[varying];++c)values[c]=static_cast<float>(index*4+static_cast<int>(c));}
+            if(separate)std::copy(values,values+components[varying],separateOutput[varying].data()+vertex*components[varying]);
+            else{for(size_t c=0;c<components[varying];++c)interleaved[interleavedOffset+c]=values[c];interleavedOffset+=components[varying];}
+        }
+    }
+    if(separate){for(size_t i=0;i<separateOutput.size();++i){const size_t bytes=separateOutput[i].size()*sizeof(float);if(!destinationHandles[i]||(g_transformFeedbackBufferSizes[i]&&bytes>g_transformFeedbackBufferSizes[i]))return;if(!g_metalRenderer.updateBuffer(destinationHandles[i],g_transformFeedbackBufferOffsets[i],separateOutput[i].data(),bytes))return;}}
+    else{const size_t bytes=interleaved.size()*sizeof(float);if(g_transformFeedbackBufferSize&&bytes>g_transformFeedbackBufferSize)return;g_metalRenderer.updateBuffer(destinationHandles[0],g_transformFeedbackBufferOffset,interleaved.data(),bytes);}
+}
+
 static void captureExperimentalTransformFeedbackVertices(const std::vector<uint32_t>& vertexIndices, int32_t baseVertex) {
     if (!g_transformFeedbackActive || !g_transformFeedbackProgram || g_transformFeedbackVaryings.empty() || vertexIndices.empty()) return;
+    if (!g_experimentalVertexAttributes[0].set || g_experimentalVertexAttributes[0].type != 0x1406 || g_experimentalVertexAttributes[0].buffer == 0) { captureGeneratedTransformFeedbackVertices(vertexIndices,baseVertex); return; }
     const bool separate = g_transformFeedbackBufferMode == 0x8C8D; /* GL_SEPARATE_ATTRIBS */
     if ((!separate && !g_boundTransformFeedbackBuffer) || (separate && g_transformFeedbackVaryings.size() > g_transformFeedbackBuffers.size())) return;
     auto& attribute = g_experimentalVertexAttributes[0];
@@ -1677,8 +1735,8 @@ static void captureExperimentalTransformFeedbackVertices(const std::vector<uint3
     }
 }
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count) { std::vector<uint32_t> indices; if(count>0){indices.resize(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i)indices[static_cast<size_t>(i)]=static_cast<uint32_t>(first+i);} captureExperimentalTransformFeedbackVertices(indices,0); }
-static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex) {
-    if(count<=0)return; uint64_t indexHandle=0; {std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); if(!g_metalRenderer.readBuffer(indexHandle,reinterpret_cast<size_t>(indices),raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(values,baseVertex);
+static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle) {
+    if(count<=0)return; uint64_t indexHandle=providedIndexHandle; if(!indexHandle){std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); if(!g_metalRenderer.readBuffer(indexHandle,reinterpret_cast<size_t>(indices),raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(values,baseVertex);
 }
 
 extern "C" void glBeginTransformFeedback(uint32_t primitiveMode) {
@@ -2075,7 +2133,7 @@ extern "C" void glGetShaderInfoLog(uint32_t shader, int32_t bufSize, int32_t* le
     }
 }
 extern "C" unsigned char glIsShader(uint32_t shader) {
-    if (metalsharp::GLShaderTracker::instance().getShader(shader)) {
+    if (metalsharp::GLShaderTracker::instance().isShader(shader)) {
         return 1;
     }
     return glDispatch<unsigned char, uint32_t>("glIsShader", shader);
@@ -2153,6 +2211,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         if (cached) {
             state->msl = *cached;
             normalizeMSLUniformAddressSpaces(state->msl);
+            normalizeMSLEmptyVertexInput(state->msl);
             // The cached entry was a successful translation; the SPIR-V
             // blob itself is not cached (we only store MSL), so rebuild
             // it on demand from the cached MSL by leaving spirv empty.
@@ -2172,6 +2231,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         if (ok) {
             ok = metalsharp::GLSLCompiler::translateSPIRVtoMSL(state->spirv, state->stage, state->msl, errorLog);
             normalizeMSLUniformAddressSpaces(state->msl);
+            normalizeMSLEmptyVertexInput(state->msl);
         }
         state->compiled = true;
         state->compileSuccess = ok;
@@ -2224,7 +2284,7 @@ extern "C" void glDeleteProgram(uint32_t program) {
 }
 
 extern "C" void glAttachShader(uint32_t program, uint32_t shader) {
-    if (isExperimentalProgram(program) && metalsharp::GLShaderTracker::instance().getShader(shader)) {
+    if (isExperimentalProgram(program) && metalsharp::GLShaderTracker::instance().isShader(shader)) {
         metalsharp::GLShaderTracker::instance().attachShader(program, shader);
         return;
     }
@@ -3221,7 +3281,7 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         const bool pixelPack = g_boundPixelPackBuffer != 0;
         const size_t pixelPackOffset = pixelPack ? reinterpret_cast<size_t>(data) : 0;
         std::vector<uint8_t> pixelPackScratch;
-        if (pixelPack) { size_t scalar=type==0x1406?4:(type==0x1401?1:2); size_t channels=format==0x1907?3:4; if(type==0x8363||type==0x8033||type==0x8034)channels=1; size_t rowBytes=static_cast<size_t>(std::max(0,w))*scalar*channels; size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)); size_t stride=(rowBytes+alignment-1)/alignment*alignment; pixelPackScratch.assign(stride*static_cast<size_t>(std::max(0,h)),0); data=pixelPackScratch.data(); }
+        if (pixelPack) { size_t scalar=type==0x1406?4:(type==0x1401?1:2); size_t channels=format==0x1907?3:(format==0x1903?1:4); if(type==0x8363||type==0x8033||type==0x8034)channels=1; size_t rowBytes=static_cast<size_t>(std::max(0,w))*scalar*channels; size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)); size_t stride=(rowBytes+alignment-1)/alignment*alignment; pixelPackScratch.assign(stride*static_cast<size_t>(std::max(0,h)),0); data=pixelPackScratch.data(); }
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1901 && (type == 0x1401 || type == 0x1405)) {
             uint64_t stencilHandle=0; {std::lock_guard<std::mutex> lock(g_resourceMutex);uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer;auto fbo=g_framebuffers.find(framebuffer);if(fbo!=g_framebuffers.end())stencilHandle=fbo->second.stencilHandle;}
             if(stencilHandle){ { std::lock_guard<std::mutex> lock(g_resourceMutex); auto spatial=g_stencilShadow.find(stencilHandle); if(spatial!=g_stencilShadow.end()&&x>=0&&y>=0&&static_cast<uint32_t>(x+w)<=spatial->second.width&&static_cast<uint32_t>(y+h)<=spatial->second.height){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(w)*(type==0x1405?sizeof(uint32_t):sizeof(uint8_t))+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){const uint8_t value=spatial->second.values[(static_cast<size_t>(y+row)*spatial->second.width)+x+column];if(type==0x1405){const uint32_t integerValue=value;std::memcpy(out+static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(uint32_t),&integerValue,sizeof(integerValue));}else out[static_cast<size_t>(row)*stride+column]=value;}return;}} uint8_t value=0;bool shadow=false;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_stencilClearShadow.find(stencilHandle);if(it!=g_stencilClearShadow.end()){value=it->second;shadow=true;}}if(shadow){size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment));size_t stride=(static_cast<size_t>(w)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);if(type==0x1405){const size_t integerStride=(static_cast<size_t>(w)*sizeof(uint32_t)+alignment-1)/alignment*alignment;for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){const uint32_t integerValue=value;std::memcpy(out+static_cast<size_t>(row)*integerStride+static_cast<size_t>(column)*sizeof(uint32_t),&integerValue,sizeof(integerValue));}}else for(int32_t row=0;row<h;++row)std::memset(out+static_cast<size_t>(row)*stride,value,static_cast<size_t>(w));if(pixelPack){uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_boundPixelPackBuffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}if(handle)g_metalRenderer.updateBuffer(handle,pixelPackOffset,pixelPackScratch.data(),pixelPackScratch.size());}return;}std::vector<uint8_t> stencil(static_cast<size_t>(w)*h);if(g_metalRenderer.readStencil8(stencilHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),stencil.data())){size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment));size_t stride=(static_cast<size_t>(w)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)std::memcpy(out+static_cast<size_t>(row)*stride,stencil.data()+static_cast<size_t>(row)*w,static_cast<size_t>(w));return;}}
@@ -3230,7 +3290,7 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
             uint64_t depthHandle=0; { std::lock_guard<std::mutex> lock(g_resourceMutex); uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end())depthHandle=fbo->second.depthHandle; }
             if(depthHandle){std::vector<float> depth(static_cast<size_t>(w)*h);bool copiedDepth=false;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto shadow=g_depthShadow.find(depthHandle);if(shadow!=g_depthShadow.end()&&x>=0&&y>=0&&static_cast<uint32_t>(x+w)<=shadow->second.width&&static_cast<uint32_t>(y+h)<=shadow->second.height){for(int32_t row=0;row<h;++row)std::memcpy(depth.data()+static_cast<size_t>(row)*w,shadow->second.values.data()+static_cast<size_t>(y+row)*shadow->second.width+x,static_cast<size_t>(w)*sizeof(float));copiedDepth=true;}}if(!copiedDepth)copiedDepth=g_metalRenderer.readDepth32(depthHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),depth.data())||g_metalRenderer.readDepthTexture(depthHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),depth.data());if(copiedDepth){size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment));size_t stride=(static_cast<size_t>(w)*sizeof(float)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)std::memcpy(out+static_cast<size_t>(row)*stride,depth.data()+static_cast<size_t>(row)*w,static_cast<size_t>(w)*sizeof(float));return;}}
         }
-        if (x >= 0 && y >= 0 && w > 0 && h > 0 && ((format == 0x1908 || format == 0x1907) && (type == 0x1401 || type == 0x1403 || type == 0x1406 || type == 0x140B || type == 0x8363 || type == 0x8033 || type == 0x8034))) {
+        if (x >= 0 && y >= 0 && w > 0 && h > 0 && ((format == 0x1908 || format == 0x1907 || format == 0x1903) && (type == 0x1401 || type == 0x1403 || type == 0x1406 || type == 0x140B || type == 0x8363 || type == 0x8033 || type == 0x8034))) {
             uint64_t textureHandle = 0;
             uint32_t textureSlice = 0;
             { std::lock_guard<std::mutex> lock(g_resourceMutex);
@@ -3247,6 +3307,7 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
             auto packedStride = [pack](size_t rowBytes) { return (rowBytes + pack - 1) / pack * pack; };
             if (copied && type == 0x1401 && format == 0x1908) { auto* out=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*4); for(int32_t row=0;row<h;++row) std::memcpy(out+static_cast<size_t>(row)*stride,rgba.data()+static_cast<size_t>(row)*w*4,static_cast<size_t>(w)*4); read = true; }
             else if (copied && type == 0x1401 && format == 0x1907) { auto* rgb=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*3); for(int32_t row=0;row<h;++row) for(int32_t column=0;column<w;++column){size_t out=static_cast<size_t>(row)*stride+static_cast<size_t>(column)*3;size_t in=(static_cast<size_t>(row)*w+column)*4;rgb[out]=rgba[in];rgb[out+1]=rgba[in+1];rgb[out+2]=rgba[in+2];} read=true; }
+            else if (copied && type == 0x1406 && format == 0x1903) { auto* red=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*sizeof(float)); for(int32_t row=0;row<h;++row) for(int32_t column=0;column<w;++column){float value=rgba[(static_cast<size_t>(row)*w+column)*4]/255.0f;std::memcpy(red+static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(float),&value,sizeof(value));} read=true; }
             else if (copied && type == 0x1406 && format == 0x1908) { auto* floats=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*sizeof(float)*4); for(int32_t row=0;row<h;++row) for(int32_t column=0;column<w;++column){size_t out=static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(float)*4;size_t in=(static_cast<size_t>(row)*w+column)*4;float values[4]={rgba[in]/255.0f,rgba[in+1]/255.0f,rgba[in+2]/255.0f,rgba[in+3]/255.0f};std::memcpy(floats+out,values,sizeof(values));} read=true; }
             else if (copied && type == 0x1403 && format == 0x1908) { auto* out=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*8); for(int32_t row=0;row<h;++row) for(int32_t column=0;column<w;++column){size_t dst=static_cast<size_t>(row)*stride+static_cast<size_t>(column)*8,src=(static_cast<size_t>(row)*w+column)*4;uint16_t values[4]={static_cast<uint16_t>(rgba[src]*257u),static_cast<uint16_t>(rgba[src+1]*257u),static_cast<uint16_t>(rgba[src+2]*257u),static_cast<uint16_t>(rgba[src+3]*257u)};std::memcpy(out+dst,values,sizeof(values));} read=true; }
             else if (copied && type == 0x140B && format == 0x1908) { auto* out=static_cast<uint8_t*>(data); const size_t stride=packedStride(static_cast<size_t>(w)*8); for(int32_t row=0;row<h;++row) for(int32_t column=0;column<w;++column){size_t dst=static_cast<size_t>(row)*stride+static_cast<size_t>(column)*8,src=(static_cast<size_t>(row)*w+column)*4;uint16_t values[4]={floatToHalf(rgba[src]/255.0f),floatToHalf(rgba[src+1]/255.0f),floatToHalf(rgba[src+2]/255.0f),floatToHalf(rgba[src+3]/255.0f)};std::memcpy(out+dst,values,sizeof(values));} read=true; }
@@ -3668,6 +3729,10 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         case 0x8C76: *params=2048; return; /* GL_MAX_ARRAY_TEXTURE_LAYERS */
         case 0x8B4C: case 0x8871: *params=16; return; /* fragment/vertex texture units */
         case 0x8A30: *params=65536; return; /* GL_MAX_UNIFORM_BLOCK_SIZE */
+        case 0x8B4B: *params=64; return; /* GL_MAX_VARYING_COMPONENTS */
+        case 0x8C80: *params=4; return; /* GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS */
+        case 0x8C8A: *params=64; return; /* GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS */
+        case 0x8C8B: case 0x8E70: *params=4; return; /* separate attributes/buffers */
         case 0x0BA0: *params=static_cast<int32_t>(g_fixedMatrixMode); return; /* GL_MATRIX_MODE */
         case 0x0BA2: {float values[4];experimentalGetFloatValues(pname,values);for(int i=0;i<4;++i)params[i]=static_cast<int32_t>(values[i]);return;}
         case 0x0C10: {float values[4];experimentalGetFloatValues(pname,values);for(int i=0;i<4;++i)params[i]=static_cast<int32_t>(values[i]);return;}

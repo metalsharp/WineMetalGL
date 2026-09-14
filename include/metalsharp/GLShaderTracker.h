@@ -45,8 +45,9 @@ namespace metalsharp {
 ///   3. glCompileShader() drives GLSLCompiler::compileToSPIRV +
 ///      GLSLCompiler::translateSPIRVtoMSL when needsCrossCompile is true
 ///      and stores the SPIR-V / MSL outputs here.
-///   4. glDeleteShader() removes the entry; downstream callers see getShader()
-///      return nullptr for the recycled name.
+///   4. glDeleteShader() marks the shader for deletion. An attached program
+///      retains the state until it is detached or deleted, matching OpenGL's
+///      deferred shader lifetime rules.
 struct GLShaderState {
     uint32_t type = 0;                       // GL_VERTEX_SHADER, GL_FRAGMENT_SHADER, ...
     ShaderStage stage = ShaderStage::Vertex; // Internal stage enum
@@ -58,6 +59,7 @@ struct GLShaderState {
     bool compiled = false;       // glCompileShader has been called at least once
     bool compileSuccess = false; // True iff cross-compile + SPIRV->MSL both succeeded
     std::string infoLog;         // Compile / translate error / warning messages
+    bool deleteRequested = false; // GL_DELETE_STATUS; retained while attached to a program
 };
 
 /// Thread-safe tracker for shader and program objects created through the
@@ -77,14 +79,15 @@ class GLShaderTracker {
     ///         unsupported shader type).
     uint32_t createShader(uint32_t type);
 
-    /// Removes the shader entry if present. Silently no-ops for unknown names.
-    /// Also detaches the shader from any program that references it so that
-    /// dangling attachments don't survive deletion.
+    /// Marks the shader for deletion. Attached programs retain the shader
+    /// state until their attachment is released; a deleted shader is no
+    /// longer reported by isShader().
     void deleteShader(uint32_t name);
 
     /// Returns the tracked state for a shader, or nullptr if the handle is
     /// unknown. Callers should null-check before dereferencing.
     GLShaderState* getShader(uint32_t name);
+    bool isShader(uint32_t name) const;
 
     // ----- Program lifecycle ---------------------------------------------------
 
