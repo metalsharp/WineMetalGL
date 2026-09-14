@@ -57,6 +57,29 @@ x86_64 and i386 Windows fixtures. Both guests passed:
 - Sync/fence completion behavior and query-result buffer writes.
 - CAMetalLayer-backed default-surface presentation through `SwapBuffers`, including drawable resize/present.
 
+## Khronos CTS targeted evidence
+
+The VK-GL-CTS executable at
+`/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`
+was run in fresh WoW64 prefixes with the current sidecar. These are targeted
+results, not a full conformance claim:
+
+- `KHR-GL30.texture_repeat_mode.*`: 162/162 pass.
+- `KHR-GL30.texture_lod_basic.*`: 1/1 pass.
+- `KHR-GL30.texture_lod_bias.*`: 1/1 pass.
+- `KHR-GL30.framebuffer_blit.*`: 3/3 pass.
+- `KHR-GL30.info.extensions`: 1/1 pass; the earlier null function-pointer
+  crash was not reproduced.
+- `KHR-GL30.shaders30.*`: 651/651 pass.
+- `KHR-GL30.buffer_objects.*`: 4/5 pass; `triangles` still fails its
+  fixed-lighting raster check.
+- `KHR-GL30.transform_feedback.*`: 14/21 pass; vertex capture/query and two
+  validation cases remain unresolved.
+
+The failing and unresolved CTS cases remain outside the advertised support
+boundary below. No public release is promoted from this candidate on the
+basis of these targeted runs alone.
+
 Observed markers:
 
 ```text
