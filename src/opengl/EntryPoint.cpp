@@ -1801,10 +1801,12 @@ extern "C" void glDispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
             if (image != g_textures.end() && !image->second.pixels.empty() &&
                 (image->second.internalFormat == 0x8D7C || image->second.internalFormat == 0x881A)) {
                 std::vector<uint8_t> storage;
-                for (uint32_t channel = 0; channel < 4; ++channel)
+                for (uint32_t channel = 0; channel < 4; ++channel) {
+                    const uint32_t logicalChannel = image->second.internalFormat == 0x881A && channel < 3 ? 2 - channel : channel;
                     image->second.pixels[channel] = unsignedValue && image->second.internalFormat == 0x8D7C
-                        ? static_cast<uint8_t>(std::min(value[channel], 255.0f))
-                        : static_cast<uint8_t>(std::clamp(value[channel], 0.0f, 1.0f) * 255.0f + 0.5f);
+                        ? static_cast<uint8_t>(std::min(value[logicalChannel], 255.0f))
+                        : static_cast<uint8_t>(std::clamp(value[logicalChannel], 0.0f, 1.0f) * 255.0f + 0.5f);
+                }
                 const void* upload = image->second.pixels.data();
                 if (image->second.internalFormat == 0x881A) {
                     std::vector<uint16_t> half(static_cast<size_t>(image->second.width) * image->second.height * 4, 0);
@@ -3166,6 +3168,13 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         }
     }
     if (metalModeEnabled() && (target == 0x0DE1 || target == 0x84F5) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
+        uint32_t textureFormat=0, textureWidth=0, textureHeight=0; std::vector<uint8_t> canonical;
+        { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){textureFormat=static_cast<uint32_t>(it->second.internalFormat);textureWidth=it->second.width;textureHeight=it->second.height;if((textureFormat==0x8229||textureFormat==0x822B||textureFormat==0x8040||textureFormat==0x8D7C||textureFormat==0x881A)&&!it->second.pixels.empty())canonical=it->second.pixels;} }
+        if(!canonical.empty()){
+            std::vector<uint8_t> logical(canonical.size());
+            for(size_t i=0;i+3<canonical.size();i+=4){if(textureFormat==0x8D7C){logical[i]=canonical[i];logical[i+1]=canonical[i+1];logical[i+2]=canonical[i+2];}else if(textureFormat==0x8229){logical[i]=canonical[i+2];}else if(textureFormat==0x822B){logical[i]=canonical[i+2];logical[i+1]=canonical[i+1];}else{logical[i]=canonical[i+2];logical[i+1]=canonical[i+1];logical[i+2]=canonical[i];}logical[i+3]=canonical[i+3];}
+            if(writeRGBA8Pixels(logical.data(),static_cast<int32_t>(textureWidth),static_cast<int32_t>(textureHeight),1,format,type,pixels,g_glBridge.state().packAlignment))return;
+        }
         uint64_t depthHandle=0; uint32_t depthWidth=0,depthHeight=0; int32_t depthFormat=0;
         { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){depthHandle=it->second.metalHandle;depthWidth=it->second.width;depthHeight=it->second.height;depthFormat=it->second.internalFormat;} }
         const bool depthTexture=depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x8CAC;
