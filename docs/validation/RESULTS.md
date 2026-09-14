@@ -2,8 +2,8 @@
 
 Validation date: 2026-09-14
 
-The validated 1.9.2 artifacts are staged as a new immutable sibling beside the
-published 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
+The validated 1.9.3 artifacts are staged as a new immutable sibling beside the
+published 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
 
 ## Host gates
 
@@ -75,8 +75,8 @@ results, not a full conformance claim:
   triangle raster check.
 - `KHR-GL30.transform_feedback.*`: 21/21 pass, including vertex
   capture/query and rasterizer-discard behavior.
-- `KHR-GL31.api.coverage`: pass; uniform-block reflection and copy-buffer
-  validation are covered by the GL 3.1 API gate.
+- `KHR-GL31.api.coverage`: pass; active-uniform and uniform-block reflection
+  plus copy-buffer validation are covered by the GL 3.1 API gate.
 - `KHR-GL31.*`: 854/889 pass, 2 failures in the primitive-restart rendering
   case, and 33 explicitly unsupported cases. This result is recorded as
   outside the bounded release claim.

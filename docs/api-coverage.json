@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.9.0-candidate",
+  "release": "1.9.3",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -30,7 +30,7 @@
         "glUniform1f", "glUniform2f", "glUniform3f", "glUniform4f", "glProgramUniform1f", "glProgramUniform2f", "glProgramUniform3f", "glProgramUniform4f",
         "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i", "glProgramUniform1i", "glProgramUniform2i", "glProgramUniform3i", "glProgramUniform4i", "glUniform1ui", "glUniform2ui", "glUniform3ui", "glUniform4ui", "glProgramUniform1ui", "glProgramUniform2ui", "glProgramUniform3ui", "glProgramUniform4ui",
         "glUniform1uiv", "glUniform2uiv", "glUniform3uiv", "glUniform4uiv", "glProgramUniform1fv", "glProgramUniform2fv", "glProgramUniform3fv", "glProgramUniform4fv", "glProgramUniform1iv", "glProgramUniform2iv", "glProgramUniform3iv", "glProgramUniform4iv", "glProgramUniform1uiv", "glProgramUniform2uiv", "glProgramUniform3uiv", "glProgramUniform4uiv", "glProgramUniformMatrix2fv", "glProgramUniformMatrix3fv", "glProgramUniformMatrix4fv", "glUniformMatrix2x3fv", "glUniformMatrix2x4fv", "glUniformMatrix3x2fv", "glUniformMatrix3x4fv", "glUniformMatrix4x2fv", "glUniformMatrix4x3fv", "glUniformMatrix2fv", "glUniformMatrix3fv", "glUniformMatrix4fv",
-        "glShaderBinary", "glSpecializeShader", "glGetProgramBinary", "glProgramBinary", "glProgramParameteri", "glBindFragDataLocation", "glBindFragDataLocationIndexed", "glGetFragDataLocation", "glGetFragDataIndex", "glGetUniformLocation", "glGetUniformBlockIndex", "glUniformBlockBinding", "glGetProgramResourceIndex", "glGetProgramInterfaceiv", "glGetProgramResourceName", "glGetProgramResourceLocation", "glGetProgramResourceiv", "glShaderStorageBlockBinding", "glGetActiveUniformBlockiv", "glGetActiveUniformBlockName", "glDrawArraysInstanced", "glDrawElementsInstanced",
+        "glShaderBinary", "glSpecializeShader", "glGetProgramBinary", "glProgramBinary", "glProgramParameteri", "glBindFragDataLocation", "glBindFragDataLocationIndexed", "glGetFragDataLocation", "glGetFragDataIndex", "glGetUniformLocation", "glGetUniformIndices", "glGetActiveUniformsiv", "glGetActiveUniformName", "glGetUniformBlockIndex", "glUniformBlockBinding", "glGetProgramResourceIndex", "glGetProgramInterfaceiv", "glGetProgramResourceName", "glGetProgramResourceLocation", "glGetProgramResourceiv", "glShaderStorageBlockBinding", "glGetActiveUniformBlockiv", "glGetActiveUniformBlockName", "glDrawArraysInstanced", "glDrawElementsInstanced",
         "glGenVertexArrays", "glBindVertexArray", "glVertexAttribDivisor",
         "glGenTextures", "glCreateTextures", "glBindTexture", "glBindTextureUnit", "glBindTextures", "glActiveTexture", "glTexImage1D", "glTexSubImage1D", "glTexStorage1D", "glTexImage2D", "glTexStorage2D", "glTexStorage3D", "glTextureStorage2D", "glTextureStorage3D", "glTextureView", "glTextureParameteri", "glTextureSubImage2D", "glTextureSubImage3D", "glGenerateTextureMipmap", "glGetTextureLevelParameteriv",
         "glTexSubImage2D", "glCopyTexImage2D", "glCopyTexSubImage2D", "glGetInternalformativ", "glGetTexImage", "glGetTextureImage", "glGetTexLevelParameteriv", "glTexImage3D", "glTexSubImage3D", "glCopyImageSubData", "glBindImageTexture", "glBindImageTextures", "glDispatchComputeIndirect", "glPixelStorei (pack/unpack alignment)", "glTexParameteri", "glTexParameterf", "texture swizzle state", "glTexParameteriv", "glTexParameterfv", "glGetTexParameteriv", "glGetTexParameterfv", "glGenerateMipmap", "glGenSamplers", "glIsSampler", "glBindSampler", "glBindSamplers", "glSamplerParameteri", "glSamplerParameterf", "glSamplerParameteriv", "glSamplerParameterfv", "glGetSamplerParameteriv", "glGetSamplerParameterfv", "glGenFramebuffers", "glCreateFramebuffers", "glGenProgramPipelines", "glDeleteProgramPipelines", "glBindProgramPipeline", "glIsProgramPipeline", "glUseProgramStages", "glValidateProgramPipeline", "glGetProgramPipelineiv",
@@ -78,6 +78,7 @@
     "complete Khronos OpenGL 4.6 conformance",
     "general geometry/full tessellation-control and general shader transform-feedback emulation",
     "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond validated 2D rgba8/r32ui/r32f/rgba8ui/rgba16f",
-    "complete texture/sampler/FBO format matrix"
+    "complete texture/sampler/FBO format matrix",
+    "primitive-restart rendering semantics"
   ]
 }
