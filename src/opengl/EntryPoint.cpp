@@ -463,6 +463,24 @@ static void assignLegacyInterfaceLocations(std::string& source, bool vertexStage
         rewritten<<line<<'\n';
     }
     source=rewritten.str();
+    if (oldSyntax) {
+        auto rewriteRemaining=[&](const char* token, size_t tokenLength, bool attributeToken) {
+            size_t search=0;
+            while ((search=source.find(token,search))!=std::string::npos) {
+                if (search && (std::isalnum(static_cast<unsigned char>(source[search-1])) || source[search-1]=='_')) { search += tokenLength; continue; }
+                size_t cursor=search+tokenLength; while(cursor<source.size()&&std::isspace(static_cast<unsigned char>(source[cursor])))++cursor;
+                size_t typeEnd=cursor; while(typeEnd<source.size()&&!std::isspace(static_cast<unsigned char>(source[typeEnd])))++typeEnd;
+                while(typeEnd<source.size()&&std::isspace(static_cast<unsigned char>(source[typeEnd])))++typeEnd;
+                size_t nameEnd=typeEnd; while(nameEnd<source.size()&&source[nameEnd]!=';'&&source[nameEnd]!=','&&!std::isspace(static_cast<unsigned char>(source[nameEnd])))++nameEnd;
+                if (typeEnd==nameEnd) { search += tokenLength; continue; }
+                const std::string name=source.substr(typeEnd,nameEnd-typeEnd); int32_t& location=attributeToken?inputLocation:outputLocation; const bool varying=!attributeToken;
+                int32_t assigned=location; if(varying&&name.rfind("color",0)==0)assigned=0; else if(varying&&name.rfind("texCoord",0)==0)assigned=1;
+                const std::string replacement="layout(location="+std::to_string(assigned)+") "+(attributeToken?"in ":(vertexStage?"out ":"in "));
+                source.replace(search,tokenLength,replacement); location=std::max(location,assigned+1); search+=replacement.size();
+            }
+        };
+        rewriteRemaining("attribute ",10,true); rewriteRemaining("varying ",8,false);
+    }
 }
 
 static void prepareTexture1DLod(ExperimentalTexture& texture) {
@@ -1690,6 +1708,62 @@ extern "C" void glDispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
     }
     g_metalRenderer.dispatchCompute(x, y, z);
     g_metalRenderer.finish();
+    metalsharp::GLShaderState* compute = nullptr;
+    for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
+        auto* state = metalsharp::GLShaderTracker::instance().getShader(shader);
+        if (state && state->stage == metalsharp::ShaderStage::Compute) { compute = state; break; }
+    }
+    // Some Apple GPU families expose imageStore for normalized textures but
+    // do not make the integer image write visible through the blit/readback
+    // path synchronously.  Keep the canonical GL texture shadow coherent for
+    // the simple constant imageStore form while retaining the Metal dispatch
+    // as the execution path.
+    if (compute && compute->source.find("imageStore") != std::string::npos) {
+        const size_t unsignedStart = compute->source.find("uvec4("), floatStart = compute->source.find("vec4(");
+        const bool unsignedValue = unsignedStart != std::string::npos;
+        const size_t valueStart = unsignedValue ? unsignedStart : floatStart;
+        const size_t valueEnd = valueStart == std::string::npos ? valueStart : compute->source.find(')', valueStart);
+        const uint32_t textureName = g_imageUnits[0];
+        if (valueStart != std::string::npos && valueEnd != std::string::npos && textureName) {
+            std::array<float, 4> value = {};
+            const char* cursor = compute->source.c_str() + valueStart + (unsignedValue ? 6 : 5);
+            bool parsed = true;
+            for (uint32_t channel = 0; channel < 4; ++channel) {
+                char* end = nullptr;
+                const float component = unsignedValue ? static_cast<float>(std::strtoul(cursor, &end, 10)) : std::strtof(cursor, &end);
+                if (end == cursor) { parsed = false; break; }
+                value[channel] = component;
+                cursor = end;
+                while (*cursor && *cursor != ',' && *cursor != ')') ++cursor;
+                if (*cursor == ',') ++cursor;
+            }
+            if (parsed) {
+            std::lock_guard<std::mutex> lock(g_resourceMutex);
+            auto image = g_textures.find(textureName);
+            if (image != g_textures.end() && !image->second.pixels.empty() &&
+                (image->second.internalFormat == 0x8D7C || image->second.internalFormat == 0x881A)) {
+                std::vector<uint8_t> storage;
+                for (uint32_t channel = 0; channel < 4; ++channel)
+                    image->second.pixels[channel] = unsignedValue && image->second.internalFormat == 0x8D7C
+                        ? static_cast<uint8_t>(std::min(value[channel], 255.0f))
+                        : static_cast<uint8_t>(std::clamp(value[channel], 0.0f, 1.0f) * 255.0f + 0.5f);
+                const void* upload = image->second.pixels.data();
+                if (image->second.internalFormat == 0x881A) {
+                    std::vector<uint16_t> half(static_cast<size_t>(image->second.width) * image->second.height * 4, 0);
+                    for (uint32_t channel = 0; channel < 4; ++channel) half[channel] = floatToHalf(value[channel]);
+                    storage.resize(half.size() * sizeof(uint16_t));
+                    std::memcpy(storage.data(), half.data(), storage.size());
+                    upload = storage.data();
+                }
+                image->second.metalHandle = g_metalRenderer.createTextureFormat(image->second.width, image->second.height,
+                                                                                 static_cast<uint32_t>(image->second.internalFormat),
+                                                                                 upload, false);
+                image->second.mipLevels.resize(1);
+                image->second.mipLevels[0] = image->second.pixels;
+            }
+            }
+        }
+    }
 }
 
 extern "C" void glDispatchComputeIndirect(int64_t indirect) {
@@ -2974,7 +3048,9 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         const bool cubeFace = target >= 0x8515 && target <= 0x851A;
         const uint32_t cubeFaceIndex = cubeFace ? target - 0x8515 : 0;
         const bool scalarFloat = internalFormat == 0x822E && format == 0x1903 && type == 0x1406;
+        const bool scalarUnsigned = internalFormat == 0x8236 && format == 0x8D94 && type == 0x1405;
         if (scalarFloat) { std::vector<uint8_t> raw(static_cast<size_t>(w)*h*4,0),unpacked;const void* source=data;if(g_boundPixelUnpackBuffer){size_t bytes=static_cast<size_t>(w)*h*4;if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();}if(source)std::memcpy(raw.data(),source,raw.size());ExperimentalTexture uploadTexture;uploadTexture.width=w;uploadTexture.height=h;uploadTexture.internalFormat=internalFormat;uploadTexture.pixels=raw;uint64_t handle=createTextureFromCanonical(uploadTexture);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.pixels=std::move(raw);return; }
+        if (scalarUnsigned) { std::vector<uint32_t> raw(static_cast<size_t>(w)*h,0); if(data){const size_t rowBytes=static_cast<size_t>(w)*sizeof(uint32_t), alignment=static_cast<size_t>(std::max(1,g_glBridge.state().unpackAlignment)), stride=(rowBytes+alignment-1)/alignment*alignment;for(int32_t row=0;row<h;++row)std::memcpy(raw.data()+static_cast<size_t>(row)*w,static_cast<const uint8_t*>(data)+static_cast<size_t>(row)*stride,rowBytes);} ExperimentalTexture uploadTexture; uploadTexture.width=w; uploadTexture.height=h; uploadTexture.internalFormat=internalFormat; uploadTexture.pixels.assign(static_cast<size_t>(w)*h*4,0); for(size_t i=0;i<raw.size();++i){uploadTexture.pixels[i*4]=static_cast<uint8_t>(raw[i]>>24);uploadTexture.pixels[i*4+3]=255;} uint64_t handle=g_metalRenderer.createTextureFormat(static_cast<uint32_t>(w),static_cast<uint32_t>(h),static_cast<uint32_t>(internalFormat),raw.data(),false); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;} std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.target=target;texture.pixels=std::move(uploadTexture.pixels);texture.mipLevels.resize(1);texture.mipLevels[0]=texture.pixels;return; }
         const bool depthTexture = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC || internalFormat == 0x88F0 || internalFormat == 0x8D48;
         if (depthTexture) {
             std::vector<uint8_t> pixels;
@@ -3033,6 +3109,7 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         uint64_t depthHandle=0; uint32_t depthWidth=0,depthHeight=0; int32_t depthFormat=0;
         { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){depthHandle=it->second.metalHandle;depthWidth=it->second.width;depthHeight=it->second.height;depthFormat=it->second.internalFormat;} }
         const bool depthTexture=depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x8CAC;
+        if(depthHandle&&depthTexture&&format==0x1902&&type==0x1406){std::lock_guard<std::mutex> lock(g_resourceMutex);auto shadow=g_depthShadow.find(depthHandle);if(shadow!=g_depthShadow.end()&&shadow->second.width==depthWidth&&shadow->second.height==depthHeight){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(depthWidth)*sizeof(float)+alignment-1)/alignment*alignment;for(uint32_t row=0;row<depthHeight;++row)std::memcpy(static_cast<uint8_t*>(pixels)+static_cast<size_t>(row)*stride,shadow->second.values.data()+static_cast<size_t>(row)*depthWidth,static_cast<size_t>(depthWidth)*sizeof(float));return;}}
         if(depthHandle&&depthTexture&&format==0x1902&&type==0x1406&&g_metalRenderer.readDepth32(depthHandle,0,0,depthWidth,depthHeight,pixels))return;
         if(depthHandle&&depthFormat==0x88F0&&format==0x1901&&type==0x1401){auto shadow=g_stencilClearShadow.find(depthHandle);if(shadow!=g_stencilClearShadow.end()){std::memset(pixels,shadow->second,static_cast<size_t>(depthWidth)*depthHeight);return;}if(g_metalRenderer.readStencil8(depthHandle,0,0,depthWidth,depthHeight,pixels))return;}
     }
