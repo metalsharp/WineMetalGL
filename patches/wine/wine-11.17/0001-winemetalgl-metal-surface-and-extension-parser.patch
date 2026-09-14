@@ -348,7 +348,7 @@ index 696734f..0baa9eb 100644
      TRACE("()\n");
  
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2644,379 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2644,380 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
  
  #undef LOAD_FUNCPTR
  
@@ -664,6 +664,7 @@ index 696734f..0baa9eb 100644
 +            WINEMETALGL_BIND(glUniformMatrix4x2fv);
 +            WINEMETALGL_BIND(glUniformMatrix4x3fv);
 +            WINEMETALGL_BIND(glUniformMatrix4fv);
++            WINEMETALGL_BIND(glGetUniformIndices);
 +            WINEMETALGL_BIND(glGetUniformBlockIndex);
 +            WINEMETALGL_BIND(glUniformBlockBinding);
 +            WINEMETALGL_BIND(glGetProgramResourceIndex);
