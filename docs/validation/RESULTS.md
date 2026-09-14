@@ -1,10 +1,9 @@
 # WineMetalGL current validation
 
-Validation date: 2026-09-13
+Validation date: 2026-09-14
 
-The validated 1.9.1 artifacts are staged separately from the immutable
-published 1.9.0 and 1.8.0 releases; the 1.9.1 release directory is a new
-sibling and does not replace any prior release.
+The validated 1.9.2 artifacts are staged as a new immutable sibling beside the
+published 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
 
 ## Host gates
 
@@ -21,7 +20,7 @@ architecture (`x86_64`). No ARM or universal artifact is part of this release.
 ## Wine gates
 
 `tests/wine/probe-opengl-wow64.sh` was run against the freshly rebuilt Wine
-11.17 candidate runtime, with the candidate's matching `opengl32.dll`,
+11.17 release runtime, with the release's matching `opengl32.dll`,
 `winemac.so`, `win32u.so`, and sidecar staged together.
 
 The runner created one fresh `WINEARCH=wow64` prefix and sequentially ran
@@ -76,6 +75,11 @@ results, not a full conformance claim:
   triangle raster check.
 - `KHR-GL30.transform_feedback.*`: 21/21 pass, including vertex
   capture/query and rasterizer-discard behavior.
+- `KHR-GL31.api.coverage`: pass; uniform-block reflection and copy-buffer
+  validation are covered by the GL 3.1 API gate.
+- `KHR-GL31.*`: 854/889 pass, 2 failures in the primitive-restart rendering
+  case, and 33 explicitly unsupported cases. This result is recorded as
+  outside the bounded release claim.
 
 The full Khronos OpenGL 4.6 suite was not run, so this release makes a
 bounded acceptance-matrix claim rather than a full-conformance claim. Features
@@ -248,7 +252,7 @@ native translation probe also reports `WINEMETALGL_NATIVE_TRANSLATION_OK`.
 
 ## Scope boundary
 
-This candidate does not claim complete Khronos OpenGL 4.6 conformance. The
+This release does not claim complete Khronos OpenGL 4.6 conformance. The
 machine-readable support boundary is `docs/api-coverage.json`; geometry,
 general tessellation-control/evaluation semantics, general transform feedback,
 fixed-function lighting/matrices/display lists, image formats beyond the
