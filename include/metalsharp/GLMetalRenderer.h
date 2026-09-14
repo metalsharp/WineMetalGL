@@ -86,7 +86,7 @@ class GLMetalRenderer {
     /// The shader must have valid MSL in its GLShaderState::msl field.
     /// @return true on success; false if shader compilation or pipeline
     /// creation failed.
-    bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState, uint32_t rasterSampleCount = 1);
+    bool createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader, const GLState& glState, uint32_t rasterSampleCount = 1, uint32_t colorFormat = 0x8058);
     bool createComputePipeline(const GLShaderState& computeShader);
     bool createTessellationPipeline(const GLShaderState& evaluationShader, const GLShaderState& fragmentShader, const GLState& glState, bool quad = false);
 
@@ -186,6 +186,7 @@ class GLMetalRenderer {
     /// and component count to an MTLVertexFormat.
     void setVertexAttribute(uint32_t index, int32_t size, uint32_t type, bool normalized,
                             uint32_t stride, uint64_t bufferHandle, size_t offset);
+    void clearVertexAttributes();
     void bindVertexAttributes();
 
     /// Allocate/update a uniform buffer at the given binding index.

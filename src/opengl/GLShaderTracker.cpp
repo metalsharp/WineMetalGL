@@ -72,7 +72,8 @@ uint32_t GLShaderTracker::createShader(uint32_t type) {
     state.type = type;
     state.stage = mapGLShaderType(type);
 
-    const uint32_t name = m_nextShaderName++;
+    uint32_t name = m_nextShaderName++;
+    while (m_shaders.count(name) || m_programs.count(name)) name = m_nextShaderName++;
     m_shaders.emplace(name, std::move(state));
     return name;
 }
@@ -112,7 +113,8 @@ bool GLShaderTracker::isShader(uint32_t name) const {
 uint32_t GLShaderTracker::createProgram() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    const uint32_t name = m_nextProgramName++;
+    uint32_t name = m_nextProgramName++;
+    while (m_programs.count(name) || m_shaders.count(name)) name = m_nextProgramName++;
     m_programs.emplace(name, std::vector<uint32_t>{});
     return name;
 }

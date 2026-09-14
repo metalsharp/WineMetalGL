@@ -196,7 +196,7 @@ bool GLMetalRenderer::createTessellationPipeline(const GLShaderState& evaluation
 }
 
 bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GLShaderState& fragmentShader,
-                                     const GLState& glState, uint32_t rasterSampleCount) {
+                                     const GLState& glState, uint32_t rasterSampleCount, uint32_t colorFormat) {
     if (!m_device)
         return false;
     if (vertexShader.msl.empty() || fragmentShader.msl.empty())
@@ -227,8 +227,9 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
     desc.fragmentFunction = [fLib newFunctionWithName:@"fragment_main"];
     desc.rasterSampleCount = std::max<NSUInteger>(1, rasterSampleCount);
 
-    // Default color attachment
-    desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    // Match the Metal render-target format. The OpenGL R32F renderbuffer
+    // path is used by clip-distance coverage and scalar readback tests.
+    desc.colorAttachments[0].pixelFormat = colorFormat == 0x822E ? MTLPixelFormatR32Float : MTLPixelFormatBGRA8Unorm;
     // Blend state from GL state. Unsupported factors fall back to the
     // conservative GL default (one, zero) rather than silently selecting a
     // different blend equation.
@@ -1173,6 +1174,15 @@ void GLMetalRenderer::setVertexAttribute(uint32_t index, int32_t size, uint32_t 
     Impl::VertexAttribute attribute{index, format, stride, bufferHandle, offset};
     if (it == m_impl->vertexAttributes.end()) m_impl->vertexAttributes.push_back(attribute);
     else *it = attribute;
+}
+
+void GLMetalRenderer::clearVertexAttributes()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->vertexAttributes.clear();
+    m_impl->vertexStride = 0;
+    m_impl->vertexAttributeOffsets.clear();
+    m_impl->vertexAttributeFormats.clear();
 }
 
 void GLMetalRenderer::bindVertexAttributes()
