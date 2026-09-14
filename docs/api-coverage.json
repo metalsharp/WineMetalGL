@@ -1,6 +1,6 @@
 {
   "project": "WineMetalGL",
-  "release": "1.9.5",
+  "release": "1.9.6",
   "host": {"os": "macOS", "minimum": "15.0", "architecture": "x86_64"},
   "guests": ["x86_64", "i386"],
   "prefix": "WINEARCH=wow64",
@@ -30,7 +30,7 @@
         "glUniform1f", "glUniform2f", "glUniform3f", "glUniform4f", "glProgramUniform1f", "glProgramUniform2f", "glProgramUniform3f", "glProgramUniform4f",
         "glUniform1i", "glUniform2i", "glUniform3i", "glUniform4i", "glProgramUniform1i", "glProgramUniform2i", "glProgramUniform3i", "glProgramUniform4i", "glUniform1ui", "glUniform2ui", "glUniform3ui", "glUniform4ui", "glProgramUniform1ui", "glProgramUniform2ui", "glProgramUniform3ui", "glProgramUniform4ui",
         "glUniform1uiv", "glUniform2uiv", "glUniform3uiv", "glUniform4uiv", "glProgramUniform1fv", "glProgramUniform2fv", "glProgramUniform3fv", "glProgramUniform4fv", "glProgramUniform1iv", "glProgramUniform2iv", "glProgramUniform3iv", "glProgramUniform4iv", "glProgramUniform1uiv", "glProgramUniform2uiv", "glProgramUniform3uiv", "glProgramUniform4uiv", "glProgramUniformMatrix2fv", "glProgramUniformMatrix3fv", "glProgramUniformMatrix4fv", "glUniformMatrix2x3fv", "glUniformMatrix2x4fv", "glUniformMatrix3x2fv", "glUniformMatrix3x4fv", "glUniformMatrix4x2fv", "glUniformMatrix4x3fv", "glUniformMatrix2fv", "glUniformMatrix3fv", "glUniformMatrix4fv",
-        "glShaderBinary", "glSpecializeShader", "glGetProgramBinary", "glProgramBinary", "glProgramParameteri", "glBindFragDataLocation", "glBindFragDataLocationIndexed", "glGetFragDataLocation", "glGetFragDataIndex", "glGetUniformLocation", "glGetUniformIndices", "glGetActiveUniformsiv", "glGetActiveUniformName", "glGetUniformBlockIndex", "glUniformBlockBinding", "glGetProgramResourceIndex", "glGetProgramInterfaceiv", "glGetProgramResourceName", "glGetProgramResourceLocation", "glGetProgramResourceiv", "glShaderStorageBlockBinding", "glGetActiveUniformBlockiv", "glGetActiveUniformBlockName", "glDrawArraysInstanced", "glDrawElementsInstanced",
+        "glShaderBinary", "glSpecializeShader", "glGetProgramBinary", "glProgramBinary", "glProgramParameteri", "glBindFragDataLocation", "glBindFragDataLocationIndexed", "glGetFragDataLocation", "glGetFragDataIndex", "glGetUniformLocation", "glGetUniformIndices", "glGetActiveUniformsiv", "glGetActiveUniformName", "glGetUniformBlockIndex", "glUniformBlockBinding", "glGetProgramResourceIndex", "glGetProgramInterfaceiv", "glGetProgramResourceName", "glGetProgramResourceLocation", "glGetProgramResourceiv", "glShaderStorageBlockBinding", "glGetActiveUniformBlockiv", "glGetActiveUniformBlockName", "glPrimitiveRestartIndex", "glDrawArraysInstanced", "glDrawElementsInstanced",
         "glGenVertexArrays", "glBindVertexArray", "glVertexAttribDivisor",
         "glGenTextures", "glCreateTextures", "glBindTexture", "glBindTextureUnit", "glBindTextures", "glActiveTexture", "glTexImage1D", "glTexSubImage1D", "glTexStorage1D", "glTexImage2D", "glTexStorage2D", "glTexStorage3D", "glTextureStorage2D", "glTextureStorage3D", "glTextureView", "glTextureParameteri", "glTextureSubImage2D", "glTextureSubImage3D", "glGenerateTextureMipmap", "glGetTextureLevelParameteriv",
         "glTexSubImage2D", "glCopyTexImage2D", "glCopyTexSubImage2D", "glGetInternalformativ", "glGetTexImage", "glGetTextureImage", "glGetTexLevelParameteriv", "glTexImage3D", "glTexSubImage3D", "glCopyImageSubData", "glBindImageTexture", "glBindImageTextures", "glDispatchComputeIndirect", "glPixelStorei (pack/unpack alignment)", "glTexParameteri", "glTexParameterf", "texture swizzle state", "glTexParameteriv", "glTexParameterfv", "glGetTexParameteriv", "glGetTexParameterfv", "glGenerateMipmap", "glGenSamplers", "glIsSampler", "glBindSampler", "glBindSamplers", "glSamplerParameteri", "glSamplerParameterf", "glSamplerParameteriv", "glSamplerParameterfv", "glGetSamplerParameteriv", "glGetSamplerParameterfv", "glGenFramebuffers", "glCreateFramebuffers", "glGenProgramPipelines", "glDeleteProgramPipelines", "glBindProgramPipeline", "glIsProgramPipeline", "glUseProgramStages", "glValidateProgramPipeline", "glGetProgramPipelineiv",
@@ -52,6 +52,7 @@
     "separable-program and program-pipeline lifecycle/draw with stage-uniform binding",
     "vertex/fragment interface mismatch rejection",
     "indexed GL 3.3-style draw with VBO/IBO, range/base-vertex offset, DSA vertex binding, vertex attribute, uniform, and direct multi-draw",
+    "basic primitive-restart segmentation for indexed points, lines, line strips/loops, triangle strips/fans, and triangles",
     "multi-draw arrays and elements indirect submission",
     "normalized, half-float, RGBA32F, depth, RGBA8UI, and R32UI integer texture sampling with sampler parameters",
     "2D mipmap generation, immutable storage, DSA texture allocation/subimage/update and texture views, PBO pixel-pack readback, 16-bit normalized and half-float texture upload, RGBA8UI/RGBA16F/RGBA32F/sRGB/red/rg/luminance texture storage, pack-aware 2D/3D texture readback, 3D texture sampling, texture copy, packed-pixel/half-float conversion, BGRA upload, image copy, pack/unpack alignment, and 3D texture readback",
@@ -79,6 +80,6 @@
     "general geometry/full tessellation-control and general shader transform-feedback emulation",
     "general fixed-function texture-combine semantics beyond the implemented single-texture combine modes, plus image formats beyond validated 2D rgba8/r32ui/r32f/rgba8ui/rgba16f",
     "complete texture/sampler/FBO format matrix",
-    "primitive-restart rendering semantics"
+    "complete primitive-restart topology expansion beyond tested indexed point/line/triangle modes"
   ]
 }
