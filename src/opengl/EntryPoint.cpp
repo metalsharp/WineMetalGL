@@ -2490,6 +2490,16 @@ extern "C" void glCompileShader(uint32_t shader) {
             }
             compilerVersion = {4,50,false,true};
             assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, false);
+        } else if (!state->glslVersion.isES && metalsharp::packedGLSLVersion(state->glslVersion) >= 330 && metalsharp::packedGLSLVersion(state->glslVersion) < 450) {
+            /* Compile the 3.3 source with the 4.5 grammar so implicit
+             * desktop interfaces can receive stable locations. */
+            const size_t version = sourceForCompiler.find("#version");
+            if (version != std::string::npos) {
+                const size_t lineEnd = sourceForCompiler.find('\n', version);
+                sourceForCompiler.replace(version, (lineEnd == std::string::npos ? sourceForCompiler.size() : lineEnd) - version, "#version 450 core");
+            }
+            compilerVersion = {4,50,false,true};
+            assignLegacyInterfaceLocations(sourceForCompiler, state->stage == metalsharp::ShaderStage::Vertex, false);
         }
         replaceToken("sampler2DRect", "sampler2D");
         if (metalModeEnabled()) {
@@ -2805,6 +2815,7 @@ extern "C" unsigned char glIsProgram(uint32_t program) {
 // program is bound. The native call is still issued so the framework
 // context state stays in sync with the shim's view.
 extern "C" void glUseProgram(uint32_t program) {
+    if (std::getenv("WINEMETALGL_DEBUG_UNIFORM")) std::fprintf(stderr, "use program=%u exp=%d\\n", program, isExperimentalProgram(program) ? 1 : 0);
     const uint32_t previousProgram = g_glBridge.state().currentProgram;
     g_bufferTriangleReadbackFlip = false;
     if (program != previousProgram) {
@@ -2896,6 +2907,7 @@ void setExperimentalProgramUniform(uint32_t program, int32_t location, const T* 
 }
 
 static bool interceptCurrentUniformCall() {
+    if (std::getenv("WINEMETALGL_DEBUG_UNIFORM")) std::fprintf(stderr, "uniform current=%u exp=%d\\n", g_glBridge.state().currentProgram, isExperimentalProgram(g_glBridge.state().currentProgram) ? 1 : 0);
     if (!metalModeEnabled()) return false;
     if (!g_glBridge.state().currentProgram) { metalsharp::GLErrorTracker::instance().setError(0x0502); return true; }
     return isExperimentalProgram(g_glBridge.state().currentProgram);
