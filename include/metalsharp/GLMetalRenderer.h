@@ -209,6 +209,7 @@ class GLMetalRenderer {
     uint64_t createTexture2DArray(uint32_t width, uint32_t height, uint32_t layers, const void* data);
     uint64_t createMultisampleTexture2D(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
     uint64_t createMultisampleDepthStencilTarget(uint32_t width, uint32_t height, uint32_t glInternalFormat, uint32_t samples);
+    uint32_t textureSampleCount(uint64_t textureHandle) const;
     uint64_t createDepthStencilTarget(uint32_t width, uint32_t height, uint32_t internalFormat);
     bool readTextureScalar32(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, void* data);
 
