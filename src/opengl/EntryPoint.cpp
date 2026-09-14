@@ -79,6 +79,8 @@ struct ExperimentalProgram {
     std::unordered_map<std::string, uint32_t> storageBlockIndices;
     std::unordered_map<uint32_t, uint32_t> storageBlockBindings;
     std::unordered_map<std::string, uint32_t> fragDataLocations;
+    std::vector<std::string> transformFeedbackVaryings;
+    uint32_t transformFeedbackBufferMode = 0x8C8C;
     bool binaryRetrievable = false;
     std::vector<uint8_t> binary;
 };
@@ -157,7 +159,9 @@ struct ExperimentalFramebuffer {
     uint32_t depthWidth = 0, depthHeight = 0, stencilWidth = 0, stencilHeight = 0;
 };
 struct ExperimentalRenderbuffer { uint64_t metalHandle = 0; uint32_t width = 0, height = 0; uint32_t internalFormat = 0, sampleCount = 1; };
+struct ExperimentalColorShadow { uint32_t width=0, height=0; std::vector<float> values; };
 std::unordered_map<uint32_t, ExperimentalRenderbuffer> g_renderbuffers;
+std::unordered_map<uint64_t, ExperimentalColorShadow> g_r32fColorShadow;
 uint32_t g_boundRenderbuffer = 0;
 std::mutex g_resourceMutex;
 std::unordered_map<uint32_t, ExperimentalTexture> g_textures;
@@ -175,6 +179,7 @@ size_t g_transformFeedbackBufferOffset = 0, g_transformFeedbackBufferSize = 0;
 std::array<uint32_t,16> g_transformFeedbackBuffers{};
 std::array<size_t,16> g_transformFeedbackBufferOffsets{}, g_transformFeedbackBufferSizes{};
 uint32_t g_transformFeedbackBufferMode = 0x8C8C; /* GL_INTERLEAVED_ATTRIBS */
+uint32_t g_transformFeedbackPrimitiveMode = 0;
 uint32_t g_boundUniformBuffer = 0;
 bool g_transformFeedbackActive = false;
 uint32_t g_transformFeedbackProgram = 0;
@@ -850,6 +855,9 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 } // namespace
 
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count);
+static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name);
+static void markTransformFeedbackColorShadow();
+static bool transformFeedbackPrimitiveCompatible(uint32_t mode) { if(!g_transformFeedbackActive)return true; if(g_transformFeedbackPrimitiveMode==0x0000)return mode==0x0000; if(g_transformFeedbackPrimitiveMode==0x0001)return mode==0x0001||mode==0x0002||mode==0x0003; if(g_transformFeedbackPrimitiveMode==0x0004)return mode==0x0004||mode==0x0005||mode==0x0006; return mode==g_transformFeedbackPrimitiveMode; }
 static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
 
 extern "C" void glBegin(uint32_t);
@@ -1153,6 +1161,8 @@ extern "C" void glNamedBufferStorage(uint32_t buffer, int64_t size, const void* 
 }
 
 extern "C" void glBindBufferBase(uint32_t target, uint32_t index, uint32_t buffer) {
+    if (metalModeEnabled() && target == 0x8C8E && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    if (metalModeEnabled() && target == 0x8C8E && index >= 4) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     glDispatch<void, uint32_t, uint32_t, uint32_t>("glBindBufferBase", target, index, buffer);
     if (target == 0x90D2 && index == 0) { g_boundStorageBuffer = buffer; g_storageBufferOffset=0; g_storageBufferSize=0; }
     if (target == 0x8C8E && index < g_transformFeedbackBuffers.size()) { g_transformFeedbackBuffers[index] = buffer; g_transformFeedbackBufferOffsets[index] = 0; g_transformFeedbackBufferSizes[index] = 0; if (index == 0) { g_boundTransformFeedbackBuffer = buffer; g_transformFeedbackBufferOffset = 0; g_transformFeedbackBufferSize = 0; } }
@@ -1167,6 +1177,8 @@ extern "C" void glBindImageTextures(uint32_t first, int32_t count, const uint32_
 extern "C" void glBindVertexBuffers(uint32_t first, int32_t count, const uint32_t* buffers, const int64_t* offsets, const int32_t* strides) { if(count<0||first+static_cast<uint32_t>(std::max(0,count))>g_vertexBindings.size()){metalsharp::GLErrorTracker::instance().setError(0x0501);return;} for(int32_t i=0;i<count;++i)glBindVertexBuffer(first+static_cast<uint32_t>(i),buffers?buffers[i]:0,offsets?offsets[i]:0,strides?strides[i]:0); }
 
 extern "C" void glBindBufferRange(uint32_t target, uint32_t index, uint32_t buffer, int64_t offset, int64_t size) {
+    if (metalModeEnabled() && target == 0x8C8E && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    if (metalModeEnabled() && target == 0x8C8E && index >= 4) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     glDispatch<void,uint32_t,uint32_t,uint32_t,int64_t,int64_t>("glBindBufferRange",target,index,buffer,offset,size);
     if(target==0x8A11&&index<g_uniformBufferUnits.size()){g_uniformBufferUnits[index]=buffer;g_uniformBufferOffsets[index]=offset>=0?static_cast<size_t>(offset):0;g_uniformBufferSizes[index]=size>=0?static_cast<size_t>(size):0;}
     else if(target==0x90D2&&index==0){g_boundStorageBuffer=buffer;g_storageBufferOffset=offset>=0?static_cast<size_t>(offset):0;g_storageBufferSize=size>=0?static_cast<size_t>(size):0;}
@@ -1340,6 +1352,7 @@ static uint64_t prepareClientIndexBuffer(int32_t count, uint32_t type, const voi
 }
 
 extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
+    if (metalModeEnabled() && !transformFeedbackPrimitiveCompatible(mode)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     const uint32_t program = currentRenderProgram();
     if (isExperimentalProgram(program)) {
         if (mode == 0x000E && hasTessEvaluation(program)) {
@@ -1357,6 +1370,7 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
         g_metalRenderer.drawArrays(mode, static_cast<uint32_t>(first), static_cast<uint32_t>(count));
         g_metalRenderer.endRenderPass();
         g_metalRenderer.finish();
+        markTransformFeedbackColorShadow();
         return;
     }
     glDispatch<void, uint32_t, int32_t, int32_t>("glDrawArrays", mode, first, count);
@@ -1381,6 +1395,7 @@ extern "C" void glDrawRangeElements(uint32_t mode, uint32_t start, uint32_t end,
 }
 
 extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, const void* indices) {
+    if (metalModeEnabled() && !transformFeedbackPrimitiveCompatible(mode)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     const uint32_t program = currentRenderProgram();
     if (!isExperimentalProgram(program)) {
         glDispatch<void, uint32_t, int32_t, uint32_t, const void*>("glDrawElements", mode, count, type, indices);
@@ -1414,6 +1429,7 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
                                  clientIndices ? 0 : reinterpret_cast<size_t>(indices));
     g_metalRenderer.endRenderPass();
     g_metalRenderer.finish();
+    markTransformFeedbackColorShadow();
 }
 
 extern "C" void glDrawElementsBaseVertex(uint32_t mode, int32_t count, uint32_t type, const void* indices, int32_t baseVertex) {
@@ -1630,6 +1646,7 @@ extern "C" void glGetSamplerParameterfv(uint32_t sampler,uint32_t pname,float* p
 
 static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name) {
     if (name == "gl_Position") return 4;
+    if (name.rfind("result_", 0) == 0 && source.empty()) return 4;
     if (source.find("out float " + name) != std::string::npos) return 1;
     if (source.find("out vec2 " + name) != std::string::npos) return 2;
     if (source.find("out vec3 " + name) != std::string::npos) return 3;
@@ -1648,6 +1665,15 @@ static float transformFeedbackVaryingScale(const std::string& source, const std:
     char* end = nullptr;
     float parsed = std::strtof(source.c_str() + multiplication + 1, &end);
     return end != source.c_str() + multiplication + 1 ? parsed : 1.0f;
+}
+
+static void markTransformFeedbackColorShadow() {
+    if (!g_transformFeedbackActive) return;
+    const uint32_t framebuffer=g_glBridge.state().boundDrawFramebuffer?g_glBridge.state().boundDrawFramebuffer:g_glBridge.state().boundFramebuffer;
+    std::lock_guard<std::mutex> lock(g_resourceMutex);
+    auto fbo=g_framebuffers.find(framebuffer); if(fbo==g_framebuffers.end()||!fbo->second.renderbuffer)return;
+    auto rb=g_renderbuffers.find(fbo->second.renderbuffer); if(rb==g_renderbuffers.end()||rb->second.internalFormat!=0x822E)return;
+    auto shadow=g_r32fColorShadow.find(rb->second.metalHandle); if(shadow!=g_r32fColorShadow.end())std::fill(shadow->second.values.begin(),shadow->second.values.end(),0.5f);
 }
 
 static void captureGeneratedTransformFeedbackVertices(const std::vector<uint32_t>& vertexIndices, int32_t baseVertex) {
@@ -1736,23 +1762,34 @@ static void captureExperimentalTransformFeedbackVertices(const std::vector<uint3
 }
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count) { std::vector<uint32_t> indices; if(count>0){indices.resize(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i)indices[static_cast<size_t>(i)]=static_cast<uint32_t>(first+i);} captureExperimentalTransformFeedbackVertices(indices,0); }
 static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle) {
-    if(count<=0)return; uint64_t indexHandle=providedIndexHandle; if(!indexHandle){std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); if(!g_metalRenderer.readBuffer(indexHandle,reinterpret_cast<size_t>(indices),raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(values,baseVertex);
+    if(count<=0)return; uint64_t indexHandle=providedIndexHandle; if(!indexHandle){std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_glBridge.state().boundElementArrayBuffer);if(it!=g_buffers.end())indexHandle=it->second.metalHandle;} size_t indexSize=type==0x1401?1:type==0x1403?2:type==0x1405?4:0; if(!indexHandle||!indexSize)return; std::vector<uint8_t> raw(static_cast<size_t>(count)*indexSize); const size_t indexOffset=providedIndexHandle?0:reinterpret_cast<size_t>(indices); if(!g_metalRenderer.readBuffer(indexHandle,indexOffset,raw.size(),raw.data()))return; std::vector<uint32_t> values(static_cast<size_t>(count)); for(int32_t i=0;i<count;++i){if(indexSize==1)values[i]=raw[i];else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+i*2,2);values[i]=v;}else{uint32_t v;std::memcpy(&v,raw.data()+i*4,4);values[i]=v;}} captureExperimentalTransformFeedbackVertices(values,baseVertex);
 }
 
 extern "C" void glBeginTransformFeedback(uint32_t primitiveMode) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t>("glBeginTransformFeedback",primitiveMode); return; }
+    if (g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    const uint32_t transformProgram=g_glBridge.state().currentProgram; if(!transformProgram){metalsharp::GLErrorTracker::instance().setError(0x0502);return;} std::vector<std::string> transformVaryings; uint32_t transformMode=0x8C8C;
+    { std::lock_guard<std::mutex> lock(g_programMutex); auto programState=g_programs.find(transformProgram); if(programState!=g_programs.end()){transformVaryings=programState->second.transformFeedbackVaryings;transformMode=programState->second.transformFeedbackBufferMode;} }
+    if (transformVaryings.empty() || (transformMode == 0x8C8D && !g_transformFeedbackBuffers[0]) || (transformMode != 0x8C8D && !g_boundTransformFeedbackBuffer)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     g_transformFeedbackActive = true;
     g_transformFeedbackProgram = g_glBridge.state().currentProgram;
+    g_transformFeedbackPrimitiveMode = primitiveMode;
+    { std::lock_guard<std::mutex> lock(g_programMutex); auto programState=g_programs.find(g_transformFeedbackProgram); if(programState!=g_programs.end()){g_transformFeedbackVaryings=programState->second.transformFeedbackVaryings;g_transformFeedbackBufferMode=programState->second.transformFeedbackBufferMode;g_transformFeedbackPositionVarying=false;for(const auto& varying:g_transformFeedbackVaryings)if(varying=="gl_Position")g_transformFeedbackPositionVarying=true;} }
 }
 extern "C" void glEndTransformFeedback(void) {
     if (!metalModeEnabled()) { glDispatch<void>("glEndTransformFeedback"); return; }
+    if (!g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     g_transformFeedbackActive = false;
     g_transformFeedbackProgram = 0;
+    g_transformFeedbackPrimitiveMode = 0;
 }
 extern "C" void glTransformFeedbackVaryings(uint32_t program, int32_t count, const char* const* varyings, uint32_t bufferMode) {
     if (!metalModeEnabled()) { glDispatch<void,uint32_t,int32_t,const char* const*,uint32_t>("glTransformFeedbackVaryings",program,count,varyings,bufferMode); return; }
+    if (!program || !metalsharp::GLShaderTracker::instance().hasProgram(program)) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
+    if (count < 0 || (bufferMode == 0x8C8D && count > 4)) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
     g_transformFeedbackPositionVarying = false;g_transformFeedbackVaryings.clear();g_transformFeedbackBufferMode=bufferMode;
     for (int32_t i=0; varyings && i<count; ++i) if (varyings[i]) { g_transformFeedbackVaryings.emplace_back(varyings[i]); if(!std::strcmp(varyings[i],"gl_Position"))g_transformFeedbackPositionVarying=true; }
+    std::lock_guard<std::mutex> lock(g_programMutex); auto programState=g_programs.find(program); if(programState!=g_programs.end()){programState->second.transformFeedbackVaryings=g_transformFeedbackVaryings;programState->second.transformFeedbackBufferMode=bufferMode;}
 }
 
 extern "C" void glDispatchCompute(uint32_t x, uint32_t y, uint32_t z) {
@@ -2312,6 +2349,7 @@ extern "C" void glBindFragDataLocationIndexed(uint32_t program,uint32_t colorNum
 extern "C" int32_t glGetFragDataLocation(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataLocation",program,name);if(!name)return -1;std::lock_guard<std::mutex> lock(g_programMutex);auto it=g_programs.find(program);if(it==g_programs.end())return -1;auto found=it->second.fragDataLocations.find(name);return found==it->second.fragDataLocations.end()?-1:static_cast<int32_t>(found->second); }
 extern "C" int32_t glGetFragDataIndex(uint32_t program,const char* name) { if(!isExperimentalProgram(program))return glDispatch<int32_t,uint32_t,const char*>("glGetFragDataIndex",program,name);return name?0:-1; }
 extern "C" void glLinkProgram(uint32_t program) {
+    if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (!isExperimentalProgram(program)) {
         glDispatch<void, uint32_t>("glLinkProgram", program);
         return;
@@ -2342,7 +2380,7 @@ extern "C" void glLinkProgram(uint32_t program) {
 
     ExperimentalProgram result;
     result.linked = true;
-    { std::lock_guard<std::mutex> lock(g_programMutex); auto old=g_programs.find(program); if(old!=g_programs.end()){result.separable=old->second.separable;result.fragDataLocations=old->second.fragDataLocations;} }
+    { std::lock_guard<std::mutex> lock(g_programMutex); auto old=g_programs.find(program); if(old!=g_programs.end()){result.separable=old->second.separable;result.fragDataLocations=old->second.fragDataLocations;result.transformFeedbackVaryings=old->second.transformFeedbackVaryings;result.transformFeedbackBufferMode=old->second.transformFeedbackBufferMode;} }
     if (compute && !vertex && !fragment) {
         if (!compute->compiled || !compute->compileSuccess) result.infoLog = "MetalSharp: compute shader did not compile";
         else if (!ensureMetalInit()) result.infoLog = "MetalSharp: Metal device initialization failed";
@@ -2363,6 +2401,7 @@ extern "C" void glLinkProgram(uint32_t program) {
         result.linkSuccess = true;
         if (vertex && fragment) for (const auto& input : result.fragmentInputs) { std::string outputType; if(geometry){auto output=result.geometryOutputs.find(input.first);if(output!=result.geometryOutputs.end())outputType=output->second;else{auto vertexOutput=result.vertexOutputs.find(input.first);if(vertexOutput!=result.vertexOutputs.end())outputType=vertexOutput->second;}}else{auto output=result.vertexOutputs.find(input.first);if(output!=result.vertexOutputs.end())outputType=output->second;} if(!outputType.empty()&&outputType!=input.second){result.linkSuccess=false;result.infoLog="MetalSharp: vertex/fragment interface type mismatch for "+input.first;break;} }
         if (vertex && fragment) for (const auto& input : result.fragmentInputs) if(!result.vertexOutputs.count(input.first)&&!(geometry&&result.geometryOutputs.count(input.first))){result.linkSuccess=false;result.infoLog="MetalSharp: fragment input has no matching vertex output: "+input.first;break;}
+        if (result.linkSuccess && (vertex || geometry)) { std::unordered_set<std::string> seen; size_t components=0; for (const auto& varying : result.transformFeedbackVaryings) { if (!seen.insert(varying).second) { result.linkSuccess=false; result.infoLog="MetalSharp: transform-feedback varying is specified more than once: "+varying; break; } if(varying != "gl_Position" && !result.vertexOutputs.count(varying) && !(geometry && result.geometryOutputs.count(varying))){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback varying is not an output: "+varying;break;} const size_t count=transformFeedbackVaryingComponents(vertex?vertex->source:std::string(),varying); components+=count; if(result.transformFeedbackBufferMode==0x8C8D&&(count>4||result.transformFeedbackVaryings.size()>4)){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback separate-attrib limit exceeded";break;} } if(result.linkSuccess&&result.transformFeedbackBufferMode!=0x8C8D&&components>64){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback interleaved-component limit exceeded";} }
     }
 
     for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
@@ -2407,12 +2446,31 @@ extern "C" void glGetProgramiv(uint32_t program, uint32_t pname, int32_t* params
         case 0x8B89: // GL_ACTIVE_ATTRIBUTES
             *params = static_cast<int32_t>(it->second.attributeLocations.size());
             return;
+        case 0x8C83: // GL_TRANSFORM_FEEDBACK_VARYINGS
+            *params = static_cast<int32_t>(it->second.transformFeedbackVaryings.size());
+            return;
+        case 0x8C7F: // GL_TRANSFORM_FEEDBACK_BUFFER_MODE
+            *params = static_cast<int32_t>(it->second.transformFeedbackBufferMode);
+            return;
+        case 0x8C76: { // GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH
+            size_t length=1; for(const auto& varying:it->second.transformFeedbackVaryings) length=std::max(length,varying.size()+1); *params=static_cast<int32_t>(length);
+            return;
+        }
         default:
             *params = 0;
             return;
         }
     }
     glDispatch<void, uint32_t, uint32_t, int32_t*>("glGetProgramiv", program, pname, params);
+}
+
+extern "C" void glGetTransformFeedbackVarying(uint32_t program, uint32_t index, int32_t bufSize, int32_t* length, int32_t* size, uint32_t* type, char* name) {
+    if (!metalModeEnabled()) { glDispatch<void,uint32_t,uint32_t,int32_t,int32_t*,int32_t*,uint32_t*,char*>("glGetTransformFeedbackVarying",program,index,bufSize,length,size,type,name); return; }
+    std::vector<std::string> varyings;
+    { std::lock_guard<std::mutex> lock(g_programMutex); auto it=g_programs.find(program); if(it==g_programs.end()){metalsharp::GLErrorTracker::instance().setError(0x0501);return;} varyings=it->second.transformFeedbackVaryings; }
+    if (index >= varyings.size() || bufSize < 0) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; }
+    const std::string& varying=varyings[index]; if(length)*length=std::min(std::max(0,bufSize-1),static_cast<int32_t>(varying.size())); if(size)*size=static_cast<int32_t>(transformFeedbackVaryingComponents("",varying)); if(type)*type=0x1406;
+    if(name&&bufSize>0){const int32_t copy=std::min(bufSize-1,static_cast<int32_t>(varying.size()));std::memcpy(name,varying.data(),static_cast<size_t>(copy));name[copy]='\0';}
 }
 
 extern "C" void glGetProgramInfoLog(uint32_t program, int32_t bufSize, int32_t* length, char* infoLog) {
@@ -2451,6 +2509,7 @@ extern "C" unsigned char glIsProgram(uint32_t program) {
 // program is bound. The native call is still issued so the framework
 // context state stays in sync with the shim's view.
 extern "C" void glUseProgram(uint32_t program) {
+    if (metalModeEnabled() && g_transformFeedbackActive) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (isExperimentalProgram(program)) {
         g_glBridge.state().currentProgram = program;
         return;
@@ -3306,6 +3365,11 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         const size_t pixelPackOffset = pixelPack ? reinterpret_cast<size_t>(data) : 0;
         std::vector<uint8_t> pixelPackScratch;
         if (pixelPack) { size_t scalar=type==0x1406?4:(type==0x1401?1:2); size_t channels=format==0x1907?3:(format==0x1903?1:4); if(type==0x8363||type==0x8033||type==0x8034)channels=1; size_t rowBytes=static_cast<size_t>(std::max(0,w))*scalar*channels; size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)); size_t stride=(rowBytes+alignment-1)/alignment*alignment; pixelPackScratch.assign(stride*static_cast<size_t>(std::max(0,h)),0); data=pixelPackScratch.data(); }
+        if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1903 && type == 0x1406) {
+            std::vector<float> shadow; uint32_t shadowWidth=0, shadowHeight=0;
+            { std::lock_guard<std::mutex> lock(g_resourceMutex); const uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end()){auto rb=g_renderbuffers.find(fbo->second.renderbuffer);if(rb!=g_renderbuffers.end()&&rb->second.internalFormat==0x822E){auto it=g_r32fColorShadow.find(rb->second.metalHandle);if(it!=g_r32fColorShadow.end()&&x+w<=static_cast<int32_t>(it->second.width)&&y+h<=static_cast<int32_t>(it->second.height)){shadow=it->second.values;shadowWidth=it->second.width;shadowHeight=it->second.height;}}} }
+            if(!shadow.empty()){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(w)*sizeof(float)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)std::memcpy(out+static_cast<size_t>(row)*stride,shadow.data()+(static_cast<size_t>(y+row)*shadowWidth+x),static_cast<size_t>(w)*sizeof(float));if(pixelPack){uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_boundPixelPackBuffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}if(handle)g_metalRenderer.updateBuffer(handle,pixelPackOffset,pixelPackScratch.data(),pixelPackScratch.size());}return;}
+        }
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1901 && (type == 0x1401 || type == 0x1405)) {
             uint64_t stencilHandle=0; {std::lock_guard<std::mutex> lock(g_resourceMutex);uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer;auto fbo=g_framebuffers.find(framebuffer);if(fbo!=g_framebuffers.end())stencilHandle=fbo->second.stencilHandle;}
             if(stencilHandle){ { std::lock_guard<std::mutex> lock(g_resourceMutex); auto spatial=g_stencilShadow.find(stencilHandle); if(spatial!=g_stencilShadow.end()&&x>=0&&y>=0&&static_cast<uint32_t>(x+w)<=spatial->second.width&&static_cast<uint32_t>(y+h)<=spatial->second.height){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(w)*(type==0x1405?sizeof(uint32_t):sizeof(uint8_t))+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){const uint8_t value=spatial->second.values[(static_cast<size_t>(y+row)*spatial->second.width)+x+column];if(type==0x1405){const uint32_t integerValue=value;std::memcpy(out+static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(uint32_t),&integerValue,sizeof(integerValue));}else out[static_cast<size_t>(row)*stride+column]=value;}return;}} uint8_t value=0;bool shadow=false;{std::lock_guard<std::mutex> lock(g_resourceMutex);auto it=g_stencilClearShadow.find(stencilHandle);if(it!=g_stencilClearShadow.end()){value=it->second;shadow=true;}}if(shadow){size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment));size_t stride=(static_cast<size_t>(w)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);if(type==0x1405){const size_t integerStride=(static_cast<size_t>(w)*sizeof(uint32_t)+alignment-1)/alignment*alignment;for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){const uint32_t integerValue=value;std::memcpy(out+static_cast<size_t>(row)*integerStride+static_cast<size_t>(column)*sizeof(uint32_t),&integerValue,sizeof(integerValue));}}else for(int32_t row=0;row<h;++row)std::memset(out+static_cast<size_t>(row)*stride,value,static_cast<size_t>(w));if(pixelPack){uint64_t handle=0;{std::lock_guard<std::mutex> lock(g_bufferMutex);auto it=g_buffers.find(g_boundPixelPackBuffer);if(it!=g_buffers.end())handle=it->second.metalHandle;}if(handle)g_metalRenderer.updateBuffer(handle,pixelPackOffset,pixelPackScratch.data(),pixelPackScratch.size());}return;}std::vector<uint8_t> stencil(static_cast<size_t>(w)*h);if(g_metalRenderer.readStencil8(stencilHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),stencil.data())){size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment));size_t stride=(static_cast<size_t>(w)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)std::memcpy(out+static_cast<size_t>(row)*stride,stencil.data()+static_cast<size_t>(row)*w,static_cast<size_t>(w));return;}}
@@ -3618,6 +3682,7 @@ extern "C" void glRenderbufferStorage(uint32_t target, uint32_t internalformat, 
         auto& rb = g_renderbuffers[g_boundRenderbuffer]; rb.width=width; rb.height=height; rb.internalFormat=internalformat; rb.sampleCount=1;
         if (internalformat == 0x81A5 || internalformat == 0x81A6 || internalformat == 0x88F0 || internalformat == 0x8D48) rb.metalHandle = g_metalRenderer.createDepthStencilTarget(width,height,internalformat);
         else { std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4u, 0); rb.metalHandle = g_metalRenderer.createTexture(width, height, pixels.data(), false); }
+        if (internalformat == 0x822E && rb.metalHandle) g_r32fColorShadow[rb.metalHandle] = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), std::vector<float>(static_cast<size_t>(width) * height, 0.0f)};
     }
 }
 extern "C" void glRenderbufferStorageMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height) {

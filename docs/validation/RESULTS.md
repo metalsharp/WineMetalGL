@@ -73,8 +73,8 @@ results, not a full conformance claim:
 - `KHR-GL30.shaders30.*`: 651/651 pass.
 - `KHR-GL30.buffer_objects.*`: 4/5 pass; `triangles` still fails its
   fixed-lighting raster check.
-- `KHR-GL30.transform_feedback.*`: 14/21 pass; vertex capture/query and two
-  validation cases remain unresolved.
+- `KHR-GL30.transform_feedback.*`: 16/21 pass; vertex capture/query remain
+  unresolved.
 
 The failing and unresolved CTS cases remain outside the advertised support
 boundary below. No public release is promoted from this candidate on the
