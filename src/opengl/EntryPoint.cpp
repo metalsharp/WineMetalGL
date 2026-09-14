@@ -856,6 +856,7 @@ template <typename Ret, typename... Args> Ret glDispatch(const char* name, Args.
 
 static void captureExperimentalTransformFeedback(int32_t first, int32_t count);
 static size_t transformFeedbackVaryingComponents(const std::string& source, const std::string& name);
+static bool hasTransformFeedbackOutput(const std::string& source, const std::string& name);
 static void markTransformFeedbackColorShadow();
 static bool transformFeedbackPrimitiveCompatible(uint32_t mode) { if(!g_transformFeedbackActive)return true; if(g_transformFeedbackPrimitiveMode==0x0000)return mode==0x0000; if(g_transformFeedbackPrimitiveMode==0x0001)return mode==0x0001||mode==0x0002||mode==0x0003; if(g_transformFeedbackPrimitiveMode==0x0004)return mode==0x0004||mode==0x0005||mode==0x0006; return mode==g_transformFeedbackPrimitiveMode; }
 static void captureExperimentalTransformFeedbackIndexed(int32_t count, uint32_t type, const void* indices, int32_t baseVertex, uint64_t providedIndexHandle = 0);
@@ -1654,6 +1655,8 @@ static size_t transformFeedbackVaryingComponents(const std::string& source, cons
     return 1;
 }
 
+static bool hasTransformFeedbackOutput(const std::string& source, const std::string& name) { return source.find("out float "+name)!=std::string::npos || source.find("out vec2 "+name)!=std::string::npos || source.find("out vec3 "+name)!=std::string::npos || source.find("out vec4 "+name)!=std::string::npos; }
+
 static float transformFeedbackVaryingScale(const std::string& source, const std::string& name) {
     if (name == "gl_Position") return 1.0f;
     std::string needle = name + " =";
@@ -2402,7 +2405,7 @@ extern "C" void glLinkProgram(uint32_t program) {
         result.linkSuccess = true;
         if (vertex && fragment) for (const auto& input : result.fragmentInputs) { std::string outputType; if(geometry){auto output=result.geometryOutputs.find(input.first);if(output!=result.geometryOutputs.end())outputType=output->second;else{auto vertexOutput=result.vertexOutputs.find(input.first);if(vertexOutput!=result.vertexOutputs.end())outputType=vertexOutput->second;}}else{auto output=result.vertexOutputs.find(input.first);if(output!=result.vertexOutputs.end())outputType=output->second;} if(!outputType.empty()&&outputType!=input.second){result.linkSuccess=false;result.infoLog="MetalSharp: vertex/fragment interface type mismatch for "+input.first;break;} }
         if (vertex && fragment) for (const auto& input : result.fragmentInputs) if(!result.vertexOutputs.count(input.first)&&!(geometry&&result.geometryOutputs.count(input.first))){result.linkSuccess=false;result.infoLog="MetalSharp: fragment input has no matching vertex output: "+input.first;break;}
-        if (result.linkSuccess && (vertex || geometry)) { std::unordered_set<std::string> seen; size_t components=0; for (const auto& varying : result.transformFeedbackVaryings) { if (!seen.insert(varying).second) { result.linkSuccess=false; result.infoLog="MetalSharp: transform-feedback varying is specified more than once: "+varying; break; } if(varying != "gl_Position" && !result.vertexOutputs.count(varying) && !(geometry && result.geometryOutputs.count(varying))){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback varying is not an output: "+varying;break;} const size_t count=transformFeedbackVaryingComponents(vertex?vertex->source:std::string(),varying); components+=count; if(result.transformFeedbackBufferMode==0x8C8D&&(count>4||result.transformFeedbackVaryings.size()>4)){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback separate-attrib limit exceeded";break;} } if(result.linkSuccess&&result.transformFeedbackBufferMode!=0x8C8D&&components>64){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback interleaved-component limit exceeded";} }
+        if (result.linkSuccess && (vertex || geometry)) { std::unordered_set<std::string> seen; size_t components=0; for (const auto& varying : result.transformFeedbackVaryings) { if (!seen.insert(varying).second) { result.linkSuccess=false; result.infoLog="MetalSharp: transform-feedback varying is specified more than once: "+varying; break; } if(varying != "gl_Position" && !result.vertexOutputs.count(varying) && !(vertex && hasTransformFeedbackOutput(vertex->source,varying)) && !(geometry && (result.geometryOutputs.count(varying) || hasTransformFeedbackOutput(geometry->source,varying)))){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback varying is not an output: "+varying;break;} const size_t count=transformFeedbackVaryingComponents(vertex?vertex->source:std::string(),varying); components+=count; if(result.transformFeedbackBufferMode==0x8C8D&&(count>4||result.transformFeedbackVaryings.size()>4)){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback separate-attrib limit exceeded";break;} } if(result.linkSuccess&&result.transformFeedbackBufferMode!=0x8C8D&&components>64){result.linkSuccess=false;result.infoLog="MetalSharp: transform-feedback interleaved-component limit exceeded";} }
     }
 
     for (uint32_t shader : metalsharp::GLShaderTracker::instance().copyAttachedShaders(program)) {
