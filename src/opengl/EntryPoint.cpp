@@ -3338,16 +3338,18 @@ extern "C" void glFinish(void) {
 }
 extern "C" void* glFenceSync(uint32_t condition, uint32_t flags) {
     if (!metalModeEnabled()) return glDispatch<void*, uint32_t, uint32_t>("glFenceSync", condition, flags);
+    if(condition!=0x9117){metalsharp::GLErrorTracker::instance().setError(0x0500);return nullptr;}if(flags){metalsharp::GLErrorTracker::instance().setError(0x0501);return nullptr;}
     void* sync = new uint64_t(1);
     std::lock_guard<std::mutex> lock(g_syncMutex); g_syncs.insert(sync); return sync;
 }
+extern "C" void glGetSynciv(void* sync,uint32_t pname,int32_t count,int32_t* length,int32_t* values) { if(!metalModeEnabled()){glDispatch<void,void*,uint32_t,int32_t,int32_t*,int32_t*>("glGetSynciv",sync,pname,count,length,values);return;}if(count<0){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}std::lock_guard<std::mutex> lock(g_syncMutex);if(!g_syncs.count(sync)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}int32_t value=0;switch(pname){case 0x9112:value=0x9116;break;case 0x9113:value=0x9117;break;case 0x9114:value=0x9119;break;case 0x9115:value=0;break;default:metalsharp::GLErrorTracker::instance().setError(0x0500);return;}if(count>0&&values)values[0]=value;if(length)*length=count>0?1:0;}
+
 extern "C" uint32_t glClientWaitSync(void* sync, uint32_t flags, uint64_t timeout) {
     if (!metalModeEnabled()) return glDispatch<uint32_t, void*, uint32_t, uint64_t>("glClientWaitSync", sync, flags, timeout);
-    std::lock_guard<std::mutex> lock(g_syncMutex); if (!g_syncs.count(sync)) return 0x0501;
-    g_metalRenderer.finish(); return 0x911C; /* GL_CONDITION_SATISFIED */
+    if(flags&~0x00000001u){metalsharp::GLErrorTracker::instance().setError(0x0501);return 0;}std::lock_guard<std::mutex> lock(g_syncMutex); if (!g_syncs.count(sync)) {metalsharp::GLErrorTracker::instance().setError(0x0501);return 0;} g_metalRenderer.finish(); return 0x911C; /* GL_CONDITION_SATISFIED */
 }
 extern "C" void glWaitSync(void* sync, uint32_t flags, uint64_t timeout) {
-    if (metalModeEnabled()) { g_metalRenderer.finish(); return; }
+    if (metalModeEnabled()) { std::lock_guard<std::mutex> lock(g_syncMutex);if(!g_syncs.count(sync)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}if(flags||timeout!=0xffffffffffffffffULL){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}g_metalRenderer.finish(); return; }
     glDispatch<void, void*, uint32_t, uint64_t>("glWaitSync", sync, flags, timeout);
 }
 extern "C" void glDeleteSync(void* sync) {
