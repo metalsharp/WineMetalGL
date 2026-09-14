@@ -2,8 +2,9 @@
 
 Validation date: 2026-09-13
 
-The candidate artifacts from this validation were staged separately from the
-published release and were not used to replace it.
+The validated 1.9.0 artifacts are staged separately from the immutable
+published 1.8.0 release; the 1.9.0 release directory is a new sibling and does
+not replace any prior release.
 
 ## Host gates
 
@@ -76,9 +77,10 @@ results, not a full conformance claim:
 - `KHR-GL30.transform_feedback.*`: 21/21 pass, including vertex
   capture/query and rasterizer-discard behavior.
 
-The failing and unresolved CTS cases remain outside the advertised support
-boundary below. No public release is promoted from this candidate on the
-basis of these targeted runs alone.
+The full Khronos OpenGL 4.6 suite was not run, so this release makes a
+bounded acceptance-matrix claim rather than a full-conformance claim. Features
+outside the tested support boundary remain explicitly unsupported or
+unresolved.
 
 Observed markers:
 
