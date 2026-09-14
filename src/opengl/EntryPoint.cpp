@@ -591,7 +591,7 @@ bool beginExperimentalDraw(uint32_t program) {
     if (pipelineProgram) {
         uint32_t pipelineId=program;auto proxy=g_pipelineProxies.find(program);if(proxy!=g_pipelineProxies.end())pipelineId=proxy->second;auto pipeline=g_pipelines.find(pipelineId); if(pipeline==g_pipelines.end())return false;
         auto vp=g_programs.find(pipeline->second.vertexProgram), fp=g_programs.find(pipeline->second.fragmentProgram); if(vp==g_programs.end()||fp==g_programs.end())return false;
-        pipelineInfo.linked=true; pipelineInfo.linkSuccess=vp->second.linkSuccess&&fp->second.linkSuccess; pipelineInfo.vertexShader=vp->second.vertexShader; pipelineInfo.fragmentShader=fp->second.fragmentShader; pipelineInfo.uniformValues=vp->second.uniformValues; for(const auto& entry:fp->second.uniformValues)pipelineInfo.uniformValues[entry.first]=entry.second; if(!pipelineInfo.linkSuccess)return false; drawInfo=&pipelineInfo;
+        pipelineInfo.linked=true; pipelineInfo.linkSuccess=vp->second.linkSuccess&&fp->second.linkSuccess; pipelineInfo.vertexShader=vp->second.vertexShader; pipelineInfo.fragmentShader=fp->second.fragmentShader; pipelineInfo.uniformLocations=vp->second.uniformLocations; for(const auto& entry:fp->second.uniformLocations)pipelineInfo.uniformLocations[entry.first]=entry.second; pipelineInfo.uniformValues=vp->second.uniformValues; for(const auto& entry:fp->second.uniformValues)pipelineInfo.uniformValues[entry.first]=entry.second; if(!pipelineInfo.linkSuccess)return false; drawInfo=&pipelineInfo;
     } else { if (programIt == g_programs.end() || !programIt->second.linkSuccess) return false; drawInfo=&programIt->second; }
 
     metalsharp::GLShaderState* vertex = nullptr;
