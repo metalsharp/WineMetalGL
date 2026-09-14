@@ -4300,9 +4300,11 @@ extern "C" void glInvalidateSubFramebuffer(uint32_t target,int32_t count,const u
 // framebuffer is currently bound. The native call is still issued so the
 // framework context state stays in sync with the shim's view.
 extern "C" void glBindFramebuffer(uint32_t target, uint32_t framebuffer) {
-    ensureGLInit();
-    auto fn = reinterpret_cast<void (*)(uint32_t, uint32_t)>(g_glBridge.getGLProcAddress("glBindFramebuffer"));
-    if (fn) fn(target, framebuffer);
+    if (!metalModeEnabled()) {
+        ensureGLInit();
+        auto fn = reinterpret_cast<void (*)(uint32_t, uint32_t)>(g_glBridge.getGLProcAddress("glBindFramebuffer"));
+        if (fn) fn(target, framebuffer);
+    }
     if (target == 0x8D40) {
         g_glBridge.state().boundFramebuffer = framebuffer;
         g_glBridge.state().boundReadFramebuffer = framebuffer;
