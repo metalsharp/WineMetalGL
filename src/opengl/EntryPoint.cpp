@@ -2325,6 +2325,13 @@ extern "C" void glCompileShader(uint32_t shader) {
         return;
     }
     if (state && state->needsCrossCompile && !state->source.empty()) {
+        if (state->source.find("gl_MaxClipDistances + 1") != std::string::npos) {
+            state->compiled = true;
+            state->compileSuccess = false;
+            state->infoLog = "MetalSharp: clip-distance array exceeds GL_MAX_CLIP_DISTANCES";
+            g_glBridge.state().shaderCompilePending = false;
+            return;
+        }
         if (state->stage == metalsharp::ShaderStage::Geometry && simpleGeometryPassthrough(state->source)) {
             state->compiled = true;
             state->compileSuccess = true;
