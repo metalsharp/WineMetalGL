@@ -670,7 +670,7 @@ bool beginExperimentalDraw(uint32_t program) {
     if (!vertex || !fragment) return false;
     bool hasVertexAttribute = false;
     for (const auto& attribute : g_experimentalVertexAttributes) hasVertexAttribute = hasVertexAttribute || attribute.set;
-    if (!hasVertexAttribute) {
+    if (!hasVertexAttribute && vertex->msl.find("[[stage_in]]") != std::string::npos) {
         if (!g_defaultVertexAttributeBuffer) {
             const float defaults[12] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
                                         0.0f, 0.0f, 0.0f, 1.0f};
