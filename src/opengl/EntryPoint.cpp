@@ -2067,7 +2067,7 @@ extern "C" void glVertexAttribPointer(uint32_t index, int32_t size, uint32_t typ
             g_metalRenderer.setVertexAttribute(index, size, type, normalized != 0,
                                                effectiveStride, handle,
                                                reinterpret_cast<size_t>(pointer));
-            if (index < g_experimentalVertexAttributes.size()) g_experimentalVertexAttributes[index] = {true,size,type,effectiveStride,bufferName,reinterpret_cast<size_t>(pointer)};
+            if (index < g_experimentalVertexAttributes.size()) g_experimentalVertexAttributes[index] = {true,size,type,effectiveStride,bufferName,reinterpret_cast<size_t>(pointer),normalized != 0,nullptr};
             return;
         }
     }
