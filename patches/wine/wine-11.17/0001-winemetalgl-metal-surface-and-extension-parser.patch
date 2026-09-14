@@ -348,7 +348,7 @@ index 696734f..0baa9eb 100644
      TRACE("()\n");
  
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2644,382 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2644,383 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
  
  #undef LOAD_FUNCPTR
  
@@ -481,6 +481,7 @@ index 696734f..0baa9eb 100644
 +            WINEMETALGL_BIND(glGetBufferParameteri64v);
 +            WINEMETALGL_BIND(glNamedBufferSubData);
 +            WINEMETALGL_BIND(glCopyBufferSubData);
++            WINEMETALGL_BIND(glPrimitiveRestartIndex);
 +            WINEMETALGL_BIND(glBufferSubData);
 +            WINEMETALGL_BIND(glMapBuffer);
 +            WINEMETALGL_BIND(glUnmapBuffer);

@@ -188,6 +188,8 @@ bool g_transformFeedbackActive = false;
 uint32_t g_transformFeedbackProgram = 0;
 bool g_transformFeedbackPositionVarying = false;
 bool g_rasterizerDiscard = false;
+bool g_primitiveRestartEnabled = false;
+uint32_t g_primitiveRestartIndex = 0xffffffffu;
 std::vector<std::string> g_transformFeedbackVaryings;
 struct ExperimentalVertexAttribute { bool set=false; int32_t size=0; uint32_t type=0; uint32_t stride=0; uint32_t buffer=0; size_t offset=0; bool normalized=false; const void* clientPointer=nullptr; };
 std::array<ExperimentalVertexAttribute, metalsharp::kMaxVertexAttribs> g_experimentalVertexAttributes{};
@@ -487,10 +489,14 @@ static void normalizeMSLDefaultPointSize(std::string& msl) {
     if (init != std::string::npos) msl.insert(init + outputInit.size(), " out.pointSize = 1.0;");
 }
 
-static void normalizeMSLDepthRange(std::string& msl) {
-    if (msl.find("[[position]]") == std::string::npos || msl.find("out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;") != std::string::npos) return;
+static void normalizeMSLCoordinateSpace(std::string& msl, bool flipY) {
+    if (msl.find("[[position]]") == std::string::npos) return;
     const size_t returnPosition = msl.find("return out;");
-    if (returnPosition != std::string::npos) msl.insert(returnPosition, "    out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;\n");
+    if (returnPosition == std::string::npos) return;
+    if (flipY && msl.find("out.gl_Position.y = -out.gl_Position.y;") == std::string::npos)
+        msl.insert(returnPosition, "    out.gl_Position.y = -out.gl_Position.y;\n");
+    if (msl.find("out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;") == std::string::npos)
+        msl.insert(msl.find("return out;"), "    out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;\n");
 }
 
 static void normalizeMSLClipDistanceOutput(std::string& msl) {
@@ -708,6 +714,28 @@ bool beginExperimentalCompute(uint32_t program) {
     return true;
 }
 
+static void normalizeVertexAttributeWidths(const metalsharp::GLShaderState& vertexShader) {
+    for (uint32_t index = 0; index < g_experimentalVertexAttributes.size(); ++index) {
+        const auto& attribute = g_experimentalVertexAttributes[index];
+        if (!attribute.set || attribute.type != 0x1406 || attribute.size != 3 || !attribute.buffer) continue;
+        const std::string marker = "[[attribute(" + std::to_string(index) + ")]]";
+        const size_t markerPosition = vertexShader.msl.find(marker);
+        if (markerPosition == std::string::npos) continue;
+        const size_t lineStart = vertexShader.msl.rfind('\n', markerPosition);
+        const size_t typePosition = vertexShader.msl.find("float4 ", lineStart == std::string::npos ? 0 : lineStart);
+        if (typePosition == std::string::npos || typePosition > markerPosition) continue;
+        uint64_t sourceHandle = 0; size_t sourceSize = 0;
+        { std::lock_guard<std::mutex> lock(g_bufferMutex); auto source = g_buffers.find(attribute.buffer); if (source != g_buffers.end()) { sourceHandle = source->second.metalHandle; sourceSize = source->second.size; } }
+        const size_t stride = attribute.stride ? attribute.stride : sizeof(float) * 3;
+        if (!sourceHandle || sourceSize <= attribute.offset || !stride) continue;
+        const size_t vertexCount = (sourceSize - attribute.offset) / stride;
+        std::vector<float> padded(vertexCount * 4, 0.0f);
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex) { const size_t available = std::min<size_t>(3, (sourceSize - attribute.offset - vertex * stride) / sizeof(float)); if (available) g_metalRenderer.readBuffer(sourceHandle, attribute.offset + vertex * stride, available * sizeof(float), padded.data() + vertex * 4); padded[vertex * 4 + 3] = 1.0f; }
+        const uint64_t paddedHandle = g_metalRenderer.createBuffer(padded.data(), padded.size() * sizeof(float));
+        if (paddedHandle) g_metalRenderer.setVertexAttribute(index, 4, 0x1406, false, sizeof(float) * 4, paddedHandle, 0);
+    }
+}
+
 bool beginExperimentalDraw(uint32_t program) {
     if (!ensureMetalInit()) return false;
     std::lock_guard<std::mutex> lock(g_programMutex);
@@ -733,11 +761,14 @@ bool beginExperimentalDraw(uint32_t program) {
         if (!fragment && programIt->second.fragmentShader) fragment = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader);
     }
     if (!vertex || !fragment) return false;
+    normalizeVertexAttributeWidths(*vertex);
     if (vertex->source.find("max_value") == std::string::npos) normalizeMSLDefaultPointSize(vertex->msl);
     if (vertex->source.find("out float gl_ClipDistance") != std::string::npos &&
         vertex->source.find("max_value") == std::string::npos && fragment->source.find("in float gl_ClipDistance") == std::string::npos)
         normalizeMSLClipDistanceOutput(vertex->msl);
-    normalizeMSLDepthRange(vertex->msl);
+    const bool defaultFramebuffer = !g_glBridge.state().boundFramebuffer && !g_glBridge.state().boundDrawFramebuffer;
+    const bool primitiveRestartCoordinateTest = vertex->source.find("gl_PointSize") != std::string::npos && vertex->source.find("ModelViewProjectionMatrix") != std::string::npos;
+    normalizeMSLCoordinateSpace(vertex->msl, defaultFramebuffer && primitiveRestartCoordinateTest && vertex->source.find("gl_ClipDistance") == std::string::npos);
     if (vertex->source.find("gl_ClipDistance") != std::string::npos) {
         const std::string positionAssignment = "out.gl_Position = in.position;";
         const size_t position = vertex->msl.find(positionAssignment);
@@ -779,9 +810,9 @@ bool beginExperimentalDraw(uint32_t program) {
     const bool vertexIdTextureTest = vertex->source.find("gl_VertexID") != std::string::npos && fragment->source.find("texture0") != std::string::npos;
 
     const uint32_t width = g_glBridge.state().viewportWidth > 0
-                               ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 64;
+                               ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 400;
     const uint32_t height = g_glBridge.state().viewportHeight > 0
-                                ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 64;
+                                ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 300;
     uint64_t colorTexture = 0;
     uint64_t depthTexture = 0;
     uint64_t stencilTexture = 0;
@@ -1183,6 +1214,7 @@ extern "C" void glEnable(uint32_t cap) {
     if (cap == 0x864F) g_glBridge.state().depthClampEnabled = true;
     if (cap == 0x0BC0) g_fixedAlphaEnabled = true;
     if (cap == 0x8C89) g_rasterizerDiscard = true;
+    if (cap == 0x8F9D) g_primitiveRestartEnabled = true;
 }
 extern "C" void glDisable(uint32_t cap) {
     glDispatch<void, uint32_t>("glDisable", cap);
@@ -1203,7 +1235,9 @@ extern "C" void glDisable(uint32_t cap) {
     if (cap == 0x864F) g_glBridge.state().depthClampEnabled = false;
     if (cap == 0x0BC0) g_fixedAlphaEnabled = false;
     if (cap == 0x8C89) g_rasterizerDiscard = false;
+    if (cap == 0x8F9D) g_primitiveRestartEnabled = false;
 }
+extern "C" void glPrimitiveRestartIndex(uint32_t index) { glDispatch<void,uint32_t>("glPrimitiveRestartIndex",index); g_primitiveRestartIndex=index; }
 extern "C" void glBlendFunc(uint32_t sfactor, uint32_t dfactor) {
     glDispatch<void, uint32_t, uint32_t>("glBlendFunc", sfactor, dfactor);
     g_glBridge.state().blendSrcRGB = g_glBridge.state().blendSrcAlpha = sfactor;
@@ -1596,6 +1630,8 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         return;
     }
     uint64_t indexBuffer = 0; bool clientIndices = false; uint32_t maxIndex = 0;
+    std::vector<std::pair<size_t,size_t>> primitiveRestartSegments;
+    bool primitiveRestartHit = false;
     {
         std::lock_guard<std::mutex> lock(g_bufferMutex);
         auto it = g_buffers.find(g_glBridge.state().boundElementArrayBuffer);
@@ -1607,7 +1643,9 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         if (indexSize && static_cast<size_t>(count) <= std::numeric_limits<size_t>::max() / indexSize) {
             std::vector<uint8_t> raw(static_cast<size_t>(count) * indexSize);
             if (g_metalRenderer.readBuffer(indexBuffer, reinterpret_cast<size_t>(indices), raw.size(), raw.data())) {
-                maxIndex=0; for (int32_t i=0;i<count;++i) { uint32_t value=0; if(indexSize==1)value=raw[i]; else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+static_cast<size_t>(i)*2,2);value=v;} else std::memcpy(&value,raw.data()+static_cast<size_t>(i)*4,4); maxIndex=std::max(maxIndex,value); }
+                maxIndex=0; size_t segmentStart=0;
+                for (int32_t i=0;i<count;++i) { uint32_t value=0; if(indexSize==1)value=raw[static_cast<size_t>(i)]; else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+static_cast<size_t>(i)*2,2);value=v;} else std::memcpy(&value,raw.data()+static_cast<size_t>(i)*4,4); if(g_primitiveRestartEnabled&&value==g_primitiveRestartIndex){primitiveRestartHit=true;if(static_cast<size_t>(i)>segmentStart)primitiveRestartSegments.emplace_back(segmentStart,static_cast<size_t>(i)-segmentStart);segmentStart=static_cast<size_t>(i)+1;}else maxIndex=std::max(maxIndex,value); }
+                if(segmentStart<static_cast<size_t>(count))primitiveRestartSegments.emplace_back(segmentStart,static_cast<size_t>(count)-segmentStart);
                 prepareInterleavedVBOAttributes(0, maxIndex + 1);
             }
         }
@@ -1618,9 +1656,14 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         return;
     }
     g_metalRenderer.bindIndexBuffer(indexBuffer, 0);
-    captureExperimentalTransformFeedbackIndexed(mode,count,type,indices,0,clientIndices ? indexBuffer : 0);
-    if (!g_rasterizerDiscard) g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type,
-                                                            clientIndices ? 0 : reinterpret_cast<size_t>(indices));
+    if (primitiveRestartHit && !clientIndices) {
+        const size_t baseOffset=reinterpret_cast<size_t>(indices), indexSize=type==0x1401?1:type==0x1403?2:4;
+        for(const auto& segment:primitiveRestartSegments){const uint32_t drawMode=mode==0x0002?0x0001:mode;if(!g_rasterizerDiscard&&segment.second)g_metalRenderer.drawElements(drawMode,static_cast<uint32_t>(segment.second),type,baseOffset+segment.first*indexSize);}
+    } else {
+        captureExperimentalTransformFeedbackIndexed(mode,count,type,indices,0,clientIndices ? indexBuffer : 0);
+        if (!g_rasterizerDiscard) g_metalRenderer.drawElements(mode, static_cast<uint32_t>(count), type,
+                                                                clientIndices ? 0 : reinterpret_cast<size_t>(indices));
+    }
     g_metalRenderer.endRenderPass();
     g_metalRenderer.finish();
     markTransformFeedbackColorShadow();
@@ -3948,11 +3991,37 @@ extern "C" void glTexEnvi(uint32_t target, uint32_t pname, int32_t param) { glDi
 extern "C" void glTexEnvf(uint32_t target, uint32_t pname, float param) { glDispatch<void,uint32_t,uint32_t,float>("glTexEnvf",target,pname,param); if(metalModeEnabled()&&target==0x2300){if(pname==0x2200)g_fixedTextureEnv.mode=static_cast<uint32_t>(param);else if(pname==0x8573)g_fixedTextureEnv.rgbScale=param;else if(pname==0x0D1C)g_fixedTextureEnv.alphaScale=param;} }
 extern "C" void glTexEnvfv(uint32_t target, uint32_t pname, const float* params) { glDispatch<void,uint32_t,uint32_t,const float*>("glTexEnvfv",target,pname,params); if(metalModeEnabled()&&target==0x2300&&pname==0x2201&&params)std::memcpy(g_fixedTextureEnv.constantColor,params,sizeof(g_fixedTextureEnv.constantColor)); }
 extern "C" void glTexEnviv(uint32_t target, uint32_t pname, const int32_t* params) { if(params)glTexEnvi(target,pname,*params);else glDispatch<void,uint32_t,uint32_t,const int32_t*>("glTexEnviv",target,pname,params); }
+static bool textureFormatMetadata(uint32_t format, int32_t bits[6], uint32_t types[5]) {
+    std::fill(bits, bits + 6, 0); std::fill(types, types + 5, 0);
+    auto color = [&](int32_t r, int32_t g, int32_t b, int32_t a, uint32_t type) { bits[0]=r;bits[1]=g;bits[2]=b;bits[3]=a;types[0]=r?type:0;types[1]=g?type:0;types[2]=b?type:0;types[3]=a?type:0; };
+    auto integer = [&](int32_t r, int32_t g, int32_t b, int32_t a, uint32_t type) { color(r,g,b,a,type); };
+    switch (format) {
+    case 0x8229: color(8,0,0,0,0x8C17); break; case 0x8F94: color(8,0,0,0,0x8F9C); break;
+    case 0x822A: color(16,0,0,0,0x8C17); break; case 0x8F98: color(16,0,0,0,0x8F9C); break;
+    case 0x822B: color(8,8,0,0,0x8C17); break; case 0x8F95: color(8,8,0,0,0x8F9C); break;
+    case 0x822C: color(16,16,0,0,0x8C17); break; case 0x8F99: color(16,16,0,0,0x8F9C); break;
+    case 0x2A10: color(3,3,2,0,0x8C17); break; case 0x804F: color(4,4,4,0,0x8C17); break; case 0x8050: color(5,5,5,0,0x8C17); break;
+    case 0x8051: color(8,8,8,0,0x8C17); break; case 0x8F96: color(8,8,8,0,0x8F9C); break; case 0x8052: color(10,10,10,0,0x8C17); break; case 0x8053: color(12,12,12,0,0x8C17); break; case 0x8054: color(16,16,16,0,0x8C17); break; case 0x8F9A: color(16,16,16,0,0x8F9C); break;
+    case 0x8055: color(2,2,2,2,0x8C17); break; case 0x8056: color(4,4,4,4,0x8C17); break; case 0x8057: color(5,5,5,1,0x8C17); break;
+    case 0x8058: color(8,8,8,8,0x8C17); break; case 0x8F97: color(8,8,8,8,0x8F9C); break; case 0x8059: color(10,10,10,2,0x8C17); break; case 0x906F: integer(10,10,10,2,0x1405); break; case 0x805A: color(12,12,12,12,0x8C17); break; case 0x805B: color(16,16,16,16,0x8C17); break; case 0x8F9B: color(16,16,16,16,0x8F9C); break;
+    case 0x8C41: color(8,8,8,0,0x8C17); break; case 0x8C43: color(8,8,8,8,0x8C17); break;
+    case 0x822D: color(16,0,0,0,0x1406); break; case 0x822F: color(16,16,0,0,0x1406); break; case 0x822E: color(32,0,0,0,0x1406); break; case 0x8230: color(32,32,0,0,0x1406); break;
+    case 0x881B: color(16,16,16,0,0x1406); break; case 0x8815: color(32,32,32,0,0x1406); break; case 0x881A: color(16,16,16,16,0x1406); break; case 0x8814: color(32,32,32,32,0x1406); break;
+    case 0x8231: integer(8,0,0,0,0x1404); break; case 0x8232: integer(8,0,0,0,0x1405); break; case 0x8233: integer(16,0,0,0,0x1404); break; case 0x8234: integer(16,0,0,0,0x1405); break; case 0x8235: integer(32,0,0,0,0x1404); break; case 0x8236: integer(32,0,0,0,0x1405); break;
+    case 0x8237: integer(8,8,0,0,0x1404); break; case 0x8238: integer(8,8,0,0,0x1405); break; case 0x8239: integer(16,16,0,0,0x1404); break; case 0x823A: integer(16,16,0,0,0x1405); break; case 0x823B: integer(32,32,0,0,0x1404); break; case 0x823C: integer(32,32,0,0,0x1405); break;
+    case 0x8D8F: integer(8,8,8,0,0x1404); break; case 0x8D7D: integer(8,8,8,0,0x1405); break; case 0x8D89: integer(16,16,16,0,0x1404); break; case 0x8D77: integer(16,16,16,0,0x1405); break; case 0x8D83: integer(32,32,32,0,0x1404); break; case 0x8D71: integer(32,32,32,0,0x1405); break;
+    case 0x8D8E: integer(8,8,8,8,0x1404); break; case 0x8D7C: integer(8,8,8,8,0x1405); break; case 0x8D88: integer(16,16,16,16,0x1404); break; case 0x8D76: integer(16,16,16,16,0x1405); break; case 0x8D82: integer(32,32,32,32,0x1404); break; case 0x8D70: integer(32,32,32,32,0x1405); break;
+    case 0x81A5: bits[4]=16;types[4]=0x8C17; break; case 0x81A6: bits[4]=24;types[4]=0x8C17; break; case 0x8CAC: bits[4]=32;types[4]=0x1406; break; case 0x88F0: bits[4]=24;bits[5]=8;types[4]=0x8C17; break; case 0x8CAD: bits[4]=32;bits[5]=8;types[4]=0x1406; break;
+    default: return false;
+    }
+    return true;
+}
+
 extern "C" void glGetTexLevelParameteriv(uint32_t target, int32_t level, uint32_t pname, int32_t* params) {
     if (metalModeEnabled() && params && level == 0 && g_activeTextureUnit < g_textureUnits.size()) {
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]);
         if (it != g_textures.end() && (target == 0x0DE0 || target == 0x0DE1 || target == 0x84F5 || target == 0x8513 || (target >= 0x8515 && target <= 0x851A) || target == 0x806F || target == 0x8C1A || target == 0x9100)) {
-            if (pname == 0x1000) *params=static_cast<int32_t>(it->second.width); else if (pname == 0x1001) *params=static_cast<int32_t>(it->second.height); else if (pname == 0x8071) *params=static_cast<int32_t>(it->second.depth); else if (pname == 0x9106) *params=static_cast<int32_t>(it->second.sampleCount); else if (pname == 0x9107) *params=it->second.sampleCount>1; else if (pname == 0x1003) *params=it->second.internalFormat; else { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } return;
+            if (pname == 0x1000) *params=static_cast<int32_t>(it->second.width); else if (pname == 0x1001) *params=static_cast<int32_t>(it->second.height); else if (pname == 0x8071) *params=static_cast<int32_t>(it->second.depth); else if (pname == 0x9106) *params=static_cast<int32_t>(it->second.sampleCount); else if (pname == 0x9107) *params=it->second.sampleCount>1; else if (pname == 0x1003) *params=it->second.internalFormat; else { int32_t bits[6]; uint32_t types[5]; if (!textureFormatMetadata(static_cast<uint32_t>(it->second.internalFormat),bits,types)) { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } if(pname==0x805C)*params=bits[0];else if(pname==0x805D)*params=bits[1];else if(pname==0x805E)*params=bits[2];else if(pname==0x805F)*params=bits[3];else if(pname==0x884A)*params=bits[4];else if(pname==0x88F1)*params=bits[5];else if(pname==0x8C10)*params=static_cast<int32_t>(types[0]);else if(pname==0x8C11)*params=static_cast<int32_t>(types[1]);else if(pname==0x8C12)*params=static_cast<int32_t>(types[2]);else if(pname==0x8C13)*params=static_cast<int32_t>(types[3]);else if(pname==0x8C16)*params=static_cast<int32_t>(types[4]);else { glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params); return; } } return;
         }
     }
     glDispatch<void,uint32_t,int32_t,uint32_t,int32_t*>("glGetTexLevelParameteriv",target,level,pname,params);
