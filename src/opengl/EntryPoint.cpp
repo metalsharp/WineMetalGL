@@ -487,6 +487,12 @@ static void normalizeMSLDefaultPointSize(std::string& msl) {
     if (init != std::string::npos) msl.insert(init + outputInit.size(), " out.pointSize = 1.0;");
 }
 
+static void normalizeMSLDepthRange(std::string& msl) {
+    if (msl.find("[[position]]") == std::string::npos || msl.find("out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;") != std::string::npos) return;
+    const size_t returnPosition = msl.find("return out;");
+    if (returnPosition != std::string::npos) msl.insert(returnPosition, "    out.gl_Position.z = (out.gl_Position.z + out.gl_Position.w) * 0.5;\n");
+}
+
 static void normalizeMSLClipDistanceOutput(std::string& msl) {
     const std::string prefix = "float metalsharp_ClipDistance_";
     const size_t outputStruct = msl.find("struct vertex_main_out");
@@ -731,6 +737,7 @@ bool beginExperimentalDraw(uint32_t program) {
     if (vertex->source.find("out float gl_ClipDistance") != std::string::npos &&
         vertex->source.find("max_value") == std::string::npos && fragment->source.find("in float gl_ClipDistance") == std::string::npos)
         normalizeMSLClipDistanceOutput(vertex->msl);
+    normalizeMSLDepthRange(vertex->msl);
     if (vertex->source.find("gl_ClipDistance") != std::string::npos) {
         const std::string positionAssignment = "out.gl_Position = in.position;";
         const size_t position = vertex->msl.find(positionAssignment);
@@ -2815,7 +2822,6 @@ extern "C" unsigned char glIsProgram(uint32_t program) {
 // program is bound. The native call is still issued so the framework
 // context state stays in sync with the shim's view.
 extern "C" void glUseProgram(uint32_t program) {
-    if (std::getenv("WINEMETALGL_DEBUG_UNIFORM")) std::fprintf(stderr, "use program=%u exp=%d\\n", program, isExperimentalProgram(program) ? 1 : 0);
     const uint32_t previousProgram = g_glBridge.state().currentProgram;
     g_bufferTriangleReadbackFlip = false;
     if (program != previousProgram) {
@@ -2907,7 +2913,6 @@ void setExperimentalProgramUniform(uint32_t program, int32_t location, const T* 
 }
 
 static bool interceptCurrentUniformCall() {
-    if (std::getenv("WINEMETALGL_DEBUG_UNIFORM")) std::fprintf(stderr, "uniform current=%u exp=%d\\n", g_glBridge.state().currentProgram, isExperimentalProgram(g_glBridge.state().currentProgram) ? 1 : 0);
     if (!metalModeEnabled()) return false;
     if (!g_glBridge.state().currentProgram) { metalsharp::GLErrorTracker::instance().setError(0x0502); return true; }
     return isExperimentalProgram(g_glBridge.state().currentProgram);
