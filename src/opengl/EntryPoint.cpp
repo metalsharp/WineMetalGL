@@ -1677,7 +1677,7 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
         const size_t indexSize = type == 0x1401 ? 1 : type == 0x1403 ? 2 : type == 0x1405 ? 4 : 0;
         if (indexSize && static_cast<size_t>(count) <= std::numeric_limits<size_t>::max() / indexSize) {
             std::vector<uint8_t> raw(static_cast<size_t>(count) * indexSize);
-            if (g_metalRenderer.readBuffer(indexBuffer, reinterpret_cast<size_t>(indices), raw.size(), raw.data())) {
+            if (g_metalRenderer.readBuffer(indexBuffer, clientIndices ? 0 : reinterpret_cast<size_t>(indices), raw.size(), raw.data())) {
                 maxIndex=0; size_t segmentStart=0;
                 for (int32_t i=0;i<count;++i) { uint32_t value=0; if(indexSize==1)value=raw[static_cast<size_t>(i)]; else if(indexSize==2){uint16_t v;std::memcpy(&v,raw.data()+static_cast<size_t>(i)*2,2);value=v;} else std::memcpy(&value,raw.data()+static_cast<size_t>(i)*4,4); if(g_primitiveRestartEnabled&&value==g_primitiveRestartIndex){primitiveRestartHit=true;if(static_cast<size_t>(i)>segmentStart)primitiveRestartSegments.emplace_back(segmentStart,static_cast<size_t>(i)-segmentStart);segmentStart=static_cast<size_t>(i)+1;}else maxIndex=std::max(maxIndex,value); }
                 if(segmentStart<static_cast<size_t>(count))primitiveRestartSegments.emplace_back(segmentStart,static_cast<size_t>(count)-segmentStart);
