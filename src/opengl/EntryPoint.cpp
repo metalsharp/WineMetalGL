@@ -620,7 +620,7 @@ static bool writeRGBA8Pixels(const uint8_t* rgba, int32_t width, int32_t height,
         const double normalized = static_cast<double>(value) / 255.0;
         switch (scalarType) {
         case 0x1401: { const uint8_t v = value; std::memcpy(out, &v, sizeof(v)); return true; }
-        case 0x1400: { const int8_t v = static_cast<int8_t>(normalized * 127.0); std::memcpy(out, &v, sizeof(v)); return true; }
+        case 0x1400: { const int8_t v = static_cast<int8_t>(normalized * 127.0 + 0.5); std::memcpy(out, &v, sizeof(v)); return true; }
         case 0x1403: { const uint16_t v = static_cast<uint16_t>(normalized * 65535.0); std::memcpy(out, &v, sizeof(v)); return true; }
         case 0x1402: { const int16_t v = static_cast<int16_t>(normalized * 32767.0); std::memcpy(out, &v, sizeof(v)); return true; }
         case 0x1405: { const uint32_t v = static_cast<uint32_t>(normalized * 4294967295.0); std::memcpy(out, &v, sizeof(v)); return true; }
@@ -885,7 +885,7 @@ static std::vector<uint8_t> encodeTextureStorage(const std::vector<uint8_t>& can
     const bool r32 = internalFormat == 0x8236 || internalFormat == 0x8235;
     const bool rg32 = internalFormat == 0x823C || internalFormat == 0x823B;
     const bool rgba32 = internalFormat == 0x8D70 || internalFormat == 0x8D82;
-    const bool depth = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC || internalFormat == 0x88F0 || internalFormat == 0x8D48 || internalFormat == 0x8CAD;
+    const bool depth = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x81A7 || internalFormat == 0x8CAC || internalFormat == 0x84F9 || internalFormat == 0x88F0 || internalFormat == 0x8D48 || internalFormat == 0x8CAD;
     if (depth) {
         std::vector<uint8_t> out(canonical.size() / 4 * sizeof(float));
         for (size_t pixel = 0; pixel < canonical.size() / 4; ++pixel) { float value = canonical[pixel * 4 + 2] / 255.0f; std::memcpy(out.data() + pixel * sizeof(value), &value, sizeof(value)); }
@@ -4121,7 +4121,7 @@ static bool metalInternalFormatSupported(uint32_t internalFormat) {
     switch (internalFormat) {
     case 0x8058: case 0x881A: case 0x8814: case 0x8C43:
     case 0x822E: case 0x8231: case 0x8232: case 0x8233: case 0x8234: case 0x8235: case 0x8236: case 0x8237: case 0x8238: case 0x8239: case 0x823A: case 0x823B: case 0x823C: case 0x8D70: case 0x8D76: case 0x8D7C: case 0x8D82: case 0x8D88: case 0x8D8E: case 0x8229: case 0x822B:
-    case 0x81A5: case 0x81A6: case 0x8CAC: case 0x88F0: case 0x8D48: case 0x8CAD:
+    case 0x81A5: case 0x81A6: case 0x81A7: case 0x8CAC: case 0x84F9: case 0x88F0: case 0x8D48: case 0x8CAD:
         return true;
     default:
         return false;
@@ -4147,6 +4147,12 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
     const bool inputIntegerFormat = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
+    const bool depthInternal = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x81A7 || internalFormat == 0x8CAC || internalFormat == 0x84F9 || internalFormat == 0x88F0 || internalFormat == 0x8CAD || internalFormat == 0x8D48;
+    const bool depthInput = format == 0x1902 || format == 0x84F9;
+    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && textureName && depthInternal != depthInput) {
+        metalsharp::GLErrorTracker::instance().setError(0x0500);
+        return;
+    }
     if (metalModeEnabled() && target == 0x0DE1 && level == 0 && textureName && inputIntegerFormat != integerInternalFormat(internalFormat)) {
         metalsharp::GLErrorTracker::instance().setError(0x0500);
         return;
@@ -4194,7 +4200,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         const uint32_t cubeFaceIndex = cubeFace ? target - 0x8515 : 0;
         const bool scalarFloat = internalFormat == 0x822E && format == 0x1903 && type == 0x1406;
         if (scalarFloat) { std::vector<uint8_t> raw(static_cast<size_t>(w)*h*4,0),unpacked; std::vector<float> floatPixels; const void* source=data; if(g_boundPixelUnpackBuffer){size_t bytes=static_cast<size_t>(w)*h*4;if(!readPixelUnpackBuffer(data,bytes,unpacked)){metalsharp::GLErrorTracker::instance().setError(0x0501);return;}source=unpacked.data();} if(source){std::memcpy(raw.data(),source,raw.size());convertPixelsToFloatRGBA(w,h,format,type,source,floatPixels,g_glBridge.state().unpackAlignment);} ExperimentalTexture uploadTexture;uploadTexture.width=w;uploadTexture.height=h;uploadTexture.internalFormat=internalFormat;uploadTexture.pixels=raw;uploadTexture.floatPixels=floatPixels;uint64_t handle=createTextureFromCanonical(uploadTexture);if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=w;texture.height=h;texture.internalFormat=internalFormat;texture.pixels=std::move(raw);texture.floatPixels=std::move(floatPixels);return; }
-        const bool depthTexture = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x8CAC || internalFormat == 0x88F0 || internalFormat == 0x8D48 || internalFormat == 0x8CAD;
+        const bool depthTexture = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x81A7 || internalFormat == 0x8CAC || internalFormat == 0x84F9 || internalFormat == 0x88F0 || internalFormat == 0x8D48 || internalFormat == 0x8CAD;
         if (depthTexture) {
             std::vector<uint8_t> pixels;
             std::vector<float> floatPixels, depthPixels;
@@ -4259,7 +4265,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         "glTexImage2D", target, level, internalFormat, w, h, border, format, type, data);
 }
 extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, uint32_t type, void* pixels) {
-    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && g_activeTextureUnit < g_textureUnits.size()) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){const int32_t internal=it->second.internalFormat; const bool depth=internal==0x1902||internal==0x81A5||internal==0x81A6||internal==0x8CAC||internal==0x88F0||internal==0x8CAD||internal==0x8D48; if(depth && format!=0x1901 && format!=0x1902 && format!=0x84F9){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}} }
+    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && g_activeTextureUnit < g_textureUnits.size()) { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){const int32_t internal=it->second.internalFormat; const bool depth=internal==0x1902||internal==0x81A5||internal==0x81A6||internal==0x81A7||internal==0x8CAC||internal==0x84F9||internal==0x88F0||internal==0x8CAD||internal==0x8D48; if(depth && format!=0x1901 && format!=0x1902 && format!=0x84F9){metalsharp::GLErrorTracker::instance().setError(0x0500);return;}} }
     if (metalModeEnabled() && (target == 0x806F || target == 0x8C1A) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto it = g_textures.find(g_textureUnits[g_activeTextureUnit]);
@@ -4283,8 +4289,8 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
             metalsharp::GLErrorTracker::instance().setError(0x0500); return;
         }
         uint64_t depthHandle=0; uint32_t depthWidth=0,depthHeight=0; int32_t depthFormat=0; std::vector<float> depthPixels; std::vector<uint8_t> stencilPixels;
-        { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){depthHandle=it->second.metalHandle;depthWidth=it->second.width;depthHeight=it->second.height;depthFormat=it->second.internalFormat;depthPixels=it->second.depthPixels;stencilPixels=it->second.stencilPixels;if(depthPixels.empty()&&!it->second.floatPixels.empty()&&(depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x8CAC)){depthPixels.resize(static_cast<size_t>(depthWidth)*depthHeight);for(size_t i=0;i<depthPixels.size();++i)depthPixels[i]=it->second.floatPixels[i*4];}} }
-        const bool depthTexture=depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x8CAC||depthFormat==0x88F0||depthFormat==0x8D48||depthFormat==0x8CAD;
+        { std::lock_guard<std::mutex> lock(g_resourceMutex); auto it=g_textures.find(g_textureUnits[g_activeTextureUnit]); if(it!=g_textures.end()){depthHandle=it->second.metalHandle;depthWidth=it->second.width;depthHeight=it->second.height;depthFormat=it->second.internalFormat;depthPixels=it->second.depthPixels;stencilPixels=it->second.stencilPixels;if(depthPixels.empty()&&!it->second.floatPixels.empty()&&(depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x81A7||depthFormat==0x8CAC)){depthPixels.resize(static_cast<size_t>(depthWidth)*depthHeight);for(size_t i=0;i<depthPixels.size();++i)depthPixels[i]=it->second.floatPixels[i*4];}} }
+        const bool depthTexture=depthFormat==0x1902||depthFormat==0x81A5||depthFormat==0x81A6||depthFormat==0x81A7||depthFormat==0x8CAC||depthFormat==0x84F9||depthFormat==0x88F0||depthFormat==0x8D48||depthFormat==0x8CAD;
         if(depthTexture && precise.size() >= static_cast<size_t>(depthWidth) * depthHeight * 4 && format == 0x1902) { std::vector<float> depth(static_cast<size_t>(depthWidth) * depthHeight); for(size_t i=0;i<depth.size();++i) depth[i]=precise[i*4]; if(writeDepthPixels(depth.data(),static_cast<int32_t>(depthWidth),static_cast<int32_t>(depthHeight),pixels,format,type,g_glBridge.state().packAlignment)) return; }
         if (depthTexture && (!depthPixels.empty() || !stencilPixels.empty()) && writeDepthStencilPixels(depthPixels.empty()?nullptr:depthPixels.data(), stencilPixels.empty()?nullptr:stencilPixels.data(), static_cast<int32_t>(depthWidth), static_cast<int32_t>(depthHeight), format, type, pixels, g_glBridge.state().packAlignment)) return;
         if(depthHandle&&depthTexture&&format==0x1902&&type==0x1406){std::lock_guard<std::mutex> lock(g_resourceMutex);auto shadow=g_depthShadow.find(depthHandle);if(shadow!=g_depthShadow.end()&&shadow->second.width==depthWidth&&shadow->second.height==depthHeight){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(depthWidth)*sizeof(float)+alignment-1)/alignment*alignment;for(uint32_t row=0;row<depthHeight;++row)std::memcpy(static_cast<uint8_t*>(pixels)+static_cast<size_t>(row)*stride,shadow->second.values.data()+static_cast<size_t>(row)*depthWidth,static_cast<size_t>(depthWidth)*sizeof(float));return;}}
@@ -4428,7 +4434,7 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
             std::vector<float> depthShadow; std::vector<uint8_t> stencilShadow; uint32_t shadowWidth=0, shadowHeight=0; uint64_t shadowHandle=0;
             { std::lock_guard<std::mutex> lock(g_resourceMutex); const uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end()){shadowHandle=fbo->second.depthHandle; if(fbo->second.depthTexture){auto texture=g_textures.find(fbo->second.depthTexture);if(texture!=g_textures.end()){depthShadow=texture->second.depthPixels;stencilShadow=texture->second.stencilPixels;shadowWidth=texture->second.width;shadowHeight=texture->second.height;}} if(depthShadow.empty()){auto depth=g_depthShadow.find(shadowHandle);if(depth!=g_depthShadow.end()){depthShadow=depth->second.values;shadowWidth=depth->second.width;shadowHeight=depth->second.height;}} if(stencilShadow.empty()){auto stencil=g_stencilShadow.find(fbo->second.stencilHandle?fbo->second.stencilHandle:shadowHandle);if(stencil!=g_stencilShadow.end()){stencilShadow=stencil->second.values;if(!shadowWidth)shadowWidth=stencil->second.width;if(!shadowHeight)shadowHeight=stencil->second.height;}}} }
             if ((!depthShadow.empty() || !stencilShadow.empty()) && static_cast<uint32_t>(x+w)<=shadowWidth && static_cast<uint32_t>(y+h)<=shadowHeight) { std::vector<float> depth(static_cast<size_t>(w)*h); std::vector<uint8_t> stencil(static_cast<size_t>(w)*h); for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){const size_t source=(static_cast<size_t>(y+row)*shadowWidth+x+column),destination=static_cast<size_t>(row)*w+column;if(!depthShadow.empty())depth[destination]=depthShadow[source];if(!stencilShadow.empty())stencil[destination]=stencilShadow[source];} if(writeDepthStencilPixels(depthShadow.empty()?nullptr:depth.data(),stencilShadow.empty()?nullptr:stencil.data(),w,h,format,type,data,g_glBridge.state().packAlignment))return; }
-            if (shadowHandle) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+            if (shadowHandle && format != 0x1902) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
         }
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1902) {
             std::vector<float> preciseDepth;
@@ -4846,7 +4852,7 @@ extern "C" void glRenderbufferStorage(uint32_t target, uint32_t internalformat, 
     if (metalModeEnabled() && target == 0x8D41 && g_boundRenderbuffer && width > 0 && height > 0) {
         std::lock_guard<std::mutex> lock(g_resourceMutex);
         auto& rb = g_renderbuffers[g_boundRenderbuffer]; rb.width=width; rb.height=height; rb.internalFormat=internalformat; rb.sampleCount=1;
-        if (internalformat == 0x81A5 || internalformat == 0x81A6 || internalformat == 0x88F0 || internalformat == 0x8D48 || internalformat == 0x8CAD) rb.metalHandle = g_metalRenderer.createDepthStencilTarget(width,height,internalformat);
+        if (internalformat == 0x81A5 || internalformat == 0x81A6 || internalformat == 0x81A7 || internalformat == 0x88F0 || internalformat == 0x8D48 || internalformat == 0x8CAD) rb.metalHandle = g_metalRenderer.createDepthStencilTarget(width,height,internalformat);
         else { std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4u, 0); rb.metalHandle = internalformat == 0x822E ? g_metalRenderer.createTextureFormat(width, height, internalformat, pixels.data(), false) : g_metalRenderer.createTexture(width, height, pixels.data(), false); }
         if (internalformat == 0x822E && rb.metalHandle) g_r32fColorShadow[rb.metalHandle] = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), std::vector<float>(static_cast<size_t>(width) * height, 0.0f)};
     }
@@ -4854,7 +4860,7 @@ extern "C" void glRenderbufferStorage(uint32_t target, uint32_t internalformat, 
 extern "C" void glRenderbufferStorageMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height) {
     glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t>("glRenderbufferStorageMultisample", target, samples, internalformat, width, height);
     if (metalModeEnabled() && target == 0x8D41 && g_boundRenderbuffer && width > 0 && height > 0) {
-        if (internalformat == 0x81A5 || internalformat == 0x81A6 || internalformat == 0x88F0 || internalformat == 0x8D48 || internalformat == 0x8CAD) { std::lock_guard<std::mutex> lock(g_resourceMutex);auto& rb=g_renderbuffers[g_boundRenderbuffer];rb.width=width;rb.height=height;rb.internalFormat=internalformat;rb.sampleCount=static_cast<uint32_t>(std::max(1,samples));rb.metalHandle=g_metalRenderer.createMultisampleDepthStencilTarget(width,height,internalformat,rb.sampleCount);if(rb.metalHandle)rb.sampleCount=g_metalRenderer.textureSampleCount(rb.metalHandle);return; }
+        if (internalformat == 0x81A5 || internalformat == 0x81A6 || internalformat == 0x81A7 || internalformat == 0x88F0 || internalformat == 0x8D48 || internalformat == 0x8CAD) { std::lock_guard<std::mutex> lock(g_resourceMutex);auto& rb=g_renderbuffers[g_boundRenderbuffer];rb.width=width;rb.height=height;rb.internalFormat=internalformat;rb.sampleCount=static_cast<uint32_t>(std::max(1,samples));rb.metalHandle=g_metalRenderer.createMultisampleDepthStencilTarget(width,height,internalformat,rb.sampleCount);if(rb.metalHandle)rb.sampleCount=g_metalRenderer.textureSampleCount(rb.metalHandle);return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);auto& rb=g_renderbuffers[g_boundRenderbuffer];rb.width=width;rb.height=height;rb.internalFormat=internalformat;rb.sampleCount=static_cast<uint32_t>(std::max(1,samples));rb.metalHandle=g_metalRenderer.createMultisampleTexture2D(width,height,internalformat,rb.sampleCount);if(rb.metalHandle)rb.sampleCount=g_metalRenderer.textureSampleCount(rb.metalHandle);return;
     }
 }
@@ -4866,7 +4872,7 @@ extern "C" void glTexImage2DMultisample(uint32_t target, int32_t samples, uint32
                                          int32_t width, int32_t height, unsigned char fixedsamplelocations) {
     glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t, unsigned char>("glTexImage2DMultisample", target, samples, internalformat, width, height, fixedsamplelocations);
     const uint32_t textureName=g_activeTextureUnit<g_textureUnits.size()?g_textureUnits[g_activeTextureUnit]:0;
-    if(metalModeEnabled()&&target==0x9100&&width>0&&height>0&&textureName){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.target=target;texture.width=width;texture.height=height;texture.depth=1;texture.internalFormat=internalformat;texture.sampleCount=static_cast<uint32_t>(std::max(1,samples));texture.pixels.assign(static_cast<size_t>(width)*height*4,0);bool depth=(internalformat==0x1902||internalformat==0x81A5||internalformat==0x81A6||internalformat==0x8CAC||internalformat==0x8D48);texture.metalHandle=depth?g_metalRenderer.createMultisampleDepthStencilTarget(width,height,internalformat,texture.sampleCount):g_metalRenderer.createMultisampleTexture2D(width,height,internalformat,texture.sampleCount);if(texture.metalHandle)texture.sampleCount=g_metalRenderer.textureSampleCount(texture.metalHandle);}
+    if(metalModeEnabled()&&target==0x9100&&width>0&&height>0&&textureName){std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.target=target;texture.width=width;texture.height=height;texture.depth=1;texture.internalFormat=internalformat;texture.sampleCount=static_cast<uint32_t>(std::max(1,samples));texture.pixels.assign(static_cast<size_t>(width)*height*4,0);bool depth=(internalformat==0x1902||internalformat==0x81A5||internalformat==0x81A6||internalformat==0x81A7||internalformat==0x8CAC||internalformat==0x8D48);texture.metalHandle=depth?g_metalRenderer.createMultisampleDepthStencilTarget(width,height,internalformat,texture.sampleCount):g_metalRenderer.createMultisampleTexture2D(width,height,internalformat,texture.sampleCount);if(texture.metalHandle)texture.sampleCount=g_metalRenderer.textureSampleCount(texture.metalHandle);}
 }
 extern "C" void glTexImage3DMultisample(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height, int32_t depth, unsigned char fixedsamplelocations) {
     glDispatch<void, uint32_t, int32_t, uint32_t, int32_t, int32_t, int32_t, unsigned char>("glTexImage3DMultisample", target, samples, internalformat, width, height, depth, fixedsamplelocations);
