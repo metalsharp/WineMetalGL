@@ -3839,6 +3839,11 @@ if(metalModeEnabled()&&target==0x0DE0&&level==0&&width>0&&textureName){std::vect
 extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFormat, int32_t w, int32_t h,
                               int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    const bool inputIntegerFormat = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
+    if (metalModeEnabled() && target == 0x0DE1 && level == 0 && textureName && inputIntegerFormat != integerInternalFormat(internalFormat)) {
+        metalsharp::GLErrorTracker::instance().setError(0x0500);
+        return;
+    }
     if (metalModeEnabled() && target == 0x0DE1 && level == 0 && format == 0x1908 && textureName &&
         (type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 || type == 0x84FA || type == 0x8DAD || type == 0x8C3B || type == 0x8C3E)) {
         metalsharp::GLErrorTracker::instance().setError(0x0500);
