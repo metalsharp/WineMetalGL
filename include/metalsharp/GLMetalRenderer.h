@@ -98,6 +98,7 @@ class GLMetalRenderer {
     /// Create a Metal buffer from raw vertex data.
     /// @return buffer handle (non-zero on success)
     uint64_t createBuffer(const void* data, size_t size);
+    void deleteBuffer(uint64_t bufferHandle);
     bool updateBuffer(uint64_t bufferHandle, size_t offset, const void* data, size_t size);
     void* bufferContents(uint64_t bufferHandle);
 
@@ -172,6 +173,7 @@ class GLMetalRenderer {
     bool clearColorTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float red, float green, float blue, float alpha);
     bool clearDefaultColorRegion(uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t regionWidth, uint32_t regionHeight, float red, float green, float blue, float alpha);
     uint64_t defaultColorTextureHandle() const;
+    void resetDefaultTargets();
     bool clearDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float depth);
     bool readDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float* data);
 
@@ -201,6 +203,7 @@ class GLMetalRenderer {
     /// @param data         BGRA8 pixel data, tightly packed
     /// @return non-zero texture handle on success
     uint64_t createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped = true, bool srgb = false);
+    void deleteTexture(uint64_t textureHandle);
     uint64_t createTexture1D(uint32_t width, uint32_t glInternalFormat, const void* data, bool mipmapped = true);
     bool updateTexture1DLevel(uint64_t textureHandle, uint32_t level, uint32_t width, const void* data, size_t bytesPerRow);
     uint64_t createTextureFormat(uint32_t width, uint32_t height, uint32_t glInternalFormat, const void* data, bool mipmapped = true);

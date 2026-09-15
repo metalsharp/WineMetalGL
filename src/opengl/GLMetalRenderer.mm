@@ -328,6 +328,10 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
         m_impl->currentDepthStencilState = [m_device newDepthStencilStateWithDescriptor:depth];
         desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
         desc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    } else {
+        std::lock_guard<std::mutex> depthLock(m_impl->mutex);
+        m_impl->currentDepthStencilState = nil;
+        m_impl->currentStencilReference = 0;
     }
 
     // Phase 3d: apply pending vertex layout (if any) to the descriptor.
@@ -399,6 +403,12 @@ bool GLMetalRenderer::updateBuffer(uint64_t bufferHandle, size_t offset, const v
     if (it == m_impl->buffers.end() || offset + size > it->second.length) return false;
     std::memcpy(static_cast<uint8_t*>(it->second.contents) + offset, data, size);
     return true;
+}
+
+void GLMetalRenderer::deleteBuffer(uint64_t bufferHandle) {
+    if (!bufferHandle) return;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->buffers.erase(bufferHandle);
 }
 
 void* GLMetalRenderer::bufferContents(uint64_t bufferHandle) {
@@ -1116,6 +1126,16 @@ uint64_t GLMetalRenderer::defaultColorTextureHandle() const {
     return m_impl->defaultColorHandle;
 }
 
+void GLMetalRenderer::resetDefaultTargets() {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (m_impl->defaultColorHandle) m_impl->textures.erase(m_impl->defaultColorHandle);
+    m_impl->defaultColorTarget = nil;
+    m_impl->defaultColorWidth = m_impl->defaultColorHeight = 0;
+    m_impl->defaultColorHandle = 0;
+    m_impl->defaultDepthTarget = nil;
+    m_impl->colorTarget = nil;
+}
+
 bool GLMetalRenderer::clearDepthTexture(uint64_t textureHandle, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float depth) {
     if (!width || !height) return true;
     std::lock_guard<std::mutex> lock(m_impl->mutex);
@@ -1274,6 +1294,18 @@ uint64_t GLMetalRenderer::createTextureFormat(uint32_t width, uint32_t height, u
 }
 bool GLMetalRenderer::updateTextureLevel(uint64_t textureHandle,uint32_t level,uint32_t width,uint32_t height,const void* data,size_t bytesPerRow) { if(!m_device||!data||!width||!height)return false;std::lock_guard<std::mutex> lock(m_impl->mutex);auto resolved=m_impl->resolveTextures.find(textureHandle);if(resolved!=m_impl->resolveTextures.end())textureHandle=resolved->second;auto it=m_impl->textures.find(textureHandle);if(it==m_impl->textures.end()||level>=it->second.mipmapLevelCount||width>(it->second.width>>level)||height>(it->second.height>>level))return false;std::vector<uint8_t> upload(bytesPerRow * static_cast<size_t>(height));for(uint32_t row=0;row<height;++row)std::memcpy(upload.data()+static_cast<size_t>(row)*bytesPerRow,static_cast<const uint8_t*>(data)+static_cast<size_t>(height-1-row)*bytesPerRow,bytesPerRow);[it->second replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:level withBytes:upload.data() bytesPerRow:bytesPerRow];return true;}
 uint64_t GLMetalRenderer::createTextureCube(uint32_t width,uint32_t height,uint32_t glInternalFormat,const void* const* faces) { if(!m_device||!width||!height)return 0;MTLPixelFormat format=glInternalFormat==0x8C43?MTLPixelFormatBGRA8Unorm_sRGB:MTLPixelFormatBGRA8Unorm;MTLTextureDescriptor* descriptor=[MTLTextureDescriptor textureCubeDescriptorWithPixelFormat:format size:width mipmapped:YES];descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite|MTLTextureUsageRenderTarget;id<MTLTexture> texture=[m_device newTextureWithDescriptor:descriptor];if(!texture)return 0;for(uint32_t face=0;face<6;++face)if(faces&&faces[face])[texture replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 slice:face withBytes:faces[face] bytesPerRow:static_cast<size_t>(width)*4 bytesPerImage:static_cast<size_t>(width)*height*4];if(faces){id<MTLCommandBuffer> command=[m_commandQueue commandBuffer];id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];if(command&&blit){[blit generateMipmapsForTexture:texture];[blit endEncoding];[command commit];[command waitUntilCompleted];}}std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle; }
+
+void GLMetalRenderer::deleteTexture(uint64_t textureHandle) {
+    if (!textureHandle) return;
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    auto resolve = m_impl->resolveTextures.find(textureHandle);
+    if (resolve != m_impl->resolveTextures.end()) { m_impl->textures.erase(resolve->second); m_impl->resolveTextures.erase(resolve); }
+    for (auto it = m_impl->resolveTextures.begin(); it != m_impl->resolveTextures.end();) {
+        if (it->second == textureHandle) it = m_impl->resolveTextures.erase(it); else ++it;
+    }
+    m_impl->textures.erase(textureHandle);
+    m_impl->textureSampleCounts.erase(textureHandle);
+}
 
 uint64_t GLMetalRenderer::createTexture(uint32_t width, uint32_t height, const void* data, bool mipmapped, bool srgb) { return createTextureFormat(width,height,srgb?0x8C43:0x8058,data,mipmapped); }
 
