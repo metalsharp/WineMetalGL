@@ -249,6 +249,13 @@ bool GLSLCompiler::translateSPIRVtoMSL(const std::vector<uint32_t>& spirv, Shade
         // most modern SPIR-V features (argument buffers tier 2, etc.).
         opts.msl_version = spirv_cross::CompilerMSL::Options::make_msl_version(2, 4);
         msl.set_msl_options(opts);
+        /* `sampler` is legal as a GLSL uniform name but collides with the
+         * Metal sampler type when SPIRV-Cross emits a combined image/sampler
+         * parameter. Rename only the SPIR-V resource; the GL-facing uniform
+         * location table remains keyed by the original GLSL name. */
+        auto resources = msl.get_shader_resources();
+        for (const auto& resource : resources.sampled_images)
+            if (msl.get_name(resource.id) == "sampler") msl.set_name(resource.id, "textureSampler");
 
         // glslang emits the GLSL `void main()` entry point as the SPIR-V
         // entry point named "main". "main" is a reserved keyword in MSL,
