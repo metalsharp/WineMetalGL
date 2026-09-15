@@ -613,6 +613,8 @@ index 696734f..0baa9eb 100644
 +            WINEMETALGL_BIND(glDeleteFramebuffers);
 +            WINEMETALGL_BIND(glBindFramebuffer);
 +            WINEMETALGL_BIND(glFramebufferTexture2D);
++            WINEMETALGL_BIND(glFramebufferTexture3D);
++            WINEMETALGL_BIND(glFramebufferTexture3DEXT);
 +            WINEMETALGL_BIND(glFramebufferTextureLayer);
 +            WINEMETALGL_BIND(glNamedFramebufferTexture);
 +            WINEMETALGL_BIND(glGetNamedFramebufferAttachmentParameteriv);
