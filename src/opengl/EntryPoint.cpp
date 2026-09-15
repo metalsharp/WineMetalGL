@@ -2524,7 +2524,7 @@ extern "C" void glCompileShader(uint32_t shader) {
         return;
     }
     if (state && state->needsCrossCompile && !state->source.empty()) {
-        if (!state->glslVersion.isES && metalsharp::packedGLSLVersion(state->glslVersion) >= 140 && metalsharp::packedGLSLVersion(state->glslVersion) < 330) {
+        if (!state->glslVersion.isES && metalsharp::packedGLSLVersion(state->glslVersion) >= 140 && metalsharp::packedGLSLVersion(state->glslVersion) < 450) {
             static const char* reserved[] = {"packed", "precision", "image1DShadow", "image2DShadow", "image1DArrayShadow", "image2DArrayShadow", "row_major"};
             for (const char* name : reserved) {
                 const size_t length = std::strlen(name);
