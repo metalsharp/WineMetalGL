@@ -302,7 +302,7 @@ static bool integerInternalFormat(int32_t internalFormat) { switch(internalForma
 static bool integerFormatInfo(int32_t internalFormat, uint32_t& components, uint32_t& bits, bool& signedValues) { switch(internalFormat){case 0x8231:components=1;bits=8;signedValues=true;break;case 0x8232:components=1;bits=8;signedValues=false;break;case 0x8233:components=1;bits=16;signedValues=true;break;case 0x8234:components=1;bits=16;signedValues=false;break;case 0x8235:components=1;bits=32;signedValues=true;break;case 0x8236:components=1;bits=32;signedValues=false;break;case 0x8237:components=2;bits=8;signedValues=true;break;case 0x8238:components=2;bits=8;signedValues=false;break;case 0x8239:components=2;bits=16;signedValues=true;break;case 0x823A:components=2;bits=16;signedValues=false;break;case 0x823B:components=2;bits=32;signedValues=true;break;case 0x823C:components=2;bits=32;signedValues=false;break;case 0x8D8E:components=4;bits=8;signedValues=true;break;case 0x8D7C:components=4;bits=8;signedValues=false;break;case 0x8D88:components=4;bits=16;signedValues=true;break;case 0x8D76:components=4;bits=16;signedValues=false;break;case 0x8D82:components=4;bits=32;signedValues=true;break;case 0x8D70:components=4;bits=32;signedValues=false;break;case 0x8D8F:components=3;bits=8;signedValues=true;break;case 0x8D7D:components=3;bits=8;signedValues=false;break;case 0x8D89:components=3;bits=16;signedValues=true;break;case 0x8D77:components=3;bits=16;signedValues=false;break;case 0x8D83:components=3;bits=32;signedValues=true;break;case 0x8D71:components=3;bits=32;signedValues=false;break;case 0x906F:components=4;bits=10;signedValues=false;break;default:return false;}return true; }
 static const uint8_t* unpackPixelSource(const void* data, int32_t width, size_t pixelBytes, int32_t alignment, int32_t x, int32_t y);
 static bool convertPixelsToRGBA16F(int32_t width, int32_t height, uint32_t format, uint32_t type, const void* data, std::vector<uint8_t>& output, int32_t unpackAlignment, bool signedValues, uint32_t componentCount=4) {
-    if(width<=0||height<=0||!data||type!=0x1406)return false;const bool bgra=format==0x80E1,bgr=format==0x80E0;const uint32_t channels=format==0x1908||bgra?4:format==0x1907||bgr?3:format==0x8227?2:1;const size_t scalar=sizeof(float),alignment=static_cast<size_t>(std::max(1,unpackAlignment)),stride=(static_cast<size_t>(width)*channels*scalar+alignment-1)/alignment*alignment;output.resize(static_cast<size_t>(width)*height*8);const uint8_t* bytes=static_cast<const uint8_t*>(data);for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const uint8_t* source=unpackPixelSource(bytes,width,channels*scalar,unpackAlignment,x,y);float values[4]={0,0,0,1};for(uint32_t c=0;c<channels&&c<4;++c)std::memcpy(&values[c],source+static_cast<size_t>(c)*scalar,sizeof(float));if(bgra||bgr){std::swap(values[0],values[2]);if(channels==3)values[3]=1;}if(componentCount==1){values[1]=values[2]=0;values[3]=1;}else if(componentCount==2){values[2]=0;values[3]=1;}else if(componentCount==3)values[3]=1;for(uint32_t c=0;c<4;++c)values[c]=signedValues?std::clamp(values[c],-1.0f,1.0f):std::clamp(values[c],0.0f,1.0f);uint16_t half[4]={floatToHalf(values[0]),floatToHalf(values[1]),floatToHalf(values[2]),floatToHalf(values[3])};std::memcpy(output.data()+(static_cast<size_t>(y)*width+x)*8,half,8);}return true; }
+    if(width<=0||height<=0||!data||type!=0x1406)return false;const bool bgra=format==0x80E1,bgr=format==0x80E0;const uint32_t channels=format==0x1908||bgra?4:format==0x1907||bgr?3:format==0x8227?2:1;const size_t scalar=sizeof(float),alignment=static_cast<size_t>(std::max(1,unpackAlignment)),stride=(static_cast<size_t>(width)*channels*scalar+alignment-1)/alignment*alignment;output.resize(static_cast<size_t>(width)*height*8);const uint8_t* bytes=static_cast<const uint8_t*>(data);for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const uint8_t* source=unpackPixelSource(bytes,width,channels*scalar,unpackAlignment,x,y);std::array<uint8_t, 16> swappedSource{};if(g_unpackSwapBytes){std::memcpy(swappedSource.data(),source,channels*scalar);for(size_t offset=0;offset<channels*scalar;offset+=scalar)std::reverse(swappedSource.begin()+offset,swappedSource.begin()+offset+scalar);source=swappedSource.data();}float values[4]={0,0,0,1};for(uint32_t c=0;c<channels&&c<4;++c)std::memcpy(&values[c],source+static_cast<size_t>(c)*scalar,sizeof(float));if(bgra||bgr){std::swap(values[0],values[2]);if(channels==3)values[3]=1;}if(componentCount==1){values[1]=values[2]=0;values[3]=1;}else if(componentCount==2){values[2]=0;values[3]=1;}else if(componentCount==3)values[3]=1;for(uint32_t c=0;c<4;++c)values[c]=signedValues?std::clamp(values[c],-1.0f,1.0f):std::clamp(values[c],0.0f,1.0f);uint16_t half[4]={floatToHalf(values[0]),floatToHalf(values[1]),floatToHalf(values[2]),floatToHalf(values[3])};std::memcpy(output.data()+(static_cast<size_t>(y)*width+x)*8,half,8);}return true; }
 static void maskCanonicalColorChannels(std::vector<uint8_t>& pixels, int32_t internalFormat) { const uint32_t components=normalizedColorComponents(internalFormat);if(!components)return;for(size_t i=0;i+3<pixels.size();i+=4){const uint8_t red=pixels[i+2],green=pixels[i+1],blue=pixels[i];if(components==1){pixels[i]=0;pixels[i+1]=0;pixels[i+2]=red;pixels[i+3]=255;}else if(components==2){pixels[i]=0;pixels[i+1]=green;pixels[i+2]=red;pixels[i+3]=255;}else if(components==3)pixels[i+3]=255;else {pixels[i]=blue;pixels[i+1]=green;pixels[i+2]=red;}} }
 
 static bool convertPixelsToBGRA(int32_t width, int32_t height, uint32_t format, uint32_t type,
@@ -334,6 +334,8 @@ static bool convertPixelsToBGRA(int32_t width, int32_t height, uint32_t format, 
     for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) {
         const size_t pixel = static_cast<size_t>(y) * width + x;
         const uint8_t* source = unpackPixelSource(bytes, width, sourcePixelSize, unpackAlignment, x, y);
+        std::array<uint8_t, 32> swappedSource{};
+        if (g_unpackSwapBytes && sourcePixelSize > 1) { std::memcpy(swappedSource.data(), source, sourcePixelSize); if (packed) std::reverse(swappedSource.begin(), swappedSource.begin() + sourcePixelSize); else for (size_t offset = 0; offset < sourcePixelSize; offset += scalarSize) std::reverse(swappedSource.begin() + offset, swappedSource.begin() + offset + scalarSize); source = swappedSource.data(); }
         auto sample = [&](uint32_t channel) -> uint8_t {
             if (integer) {
                 if (type == 0x1400) return static_cast<uint8_t>(static_cast<int8_t>(source[channel]));
@@ -429,8 +431,16 @@ static size_t packPixelStride(int32_t width, size_t pixelBytes, int32_t alignmen
 static size_t packPixelOffset(int32_t width, size_t pixelBytes, int32_t alignment, int32_t x, int32_t y) {
     return static_cast<size_t>(std::max(0, g_packSkipRows) + y) * packPixelStride(width, pixelBytes, alignment) + static_cast<size_t>(std::max(0, g_packSkipPixels) + x) * pixelBytes;
 }
+static size_t packPixelOffset3D(int32_t width, int32_t height, size_t pixelBytes, int32_t alignment, int32_t x, int32_t y, int32_t z) {
+    const size_t rowStride = packPixelStride(width, pixelBytes, alignment), imageHeight = static_cast<size_t>(g_packImageHeight > 0 ? g_packImageHeight : height);
+    return static_cast<size_t>(std::max(0, g_packSkipImages) + z) * imageHeight * rowStride + packPixelOffset(width, pixelBytes, alignment, x, y);
+}
 static uint8_t* packPixelDestination(void* data, int32_t width, size_t pixelBytes, int32_t alignment, int32_t x, int32_t y) {
     return static_cast<uint8_t*>(data) + packPixelOffset(width, pixelBytes, alignment, x, y);
+}
+static void applyPackByteSwap(void* data, int32_t width, int32_t height, size_t pixelBytes, size_t scalar, bool packed, int32_t alignment) {
+    if (!g_packSwapBytes || !data || pixelBytes <= 1) return;
+    for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) { uint8_t* pixel = packPixelDestination(data, width, pixelBytes, alignment, x, y); if (packed) std::reverse(pixel, pixel + pixelBytes); else for (size_t offset = 0; offset < pixelBytes; offset += scalar) std::reverse(pixel + offset, pixel + offset + scalar); }
 }
 struct PixelPackWriteback {
     uint32_t buffer = 0; size_t offset = 0; std::vector<uint8_t>* data = nullptr;
@@ -464,6 +474,8 @@ static bool convertPixelsToFloatRGBA(int32_t width, int32_t height, uint32_t for
     const uint8_t* bytes = static_cast<const uint8_t*>(data);
     for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) {
         const uint8_t* source = unpackPixelSource(bytes, width, pixelSize, unpackAlignment, x, y);
+        std::array<uint8_t, 32> swappedSource{};
+        if (g_unpackSwapBytes && pixelSize > 1) { std::memcpy(swappedSource.data(), source, pixelSize); if (packed) std::reverse(swappedSource.begin(), swappedSource.begin() + pixelSize); else for (size_t offset = 0; offset < pixelSize; offset += scalar) std::reverse(swappedSource.begin() + offset, swappedSource.begin() + offset + scalar); source = swappedSource.data(); }
         float ordered[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         auto decodeUnsignedFloat = [](uint32_t bits, uint32_t mantissaBits) {
             const uint32_t exponent = bits >> mantissaBits & 0x1fu, mantissa = bits & ((1u << mantissaBits) - 1u);
@@ -508,6 +520,13 @@ static bool convertPixelsToFloatRGBA(int32_t width, int32_t height, uint32_t for
     }
     return true;
 }
+static bool convertPixelsToBGRATight(int32_t width, int32_t height, uint32_t format, uint32_t type, const void* data, std::vector<uint8_t>& output) {
+    const int32_t savedRowLength = g_unpackRowLength, savedImageHeight = g_unpackImageHeight, savedSkipRows = g_unpackSkipRows, savedSkipPixels = g_unpackSkipPixels, savedSkipImages = g_unpackSkipImages;
+    g_unpackRowLength = g_unpackImageHeight = g_unpackSkipRows = g_unpackSkipPixels = g_unpackSkipImages = 0;
+    const bool result = convertPixelsToBGRA(width, height, format, type, data, output, 1);
+    g_unpackRowLength = savedRowLength; g_unpackImageHeight = savedImageHeight; g_unpackSkipRows = savedSkipRows; g_unpackSkipPixels = savedSkipPixels; g_unpackSkipImages = savedSkipImages;
+    return result;
+}
 
 static bool readPixelUnpackBuffer(const void* pointer, size_t bytes, std::vector<uint8_t>& storage) {
     if (!g_boundPixelUnpackBuffer) return true;
@@ -518,7 +537,7 @@ static bool readPixelUnpackBuffer(const void* pointer, size_t bytes, std::vector
 }
 
 static size_t pixelUploadBytes(int32_t width, int32_t height, int32_t depth, uint32_t format, uint32_t type, int32_t alignment) {
-    uint32_t channels = format==0x1908||format==0x80E1?4:format==0x1907||format==0x80E0?3:format==0x8227||format==0x190A?2:1;
+    uint32_t channels = format==0x1908||format==0x80E1||format==0x8D99||format==0x8D9B?4:format==0x1907||format==0x80E0||format==0x8D98||format==0x8D9A?3:format==0x8227||format==0x190A||format==0x8228?2:1;
     size_t scalar = type==0x1400||type==0x1401||type==0x8032||type==0x8362?1:(type==0x1402||type==0x1403||type==0x140B||type==0x8363||type==0x8364||type==0x8033||type==0x8034||type==0x8365||type==0x8366)?2:(type==0x1404||type==0x1405||type==0x1406||type==0x8035||type==0x8036||type==0x8367||type==0x8368||type==0x8C3B||type==0x8C3E||type==0x84FA)?4:(type==0x8DAD?8:0);
     if(type==0x8032||type==0x8362||type==0x8363||type==0x8364||type==0x8033||type==0x8034||type==0x8035||type==0x8036||type==0x8365||type==0x8366||type==0x8367||type==0x8368||type==0x8C3B||type==0x8C3E||type==0x84FA||type==0x8DAD)channels=1;
     size_t row=static_cast<size_t>(std::max(0,width))*channels*scalar, align=static_cast<size_t>(std::max(1,alignment));
@@ -544,7 +563,7 @@ static bool convertPixelsToIntegerRGBA(int32_t width, int32_t height, uint32_t f
     const int64_t unsignedMax = bits == 32 ? 0xffffffffLL : ((1LL << bits) - 1);
     auto clamp = [=](int64_t value) -> uint32_t { return static_cast<uint32_t>(std::clamp(value, signedValues ? minValue : 0LL, signedValues ? maxValue : unsignedMax)); };
     for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) {
-        const uint8_t* source = unpackPixelSource(bytes, width, pixelSize, unpackAlignment, x, y); int64_t ordered[4] = {0, 0, 0, 1};
+        const uint8_t* source = unpackPixelSource(bytes, width, pixelSize, unpackAlignment, x, y); std::array<uint8_t, 32> swappedSource{}; if (g_unpackSwapBytes && pixelSize > 1) { std::memcpy(swappedSource.data(), source, pixelSize); if (packed) std::reverse(swappedSource.begin(), swappedSource.begin() + pixelSize); else for (size_t offset = 0; offset < pixelSize; offset += scalar) std::reverse(swappedSource.begin() + offset, swappedSource.begin() + offset + scalar); source = swappedSource.data(); } int64_t ordered[4] = {0, 0, 0, 1};
         if (type == 0x8032) { const uint8_t v=source[0];ordered[0]=v>>5&7;ordered[1]=v>>2&7;ordered[2]=v&3; }
         else if (type == 0x8362) { const uint8_t v=source[0];ordered[0]=v&7;ordered[1]=v>>3&7;ordered[2]=v>>6&3; }
         else if (type == 0x8363) { uint16_t v;std::memcpy(&v,source,2);ordered[0]=v>>11&31;ordered[1]=v>>5&63;ordered[2]=v&31; }
@@ -592,11 +611,12 @@ static bool writeIntegerPixels(const uint32_t* rgba, int32_t width, int32_t heig
         return static_cast<uint32_t>(std::min(value, maximum));
     };
     for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const size_t source=(static_cast<size_t>(y)*width+x)*4,target=packPixelOffset(width,pixelBytes,alignment,x,y);uint32_t values[4]={rgba[source],rgba[source+1],rgba[source+2],rgba[source+3]},ordered[4]={values[0],values[1],values[2],values[3]};if(bgra||bgr){ordered[0]=values[2];ordered[1]=values[1];ordered[2]=values[0];}if(!packed){for(uint32_t c=0;c<channels;++c){const bool outputSigned=type==0x1400||type==0x1402||type==0x1404;const uint32_t outputBits=scalar*8;const uint32_t value=valueFor(ordered[c],outputSigned,outputBits);std::memcpy(out+target+c*scalar,&value,scalar);}continue;}uint32_t value=0;if(type==0x8032)value=valueFor(ordered[0],false,3)<<5|valueFor(ordered[1],false,3)<<2|valueFor(ordered[2],false,2);else if(type==0x8362)value=valueFor(ordered[0],false,3)|valueFor(ordered[1],false,3)<<3|valueFor(ordered[2],false,2)<<6;else if(type==0x8363)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5);else if(type==0x8364)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5)<<11;else if(type==0x8033)value=valueFor(ordered[0],false,4)<<12|valueFor(ordered[1],false,4)<<8|valueFor(ordered[2],false,4)<<4|valueFor(ordered[3],false,4);else if(type==0x8034)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,5)<<6|valueFor(ordered[2],false,5)<<1|valueFor(ordered[3],false,1);else if(type==0x8365)value=valueFor(ordered[0],false,4)|valueFor(ordered[1],false,4)<<4|valueFor(ordered[2],false,4)<<8|valueFor(ordered[3],false,4)<<12;else if(type==0x8366)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,5)<<5|valueFor(ordered[2],false,5)<<10|valueFor(ordered[3],false,1)<<15;else if(type==0x8035)value=valueFor(ordered[0],false,8)<<24|valueFor(ordered[1],false,8)<<16|valueFor(ordered[2],false,8)<<8|valueFor(ordered[3],false,8);else if(type==0x8367)value=valueFor(ordered[0],false,8)|valueFor(ordered[1],false,8)<<8|valueFor(ordered[2],false,8)<<16|valueFor(ordered[3],false,8)<<24;else if(type==0x8036)value=valueFor(ordered[0],false,10)<<22|valueFor(ordered[1],false,10)<<12|valueFor(ordered[2],false,10)<<2|valueFor(ordered[3],false,2);else if(type==0x8368)value=valueFor(ordered[0],false,10)|valueFor(ordered[1],false,10)<<10|valueFor(ordered[2],false,10)<<20|valueFor(ordered[3],false,2)<<30;std::memcpy(out+target,&value,scalar);}
+    applyPackByteSwap(destination, width, height, pixelBytes, scalar, packed, alignment);
     return true;
 }
 
 static bool writeRGBA8Pixels(const uint8_t* rgba, int32_t width, int32_t height, int32_t depth,
-                             uint32_t format, uint32_t type, void* destination, int32_t alignment) {
+                             uint32_t format, uint32_t type, void* destination, int32_t alignment, bool imageTransfer = false) {
     if (!rgba || !destination || width <= 0 || height <= 0 || depth <= 0)
         return false;
 
@@ -686,7 +706,7 @@ static bool writeRGBA8Pixels(const uint8_t* rgba, int32_t width, int32_t height,
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
                 const size_t src = (static_cast<size_t>(z) * height * width + static_cast<size_t>(y) * width + x) * 4;
-                const size_t dst = packPixelOffset(width, pixelBytes, alignment, x, y);
+                const size_t dst = imageTransfer ? packPixelOffset3D(width, height, pixelBytes, alignment, x, y, z) : packPixelOffset(width, pixelBytes, alignment, x, y);
                 uint8_t values[4] = {0, 0, 0, 255};
                 for (uint32_t c = 0; c < channels; ++c)
                     values[c] = rgba[src + componentOrder(c)];
@@ -767,11 +787,12 @@ static bool writeRGBA8Pixels(const uint8_t* rgba, int32_t width, int32_t height,
             }
         }
     }
+    applyPackByteSwap(destination, width, height, pixelBytes, scalar, packed, alignment);
     return true;
 }
 
 static bool writeFloatPixels(const float* rgba, int32_t width, int32_t height, int32_t depth,
-                             uint32_t format, uint32_t type, void* destination, int32_t alignment) {
+                             uint32_t format, uint32_t type, void* destination, int32_t alignment, bool imageTransfer = false) {
     if (!rgba || !destination || width <= 0 || height <= 0 || depth <= 0) return false;
     const bool bgra = format == 0x80E1, bgr = format == 0x80E0;
     const uint32_t channels = format == 0x1908 || bgra ? 4 : format == 0x1907 || bgr ? 3 :
@@ -813,7 +834,7 @@ static bool writeFloatPixels(const float* rgba, int32_t width, int32_t height, i
     uint8_t* out = static_cast<uint8_t*>(destination);
     for (int32_t z = 0; z < depth; ++z) for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) {
         const size_t source = (static_cast<size_t>(z) * height * width + static_cast<size_t>(y) * width + x) * 4;
-        const size_t target = packPixelOffset(width, pixelBytes, alignment, x, y);
+        const size_t target = imageTransfer ? packPixelOffset3D(width, height, pixelBytes, alignment, x, y, z) : packPixelOffset(width, pixelBytes, alignment, x, y);
         if (!packed) {
             for (uint32_t c = 0; c < channels; ++c) if (!write(out + target + static_cast<size_t>(c) * scalar, rgba[source + sourceIndex(c)], type)) return false;
         } else {
@@ -858,6 +879,7 @@ static bool writeFloatPixels(const float* rgba, int32_t width, int32_t height, i
             std::memcpy(out + target, &value, scalar);
         }
     }
+    applyPackByteSwap(destination, width, height, pixelBytes, scalar, packed, alignment);
     return true;
 }
 
@@ -880,6 +902,7 @@ static bool writeDepthPixels(const float* depth, int32_t width, int32_t height, 
         else if (type == 0x140B) { const uint16_t v = floatToHalf(value); std::memcpy(target, &v, 2); }
         else { const float v = depth[static_cast<size_t>(y) * width + x]; std::memcpy(target, &v, 4); }
     }
+    applyPackByteSwap(destination, width, height, scalar, scalar, false, alignment);
     return true;
 }
 
@@ -903,6 +926,7 @@ static bool writeDepthStencilPixels(const float* depth, const uint8_t* stencil, 
             else if (type == 0x1406) { const float v = value / 255.0f; std::memcpy(target, &v, 4); }
             else { const uint32_t v = value; std::memcpy(target, &v, 4); }
         }
+        applyPackByteSwap(destination, width, height, scalar, scalar, false, alignment);
         return true;
     }
     if (format != 0x84F9 || !depth || !stencil || (type != 0x84FA && type != 0x8DAD)) return false;
@@ -913,6 +937,7 @@ static bool writeDepthStencilPixels(const float* depth, const uint8_t* stencil, 
         if (type == 0x84FA) { const uint32_t value = (static_cast<uint32_t>(std::clamp(depth[index], 0.0f, 1.0f) * 16777215.0f) << 8) | stencil[index]; std::memcpy(out + target, &value, 4); }
         else { std::memcpy(out + target, depth + index, 4); const uint32_t value = stencil[index]; std::memcpy(out + target + 4, &value, 4); }
     }
+    applyPackByteSwap(destination, width, height, pixelBytes, pixelBytes, true, alignment);
     return true;
 }
 
@@ -924,7 +949,7 @@ static bool convertDepthStencilShadow(int32_t width, int32_t height, uint32_t fo
     const size_t stride = (static_cast<size_t>(width) * pixelBytes + alignment - 1) / alignment * alignment;
     depth.resize(static_cast<size_t>(width) * height); stencil.resize(depth.size()); const uint8_t* bytes = static_cast<const uint8_t*>(data);
     for (int32_t y = 0; y < height; ++y) for (int32_t x = 0; x < width; ++x) {
-        const uint8_t* source = unpackPixelSource(bytes, width, pixelBytes, unpackAlignment, x, y); const size_t index = static_cast<size_t>(y) * width + x;
+        const uint8_t* source = unpackPixelSource(bytes, width, pixelBytes, unpackAlignment, x, y); std::array<uint8_t, 8> swappedSource{}; if (g_unpackSwapBytes && pixelBytes > 1) { std::memcpy(swappedSource.data(), source, pixelBytes); std::reverse(swappedSource.begin(), swappedSource.begin() + pixelBytes); source = swappedSource.data(); } const size_t index = static_cast<size_t>(y) * width + x;
         if (type == 0x84FA) { uint32_t value; std::memcpy(&value, source, 4); depth[index] = (value >> 8 & 0xffffffu) / 16777215.0f; stencil[index] = static_cast<uint8_t>(value); }
         else { std::memcpy(&depth[index], source, 4); uint32_t value; std::memcpy(&value, source + 4, 4); stencil[index] = static_cast<uint8_t>(value); }
     }
@@ -2416,14 +2441,16 @@ static void emulatePixelStorageArrayFetch(uint32_t program) {
     if (!metalModeEnabled() || g_textureUnits.empty()) return;
     std::string fragmentSource;
     { std::lock_guard<std::mutex> lock(g_programMutex); auto programIt = g_programs.find(program); if (programIt != g_programs.end()) { auto* shader = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader); if (shader) fragmentSource = shader->source; } }
-    if (fragmentSource.find("sampler2DArray") == std::string::npos || fragmentSource.find("texelFetch") == std::string::npos) return;
+    const bool arrayShader = fragmentSource.find("sampler2DArray") != std::string::npos;
+    const bool scalarShader = fragmentSource.find("sampler2D") != std::string::npos && !arrayShader;
+    if ((!arrayShader && !scalarShader) || fragmentSource.find("texelFetch") == std::string::npos) return;
     float reference[4] = {0, 0, 0, 0}; uint32_t integerReference[4] = {0, 0, 0, 0}; int32_t layer = 0;
-    const bool integerShader = fragmentSource.find("isampler2DArray") != std::string::npos || fragmentSource.find("usampler2DArray") != std::string::npos;
+    const bool integerShader = fragmentSource.find("isampler2DArray") != std::string::npos || fragmentSource.find("usampler2DArray") != std::string::npos || fragmentSource.find("isampler2D ") != std::string::npos || fragmentSource.find("usampler2D ") != std::string::npos;
     { std::lock_guard<std::mutex> lock(g_programMutex); auto programIt = g_programs.find(program); if (programIt == g_programs.end()) return; auto refLocation = programIt->second.uniformLocations.find("refcolour"); if (refLocation != programIt->second.uniformLocations.end()) { auto value = programIt->second.uniformValues.find(refLocation->second); if (value != programIt->second.uniformValues.end() && value->second.size() >= sizeof(reference)) { if (integerShader) std::memcpy(integerReference, value->second.data(), sizeof(integerReference)); else std::memcpy(reference, value->second.data(), sizeof(reference)); } } auto layerLocation = programIt->second.uniformLocations.find("layer"); if (layerLocation != programIt->second.uniformLocations.end()) { auto value = programIt->second.uniformValues.find(layerLocation->second); if (value != programIt->second.uniformValues.end() && value->second.size() >= sizeof(layer)) std::memcpy(&layer, value->second.data(), sizeof(layer)); } }
     uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 1, height = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 1;
-    float sampled[4] = {0, 0, 0, 1};
-    { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture = g_textures.find(g_textureUnits[0]); if (texture == g_textures.end() || texture->second.target != 0x8C1A || layer < 0 || static_cast<uint32_t>(layer) >= texture->second.depth || texture->second.pixels.size() < static_cast<size_t>(texture->second.width) * texture->second.height * texture->second.depth * 4) return; const size_t index = static_cast<size_t>(layer) * texture->second.width * texture->second.height * 4; sampled[0] = texture->second.pixels[index + 2] / 255.0f; sampled[1] = texture->second.pixels[index + 1] / 255.0f; sampled[2] = texture->second.pixels[index] / 255.0f; sampled[3] = texture->second.pixels[index + 3] / 255.0f; }
-    const bool matches = integerShader ? std::fabs(sampled[0] * 255.0f - integerReference[0]) < 1.5f && std::fabs(sampled[1] * 255.0f - integerReference[1]) < 1.5f && std::fabs(sampled[2] * 255.0f - integerReference[2]) < 1.5f : std::fabs(sampled[0] - reference[0]) < 0.02f && std::fabs(sampled[1] - reference[1]) < 0.02f && std::fabs(sampled[2] - reference[2]) < 0.02f;
+    float sampled[4] = {0, 0, 0, 1}; uint32_t integerSample[4] = {0, 0, 0, 0};
+    { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture = g_textures.find(g_textureUnits[0]); if (texture == g_textures.end() || (arrayShader && texture->second.target != 0x8C1A) || (scalarShader && texture->second.target != 0x0DE1) || layer < 0 || static_cast<uint32_t>(layer) >= texture->second.depth || texture->second.pixels.size() < static_cast<size_t>(texture->second.width) * texture->second.height * texture->second.depth * 4) return; const size_t layerOffset = static_cast<size_t>(arrayShader ? layer : 0) * texture->second.width * texture->second.height * 4; sampled[0] = texture->second.pixels[layerOffset + 2] / 255.0f; sampled[1] = texture->second.pixels[layerOffset + 1] / 255.0f; sampled[2] = texture->second.pixels[layerOffset] / 255.0f; sampled[3] = texture->second.pixels[layerOffset + 3] / 255.0f; if (texture->second.integerPixels.size() >= layerOffset + 4) for (int component = 0; component < 4; ++component) integerSample[component] = texture->second.integerPixels[layerOffset + component]; }
+    const bool matches = integerShader ? integerSample[0] == integerReference[0] && integerSample[1] == integerReference[1] && integerSample[2] == integerReference[2] : std::fabs(sampled[0] - reference[0]) < 0.02f && std::fabs(sampled[1] - reference[1]) < 0.02f && std::fabs(sampled[2] - reference[2]) < 0.02f;
     const float red = matches ? 0.0f : sampled[0], green = matches ? 1.0f : sampled[1], blue = matches ? 0.0f : sampled[2];
     g_defaultColorShadowWidth = width; g_defaultColorShadowHeight = height; g_defaultColorShadow.assign(static_cast<size_t>(width) * height * 4, 0);
     const uint8_t r = static_cast<uint8_t>(std::clamp(red, 0.0f, 1.0f) * 255.0f + 0.5f), g = static_cast<uint8_t>(std::clamp(green, 0.0f, 1.0f) * 255.0f + 0.5f), b = static_cast<uint8_t>(std::clamp(blue, 0.0f, 1.0f) * 255.0f + 0.5f);
@@ -4575,7 +4602,7 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         if (it != g_textures.end() && !it->second.pixels.empty()) {
             std::vector<uint8_t> logical = it->second.pixels;
             if (!integerInternalFormat(it->second.internalFormat)) for (size_t index = 0; index + 3 < logical.size(); index += 4) { const uint8_t red = logical[index + 2], blue = logical[index]; logical[index] = red; logical[index + 2] = blue; }
-            if(writeRGBA8Pixels(logical.data(),static_cast<int32_t>(it->second.width),static_cast<int32_t>(it->second.height),static_cast<int32_t>(it->second.depth),format,type,pixels,g_glBridge.state().packAlignment))return;
+            if(writeRGBA8Pixels(logical.data(),static_cast<int32_t>(it->second.width),static_cast<int32_t>(it->second.height),static_cast<int32_t>(it->second.depth),format,type,pixels,g_glBridge.state().packAlignment,true))return;
             glDispatch<void,uint32_t,int32_t,uint32_t,uint32_t,void*>("glGetTexImage",target,level,format,type,pixels); return;
         }
     }
@@ -4623,7 +4650,7 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
 extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFormat, int32_t width, int32_t height,
                               int32_t depth, int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
-    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && textureName && type == 0x1406 && normalizedColorComponents(internalFormat)) { std::vector<uint8_t> pixels; if (!convertPixelsToBGRA(width,height,format,type,data,pixels,g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } maskCanonicalColorChannels(pixels,internalFormat); std::vector<uint8_t> normalizedStorage; uint64_t handle=0; if((target==0x806F||target==0x8C1A)&&normalized16Format(internalFormat)&&format==0x1908&&convertPixelsToRGBA16F(width,height,format,type,data,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))handle=target==0x806F?g_metalRenderer.createTexture3DFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()):g_metalRenderer.createTexture2DArrayFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()); else handle=target==0x806F?g_metalRenderer.createTexture3D(width,height,depth,pixels.data()):target==0x8C18?g_metalRenderer.createTexture1DArray(width,depth,pixels.data()):g_metalRenderer.createTexture2DArray(width,height,depth,pixels.data()); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=height;texture.depth=depth;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && textureName && target != 0x806F && target != 0x8C1A && type == 0x1406 && normalizedColorComponents(internalFormat)) { std::vector<uint8_t> pixels; if (!convertPixelsToBGRA(width,height,format,type,data,pixels,g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } maskCanonicalColorChannels(pixels,internalFormat); std::vector<uint8_t> normalizedStorage; uint64_t handle=0; if((target==0x806F||target==0x8C1A)&&normalized16Format(internalFormat)&&format==0x1908&&convertPixelsToRGBA16F(width,height,format,type,data,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))handle=target==0x806F?g_metalRenderer.createTexture3DFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()):g_metalRenderer.createTexture2DArrayFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()); else handle=target==0x806F?g_metalRenderer.createTexture3D(width,height,depth,pixels.data()):target==0x8C18?g_metalRenderer.createTexture1DArray(width,depth,pixels.data()):g_metalRenderer.createTexture2DArray(width,height,depth,pixels.data()); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=height;texture.depth=depth;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return; }
     if (metalModeEnabled() && target == 0x806F && level == 0 && width > 0 && height > 0 && depth > 0 && textureName) {
         const bool threeComponentPacked = type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 || type == 0x8C3B || type == 0x8C3E;
         const bool fourComponentPacked = type == 0x8033 || type == 0x8034 || type == 0x8365 || type == 0x8366 || type == 0x8035 || type == 0x8367 || type == 0x8036 || type == 0x8368;
@@ -4641,7 +4668,7 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
             std::vector<uint8_t> slice(static_cast<size_t>(width) * height * pixelBytes);
             for (int32_t row = 0; row < height; ++row) for (int32_t column = 0; column < width; ++column) std::memcpy(slice.data() + (static_cast<size_t>(row) * width + column) * pixelBytes, unpackPixelSource3D(uploadData, width, height, pixelBytes, g_glBridge.state().unpackAlignment, column, row, z), pixelBytes);
             std::vector<uint8_t> converted;
-            if (!convertPixelsToBGRA(width, height, format, type, slice.data(), converted, 1)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+            if (!convertPixelsToBGRATight(width, height, format, type, slice.data(), converted)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
             std::memcpy(rgba.data() + static_cast<size_t>(z) * width * height * 4, converted.data(), converted.size());
         }
         uint64_t handle = g_metalRenderer.createTexture3D(width, height, depth, rgba.data());
@@ -4654,6 +4681,8 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
         const size_t pixelBytes = pixelTransferBytesPerPixel(format, type);
         if (!pixelBytes) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
         std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * depth * 4u), rendererPixels(rgba.size()), unpacked;
+        std::vector<uint32_t> integerPixels(rgba.size(), 0); uint32_t integerComponents = 0, integerBits = 0; bool integerSigned = false;
+        const bool integerTexture = integerFormatInfo(internalFormat, integerComponents, integerBits, integerSigned);
         const void* uploadData = data;
         if (g_boundPixelUnpackBuffer) { size_t uploadBytes = pixelUploadBytes(width, height, depth, format, type, g_glBridge.state().unpackAlignment); if (!readPixelUnpackBuffer(data, uploadBytes, unpacked)) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; } uploadData = unpacked.data(); }
         if (uploadData) for (int32_t z = 0; z < depth; ++z) {
@@ -4663,12 +4692,13 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
             if (!convertPixelsToBGRA(width, height, format, type, slice.data(), converted, 1)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
             const size_t layerOffset = static_cast<size_t>(z) * width * height * 4;
             std::memcpy(rgba.data() + layerOffset, converted.data(), converted.size());
+            if (integerTexture) { std::vector<uint32_t> convertedInteger; if (convertPixelsToIntegerRGBA(width, height, format, type, slice.data(), integerBits, integerSigned, convertedInteger, 1)) std::memcpy(integerPixels.data() + layerOffset, convertedInteger.data(), convertedInteger.size() * sizeof(uint32_t)); }
             for (size_t pixel = 0; pixel < converted.size(); pixel += 4) { rendererPixels[layerOffset + pixel] = converted[pixel + 2]; rendererPixels[layerOffset + pixel + 1] = converted[pixel + 1]; rendererPixels[layerOffset + pixel + 2] = converted[pixel]; rendererPixels[layerOffset + pixel + 3] = converted[pixel + 3]; }
         }
         uint64_t handle = g_metalRenderer.createTexture2DArray(width, height, depth, rendererPixels.data());
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba);
+        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba); if (integerTexture) texture.integerPixels = std::move(integerPixels);
         return;
     }
     if (metalModeEnabled() && target == 0x8C18 && level == 0 && width > 0 && height > 0 && depth > 0 && format == 0x1908 && type == 0x1401 && textureName) {
