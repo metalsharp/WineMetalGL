@@ -88,6 +88,7 @@ struct GLMetalRenderer::Impl {
     uint32_t defaultColorWidth = 0, defaultColorHeight = 0;
     uint64_t defaultColorHandle = 0;
     id<MTLTexture> depthTarget = nil;
+    id<MTLTexture> defaultDepthTarget = nil;
     CAMetalLayer* metalLayer = nil;
     id<CAMetalDrawable> currentDrawable = nil;
     bool drawableBacked = false;
@@ -759,6 +760,8 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
 
     m_impl->depthTarget = nil;
     id<MTLTexture> stencilTarget = nil;
+    const bool persistentDefaultDepth = textureHandle && textureHandle == m_impl->defaultColorHandle;
+    if (!depthTextureHandle && persistentDefaultDepth && m_impl->defaultDepthTarget && m_impl->defaultDepthTarget.width == width && m_impl->defaultDepthTarget.height == height) m_impl->depthTarget = m_impl->defaultDepthTarget;
     if (depthTextureHandle) {
         auto depth = m_impl->textures.find(depthTextureHandle); if (depth != m_impl->textures.end()) m_impl->depthTarget = depth->second;
     }
@@ -768,6 +771,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
         if(colorSampleCount>1){depthDesc.textureType=MTLTextureType2DMultisample;depthDesc.sampleCount=colorSampleCount;}
         depthDesc.usage = MTLTextureUsageRenderTarget;
         m_impl->depthTarget = [m_device newTextureWithDescriptor:depthDesc];
+        if (!depthTextureHandle && textureHandle == m_impl->defaultColorHandle) m_impl->defaultDepthTarget = m_impl->depthTarget;
     }
     if (m_impl->depthTarget) {
         MTLPixelFormat depthFormat = m_impl->depthTarget.pixelFormat;
@@ -775,7 +779,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
             passDesc.depthAttachment.texture = m_impl->depthTarget;
             passDesc.depthAttachment.loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
             passDesc.depthAttachment.clearDepth = m_impl->clearDepth;
-            passDesc.depthAttachment.storeAction = depthTextureHandle ? MTLStoreActionStore : MTLStoreActionDontCare;
+            passDesc.depthAttachment.storeAction = (depthTextureHandle || persistentDefaultDepth) ? MTLStoreActionStore : MTLStoreActionDontCare;
         }
         if (!stencilTarget) stencilTarget = m_impl->depthTarget;
         MTLPixelFormat stencilFormat = stencilTarget.pixelFormat;
@@ -784,7 +788,7 @@ void GLMetalRenderer::beginRenderPassToTexture(uint64_t textureHandle, uint32_t 
             passDesc.stencilAttachment.slice = colorSlice;
             passDesc.stencilAttachment.loadAction = clear ? MTLLoadActionClear : MTLLoadActionLoad;
             passDesc.stencilAttachment.clearStencil = m_impl->clearStencil;
-            passDesc.stencilAttachment.storeAction = (depthTextureHandle || stencilTextureHandle) ? MTLStoreActionStore : MTLStoreActionDontCare;
+            passDesc.stencilAttachment.storeAction = (depthTextureHandle || stencilTextureHandle || persistentDefaultDepth) ? MTLStoreActionStore : MTLStoreActionDontCare;
         }
     }
 

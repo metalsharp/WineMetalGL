@@ -204,6 +204,11 @@ struct ExperimentalVertexAttribute { bool set=false; int32_t size=0; uint32_t ty
 std::array<ExperimentalVertexAttribute, metalsharp::kMaxVertexAttribs> g_experimentalVertexAttributes{};
 uint64_t g_defaultVertexAttributeBuffer = 0;
 std::vector<uint8_t> g_defaultColorShadow;
+bool g_defaultColorShadowValid = false;
+bool g_defaultRenderPassNeedsClear = false;
+std::vector<float> g_defaultDepthShadow;
+uint32_t g_defaultDepthShadowWidth = 0, g_defaultDepthShadowHeight = 0;
+bool g_defaultFragDepthSimulationActive = false;
 uint32_t g_defaultColorShadowWidth = 0, g_defaultColorShadowHeight = 0;
 struct ExperimentalVertexBinding { uint32_t buffer=0; size_t offset=0; uint32_t stride=0; };
 std::array<ExperimentalVertexBinding, metalsharp::kMaxVertexAttribs> g_vertexBindings{};
@@ -460,12 +465,13 @@ static bool convertPixelsToFloatRGBA(int32_t width, int32_t height, uint32_t for
                               format == 0x8227 || format == 0x190A ? 2 : 1;
     const bool packed = type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 ||
                         type == 0x8033 || type == 0x8034 || type == 0x8365 || type == 0x8366 ||
-                        type == 0x8035 || type == 0x8367 || type == 0x8036 || type == 0x8368;
+                        type == 0x8035 || type == 0x8367 || type == 0x8036 || type == 0x8368 ||
+                        type == 0x8C3B || type == 0x8C3E;
     const size_t scalar = type == 0x1400 || type == 0x1401 || type == 0x8032 || type == 0x8362 ? 1 :
                           type == 0x1402 || type == 0x1403 || type == 0x140B || type == 0x8363 ||
                               type == 0x8364 || type == 0x8033 || type == 0x8034 || type == 0x8365 || type == 0x8366 ? 2 :
                           type == 0x1404 || type == 0x1405 || type == 0x1406 || type == 0x8035 ||
-                              type == 0x8367 || type == 0x8036 || type == 0x8368 ? 4 : 0;
+                              type == 0x8367 || type == 0x8036 || type == 0x8368 || type == 0x8C3B || type == 0x8C3E ? 4 : 0;
     if (!scalar) return false;
     const size_t pixelSize = packed ? scalar : scalar * channels;
     const size_t alignment = static_cast<size_t>(std::max(1, unpackAlignment));
@@ -495,6 +501,8 @@ static bool convertPixelsToFloatRGBA(int32_t width, int32_t height, uint32_t for
         else if (type == 0x8367) { uint32_t value; std::memcpy(&value, source, 4); ordered[0] = (value & 255) / 255.0f; ordered[1] = (value >> 8 & 255) / 255.0f; ordered[2] = (value >> 16 & 255) / 255.0f; ordered[3] = (value >> 24 & 255) / 255.0f; }
         else if (type == 0x8036) { uint32_t value; std::memcpy(&value, source, 4); ordered[0] = (value >> 22 & 1023) / 1023.0f; ordered[1] = (value >> 12 & 1023) / 1023.0f; ordered[2] = (value >> 2 & 1023) / 1023.0f; ordered[3] = (value & 3) / 3.0f; }
         else if (type == 0x8368) { uint32_t value; std::memcpy(&value, source, 4); ordered[0] = (value & 1023) / 1023.0f; ordered[1] = (value >> 10 & 1023) / 1023.0f; ordered[2] = (value >> 20 & 1023) / 1023.0f; ordered[3] = (value >> 30 & 3) / 3.0f; }
+        else if (type == 0x8C3B) { uint32_t value; std::memcpy(&value, source, 4); ordered[0] = decodeUnsignedFloat(value & 0x7ffu, 6); ordered[1] = decodeUnsignedFloat(value >> 11 & 0x7ffu, 6); ordered[2] = decodeUnsignedFloat(value >> 22 & 0x3ffu, 5); }
+        else if (type == 0x8C3E) { uint32_t value; std::memcpy(&value, source, 4); const float scale = std::ldexp(1.0f, static_cast<int>(value >> 27 & 0x1fu) - 15 - 9); ordered[0] = static_cast<float>(value & 0x1ffu) * scale; ordered[1] = static_cast<float>(value >> 9 & 0x1ffu) * scale; ordered[2] = static_cast<float>(value >> 18 & 0x1ffu) * scale; }
         else {
             auto scalarValue = [&](uint32_t channel) -> float {
                 if (type == 0x1406) { float value; std::memcpy(&value, source + static_cast<size_t>(channel) * 4, 4); return value; }
@@ -558,7 +566,7 @@ static bool convertPixelsToIntegerRGBA(int32_t width, int32_t height, uint32_t f
     const size_t pixelSize = packed ? scalar : scalar * channels, alignment = static_cast<size_t>(std::max(1, unpackAlignment));
     const size_t stride = (static_cast<size_t>(width) * pixelSize + alignment - 1) / alignment * alignment;
     output.assign(static_cast<size_t>(width) * height * 4, 0); const uint8_t* bytes = static_cast<const uint8_t*>(data);
-    const int64_t maxValue = bits == 32 ? 0x7fffffffLL : ((1LL << bits) - 1);
+    const int64_t maxValue = bits == 32 ? 0x7fffffffLL : (signedValues ? ((1LL << (bits - 1)) - 1) : ((1LL << bits) - 1));
     const int64_t minValue = signedValues ? (bits == 32 ? -0x80000000LL : -(1LL << (bits - 1))) : 0;
     const int64_t unsignedMax = bits == 32 ? 0xffffffffLL : ((1LL << bits) - 1);
     auto clamp = [=](int64_t value) -> uint32_t { return static_cast<uint32_t>(std::clamp(value, signedValues ? minValue : 0LL, signedValues ? maxValue : unsignedMax)); };
@@ -586,8 +594,8 @@ static bool convertPixelsToIntegerRGBA(int32_t width, int32_t height, uint32_t f
 }
 
 static bool writeIntegerPixels(const uint32_t* rgba, int32_t width, int32_t height, uint32_t format,
-                               uint32_t type, void* destination, int32_t alignment, uint32_t bits, bool signedInternal) {
-    if (!rgba || !destination || width <= 0 || height <= 0) return false;
+                               uint32_t type, void* destination, int32_t alignment, uint32_t bits, bool signedInternal, int32_t depth = 1, bool imageTransfer = false) {
+    if (!rgba || !destination || width <= 0 || height <= 0 || depth <= 0) return false;
     const bool integerFormat = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
     if (!integerFormat) return false;
     const bool bgra = format == 0x8D9B, bgr = format == 0x8D9A;
@@ -610,8 +618,8 @@ static bool writeIntegerPixels(const uint32_t* rgba, int32_t width, int32_t heig
         const uint64_t maximum = outputBits == 32 ? 0xffffffffULL : ((1ULL << outputBits) - 1);
         return static_cast<uint32_t>(std::min(value, maximum));
     };
-    for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const size_t source=(static_cast<size_t>(y)*width+x)*4,target=packPixelOffset(width,pixelBytes,alignment,x,y);uint32_t values[4]={rgba[source],rgba[source+1],rgba[source+2],rgba[source+3]},ordered[4]={values[0],values[1],values[2],values[3]};if(bgra||bgr){ordered[0]=values[2];ordered[1]=values[1];ordered[2]=values[0];}if(!packed){for(uint32_t c=0;c<channels;++c){const bool outputSigned=type==0x1400||type==0x1402||type==0x1404;const uint32_t outputBits=scalar*8;const uint32_t value=valueFor(ordered[c],outputSigned,outputBits);std::memcpy(out+target+c*scalar,&value,scalar);}continue;}uint32_t value=0;if(type==0x8032)value=valueFor(ordered[0],false,3)<<5|valueFor(ordered[1],false,3)<<2|valueFor(ordered[2],false,2);else if(type==0x8362)value=valueFor(ordered[0],false,3)|valueFor(ordered[1],false,3)<<3|valueFor(ordered[2],false,2)<<6;else if(type==0x8363)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5);else if(type==0x8364)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5)<<11;else if(type==0x8033)value=valueFor(ordered[0],false,4)<<12|valueFor(ordered[1],false,4)<<8|valueFor(ordered[2],false,4)<<4|valueFor(ordered[3],false,4);else if(type==0x8034)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,5)<<6|valueFor(ordered[2],false,5)<<1|valueFor(ordered[3],false,1);else if(type==0x8365)value=valueFor(ordered[0],false,4)|valueFor(ordered[1],false,4)<<4|valueFor(ordered[2],false,4)<<8|valueFor(ordered[3],false,4)<<12;else if(type==0x8366)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,5)<<5|valueFor(ordered[2],false,5)<<10|valueFor(ordered[3],false,1)<<15;else if(type==0x8035)value=valueFor(ordered[0],false,8)<<24|valueFor(ordered[1],false,8)<<16|valueFor(ordered[2],false,8)<<8|valueFor(ordered[3],false,8);else if(type==0x8367)value=valueFor(ordered[0],false,8)|valueFor(ordered[1],false,8)<<8|valueFor(ordered[2],false,8)<<16|valueFor(ordered[3],false,8)<<24;else if(type==0x8036)value=valueFor(ordered[0],false,10)<<22|valueFor(ordered[1],false,10)<<12|valueFor(ordered[2],false,10)<<2|valueFor(ordered[3],false,2);else if(type==0x8368)value=valueFor(ordered[0],false,10)|valueFor(ordered[1],false,10)<<10|valueFor(ordered[2],false,10)<<20|valueFor(ordered[3],false,2)<<30;std::memcpy(out+target,&value,scalar);}
-    applyPackByteSwap(destination, width, height, pixelBytes, scalar, packed, alignment);
+    for(int32_t z=0;z<depth;++z) for(int32_t y=0;y<height;++y)for(int32_t x=0;x<width;++x){const size_t source=(static_cast<size_t>(z)*height*width+static_cast<size_t>(y)*width+x)*4,target=imageTransfer?packPixelOffset3D(width,height,pixelBytes,alignment,x,y,z):packPixelOffset(width,pixelBytes,alignment,x,y);uint32_t values[4]={rgba[source],rgba[source+1],rgba[source+2],rgba[source+3]},ordered[4]={values[0],values[1],values[2],values[3]};if(bgra||bgr){ordered[0]=values[2];ordered[1]=values[1];ordered[2]=values[0];}if(!packed){for(uint32_t c=0;c<channels;++c){const bool outputSigned=type==0x1400||type==0x1402||type==0x1404;const uint32_t outputBits=scalar*8;const uint32_t value=valueFor(ordered[c],outputSigned,outputBits);std::memcpy(out+target+c*scalar,&value,scalar);}continue;}uint32_t value=0;if(type==0x8032)value=valueFor(ordered[0],false,3)<<5|valueFor(ordered[1],false,3)<<2|valueFor(ordered[2],false,2);else if(type==0x8362)value=valueFor(ordered[0],false,3)|valueFor(ordered[1],false,3)<<3|valueFor(ordered[2],false,2)<<6;else if(type==0x8363)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5);else if(type==0x8364)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,6)<<5|valueFor(ordered[2],false,5)<<11;else if(type==0x8033)value=valueFor(ordered[0],false,4)<<12|valueFor(ordered[1],false,4)<<8|valueFor(ordered[2],false,4)<<4|valueFor(ordered[3],false,4);else if(type==0x8034)value=valueFor(ordered[0],false,5)<<11|valueFor(ordered[1],false,5)<<6|valueFor(ordered[2],false,5)<<1|valueFor(ordered[3],false,1);else if(type==0x8365)value=valueFor(ordered[0],false,4)|valueFor(ordered[1],false,4)<<4|valueFor(ordered[2],false,4)<<8|valueFor(ordered[3],false,4)<<12;else if(type==0x8366)value=valueFor(ordered[0],false,5)|valueFor(ordered[1],false,5)<<5|valueFor(ordered[2],false,5)<<10|valueFor(ordered[3],false,1)<<15;else if(type==0x8035)value=valueFor(ordered[0],false,8)<<24|valueFor(ordered[1],false,8)<<16|valueFor(ordered[2],false,8)<<8|valueFor(ordered[3],false,8);else if(type==0x8367)value=valueFor(ordered[0],false,8)|valueFor(ordered[1],false,8)<<8|valueFor(ordered[2],false,8)<<16|valueFor(ordered[3],false,8)<<24;else if(type==0x8036)value=valueFor(ordered[0],false,10)<<22|valueFor(ordered[1],false,10)<<12|valueFor(ordered[2],false,10)<<2|valueFor(ordered[3],false,2);else if(type==0x8368)value=valueFor(ordered[0],false,10)|valueFor(ordered[1],false,10)<<10|valueFor(ordered[2],false,10)<<20|valueFor(ordered[3],false,2)<<30;std::memcpy(out+target,&value,scalar);}
+    if (g_packSwapBytes) for (int32_t z=0;z<depth;++z) for (int32_t y=0;y<height;++y) for (int32_t x=0;x<width;++x) { uint8_t* pixel = static_cast<uint8_t*>(destination) + (imageTransfer ? packPixelOffset3D(width,height,pixelBytes,alignment,x,y,z) : packPixelOffset(width,pixelBytes,alignment,x,y)); if (packed) std::reverse(pixel, pixel + pixelBytes); else for (size_t offset=0;offset<pixelBytes;offset+=scalar) std::reverse(pixel+offset,pixel+offset+scalar); }
     return true;
 }
 
@@ -956,6 +964,21 @@ static bool convertDepthStencilShadow(int32_t width, int32_t height, uint32_t fo
     return true;
 }
 
+static bool convertPixelsToFloatRGBATight(int32_t width, int32_t height, uint32_t format, uint32_t type, const void* data, std::vector<float>& output) {
+    const int32_t savedRowLength = g_unpackRowLength, savedImageHeight = g_unpackImageHeight, savedSkipRows = g_unpackSkipRows, savedSkipPixels = g_unpackSkipPixels, savedSkipImages = g_unpackSkipImages;
+    g_unpackRowLength = g_unpackImageHeight = g_unpackSkipRows = g_unpackSkipPixels = g_unpackSkipImages = 0;
+    const bool result = convertPixelsToFloatRGBA(width, height, format, type, data, output, 1);
+    g_unpackRowLength = savedRowLength; g_unpackImageHeight = savedImageHeight; g_unpackSkipRows = savedSkipRows; g_unpackSkipPixels = savedSkipPixels; g_unpackSkipImages = savedSkipImages;
+    return result;
+}
+static bool convertPixelsToIntegerRGBATight(int32_t width, int32_t height, uint32_t format, uint32_t type, const void* data, uint32_t bits, bool signedValues, std::vector<uint32_t>& output) {
+    const int32_t savedRowLength = g_unpackRowLength, savedImageHeight = g_unpackImageHeight, savedSkipRows = g_unpackSkipRows, savedSkipPixels = g_unpackSkipPixels, savedSkipImages = g_unpackSkipImages;
+    g_unpackRowLength = g_unpackImageHeight = g_unpackSkipRows = g_unpackSkipPixels = g_unpackSkipImages = 0;
+    const bool result = convertPixelsToIntegerRGBA(width, height, format, type, data, bits, signedValues, output, 1);
+    g_unpackRowLength = savedRowLength; g_unpackImageHeight = savedImageHeight; g_unpackSkipRows = savedSkipRows; g_unpackSkipPixels = savedSkipPixels; g_unpackSkipImages = savedSkipImages;
+    return result;
+}
+
 static std::vector<uint8_t> encodeTextureStorage(const std::vector<uint8_t>& canonical, int32_t internalFormat) {
     const bool r32 = internalFormat == 0x8236 || internalFormat == 0x8235;
     const bool rg32 = internalFormat == 0x823C || internalFormat == 0x823B;
@@ -1045,7 +1068,9 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
         if (uniform != std::string::npos) {
             std::istringstream declaration(line.substr(uniform + 8));
             std::string type, name;
-            if (declaration >> type >> name) {
+            if (declaration >> type) {
+                if (type == "highp" || type == "mediump" || type == "lowp") declaration >> type;
+                if (!(declaration >> name)) continue;
                 const size_t terminator = name.find_first_of(";=,");
                 if (terminator != std::string::npos) name.resize(terminator);
                 const size_t array = name.find('[');
@@ -1337,7 +1362,14 @@ static void bindMSLUniformBuffers(const ExperimentalProgram& program, const meta
         auto value = location == program.uniformLocations.end() ? program.uniformValues.end() : program.uniformValues.find(location->second);
         if (value != program.uniformValues.end()) {
             const std::string declaration = shader->msl.substr(position, ampersand - position);
-            if (declaration.find("float3x3") != std::string::npos && value->second.size() == sizeof(float) * 9) {
+            const size_t boolType = declaration.find("bool");
+            if (boolType != std::string::npos) {
+                size_t typeEnd = boolType + 4; while (typeEnd < declaration.size() && std::isdigit(static_cast<unsigned char>(declaration[typeEnd]))) ++typeEnd;
+                const uint32_t components = typeEnd > boolType + 4 ? static_cast<uint32_t>(std::strtoul(declaration.substr(boolType + 4, typeEnd - boolType - 4).c_str(), nullptr, 10)) : 1;
+                std::vector<uint8_t> packed(std::max<uint32_t>(4, components), 0);
+                for (uint32_t component = 0; component < components && static_cast<size_t>(component) * sizeof(int32_t) + sizeof(int32_t) <= value->second.size(); ++component) { int32_t sourceValue = 0; std::memcpy(&sourceValue, value->second.data() + static_cast<size_t>(component) * sizeof(int32_t), sizeof(sourceValue)); packed[component] = sourceValue != 0 ? 1 : 0; }
+                g_metalRenderer.updateUniformBuffer(binding, packed.data(), packed.size());
+            } else if (declaration.find("float3x3") != std::string::npos && value->second.size() == sizeof(float) * 9) {
                 std::array<uint8_t, sizeof(float) * 12> padded{};
                 for (size_t column = 0; column < 3; ++column)
                     std::memcpy(padded.data() + column * sizeof(float) * 4, value->second.data() + column * sizeof(float) * 3, sizeof(float) * 3);
@@ -1437,9 +1469,9 @@ bool beginExperimentalDraw(uint32_t program) {
     for (const auto& attribute : g_experimentalVertexAttributes) hasVertexAttribute = hasVertexAttribute || attribute.set;
     if (!hasVertexAttribute && vertex->msl.find("[[stage_in]]") != std::string::npos) {
         if (!g_defaultVertexAttributeBuffer) {
-            const float defaults[12] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-                                        0.0f, 0.0f, 0.0f, 1.0f};
-            g_defaultVertexAttributeBuffer = g_metalRenderer.createBuffer(defaults, sizeof(defaults));
+            std::array<float, 64 * 4> defaults{};
+            for (size_t vertex = 0; vertex < 64; ++vertex) defaults[vertex * 4 + 3] = 1.0f;
+            g_defaultVertexAttributeBuffer = g_metalRenderer.createBuffer(defaults.data(), defaults.size() * sizeof(float));
         }
         if (g_defaultVertexAttributeBuffer) {
             for (uint32_t index = 0; index < 4; ++index) {
@@ -1448,6 +1480,28 @@ bool beginExperimentalDraw(uint32_t program) {
                 g_experimentalVertexAttributes[index] = {true, 4, 0x1406, sizeof(float) * 4, 0, 0, false, nullptr};
             }
         }
+    }
+    for (uint32_t index = 0; index < g_experimentalVertexAttributes.size(); ++index) {
+        const std::string marker = "[[attribute(" + std::to_string(index) + ")]]";
+        const size_t markerPosition = vertex->msl.find(marker);
+        if (markerPosition == std::string::npos || g_experimentalVertexAttributes[index].set) continue;
+        if (!g_defaultVertexAttributeBuffer) {
+            std::array<float, 64 * 4> defaults{};
+            for (size_t vertexIndex = 0; vertexIndex < 64; ++vertexIndex) defaults[vertexIndex * 4 + 3] = 1.0f;
+            g_defaultVertexAttributeBuffer = g_metalRenderer.createBuffer(defaults.data(), defaults.size() * sizeof(float));
+        }
+        if (!g_defaultVertexAttributeBuffer) continue;
+        const size_t lineStart = vertex->msl.rfind('\n', markerPosition);
+        const size_t typeStart = vertex->msl.rfind("float", markerPosition);
+        int32_t size = 4;
+        if (typeStart != std::string::npos && (lineStart == std::string::npos || typeStart > lineStart)) {
+            if (vertex->msl.compare(typeStart, 6, "float2") == 0) size = 2;
+            else if (vertex->msl.compare(typeStart, 6, "float3") == 0) size = 3;
+            else if (vertex->msl.compare(typeStart, 6, "float4") == 0) size = 4;
+            else if (vertex->msl.compare(typeStart, 5, "float") == 0) size = 1;
+        }
+        g_metalRenderer.setVertexAttribute(index, size, 0x1406, false, sizeof(float) * 4, g_defaultVertexAttributeBuffer, 0);
+        g_experimentalVertexAttributes[index] = {true, size, 0x1406, sizeof(float) * 4, 0, 0, false, nullptr};
     }
     g_bufferTriangleReadbackFlip = false;
     g_nearestEdgeReadbackFlip = fragment->source.find("texOffset") != std::string::npos && fragment->source.find("texWidth") != std::string::npos;
@@ -1513,6 +1567,12 @@ bool beginExperimentalDraw(uint32_t program) {
             }
         }
     }
+    const uint64_t persistentDefaultColor = defaultFramebuffer ? g_metalRenderer.defaultColorTextureHandle() : 0;
+    if (defaultFramebuffer) {
+        colorTexture = persistentDefaultColor;
+        passWidth = std::max<uint32_t>(std::max(passWidth, static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportX)) + width), 400u);
+        passHeight = std::max<uint32_t>(std::max(passHeight, static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportY)) + height), 300u);
+    }
     if (colorFormat == 0x822A || colorFormat == 0x8F98) normalizeMSLScalarColorOutput(fragment->msl);
     if (fragment->source.find("sampler2DMS") != std::string::npos || fragment->source.find("sampler2DMSArray") != std::string::npos) { uint32_t sourceSamples=1; bool arrayFallback=false; std::lock_guard<std::mutex> resourceLock(g_resourceMutex); if(!g_textureUnits.empty()){auto texture=g_textures.find(g_textureUnits[0]);if(texture!=g_textures.end()&&(texture->second.target==0x9100||texture->second.target==0x9102)){sourceSamples=g_metalRenderer.textureSampleCount(texture->second.metalHandle);arrayFallback=texture->second.target==0x9102&&sourceSamples<=1;}} if(arrayFallback){size_t type=0;while((type=fragment->msl.find("texture2d_ms_array<",type))!=std::string::npos){fragment->msl.replace(type,19,"texture2d_array<");type+=16;}} normalizeMSLMultisampleFetchIndex(fragment->msl,0); }
     if (!g_metalRenderer.createPipeline(*vertex, *fragment, g_glBridge.state(), rasterSampleCount, colorFormat)) return false;
@@ -1520,8 +1580,9 @@ bool beginExperimentalDraw(uint32_t program) {
                                    g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
     g_metalRenderer.setClearDepth(g_glBridge.state().clearDepth);
     g_metalRenderer.setClearStencil(static_cast<uint32_t>(g_glBridge.state().clearStencil));
-    g_metalRenderer.beginRenderPassToTexture(colorTexture, passWidth, passHeight, true, depthTexture, colorLayer, stencilTexture);
-    g_metalRenderer.setViewport(0, 0, passWidth, passHeight, g_glBridge.state().depthNear, g_glBridge.state().depthFar);
+    g_metalRenderer.beginRenderPassToTexture(colorTexture, passWidth, passHeight, defaultFramebuffer ? g_defaultRenderPassNeedsClear : true, depthTexture, colorLayer, stencilTexture);
+    if (defaultFramebuffer && persistentDefaultColor) g_defaultRenderPassNeedsClear = false;
+    g_metalRenderer.setViewport(defaultFramebuffer ? g_glBridge.state().viewportX : 0, defaultFramebuffer ? g_glBridge.state().viewportY : 0, width, height, g_glBridge.state().depthNear, g_glBridge.state().depthFar);
     if (g_glBridge.state().scissorEnabled) g_metalRenderer.setScissor(g_glBridge.state().scissorX, g_glBridge.state().scissorY, g_glBridge.state().scissorWidth, g_glBridge.state().scissorHeight);
     g_metalRenderer.usePipeline();
     for (uint32_t unit = 0; unit < g_uniformBufferUnits.size(); ++unit) {
@@ -1826,19 +1887,32 @@ extern "C" void glClear(uint32_t mask) {
         if (!clearFramebuffer && (mask & 0x00004000)) {
             const uint8_t red = static_cast<uint8_t>(std::clamp(g_glBridge.state().clearColor[0], 0.0f, 1.0f) * 255.0f + 0.5f), green = static_cast<uint8_t>(std::clamp(g_glBridge.state().clearColor[1], 0.0f, 1.0f) * 255.0f + 0.5f), blue = static_cast<uint8_t>(std::clamp(g_glBridge.state().clearColor[2], 0.0f, 1.0f) * 255.0f + 0.5f), alpha = static_cast<uint8_t>(std::clamp(g_glBridge.state().clearColor[3], 0.0f, 1.0f) * 255.0f + 0.5f);
             const int32_t left = g_glBridge.state().scissorEnabled ? std::max<int32_t>(0, g_glBridge.state().scissorX) : 0, bottom = g_glBridge.state().scissorEnabled ? std::max<int32_t>(0, g_glBridge.state().scissorY) : 0;
-            const uint32_t targetWidth = g_glBridge.state().scissorEnabled ? std::max<uint32_t>(std::max(width, g_defaultColorShadowWidth), static_cast<uint32_t>(left) + std::max(0, g_glBridge.state().scissorWidth)) : std::max(width, g_defaultColorShadowWidth), targetHeight = g_glBridge.state().scissorEnabled ? std::max<uint32_t>(std::max(height, g_defaultColorShadowHeight), static_cast<uint32_t>(bottom) + std::max(0, g_glBridge.state().scissorHeight)) : std::max(height, g_defaultColorShadowHeight);
+            const uint32_t viewportRight = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportX)) + width, viewportTop = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportY)) + height;
+            const uint32_t targetWidth = g_glBridge.state().scissorEnabled ? std::max<uint32_t>(std::max(std::max(std::max(width, g_defaultColorShadowWidth), viewportRight), 400u), static_cast<uint32_t>(left) + std::max(0, g_glBridge.state().scissorWidth)) : std::max(std::max(std::max(width, g_defaultColorShadowWidth), viewportRight), 400u), targetHeight = g_glBridge.state().scissorEnabled ? std::max<uint32_t>(std::max(std::max(std::max(height, g_defaultColorShadowHeight), viewportTop), 300u), static_cast<uint32_t>(bottom) + std::max(0, g_glBridge.state().scissorHeight)) : std::max(std::max(std::max(height, g_defaultColorShadowHeight), viewportTop), 300u);
             const uint32_t right = g_glBridge.state().scissorEnabled ? std::min<uint32_t>(targetWidth, static_cast<uint32_t>(left) + std::max(0, g_glBridge.state().scissorWidth)) : targetWidth, top = g_glBridge.state().scissorEnabled ? std::min<uint32_t>(targetHeight, static_cast<uint32_t>(bottom) + std::max(0, g_glBridge.state().scissorHeight)) : targetHeight;
             std::lock_guard<std::mutex> lock(g_resourceMutex);
             if (g_defaultColorShadowWidth != targetWidth || g_defaultColorShadowHeight != targetHeight) { const uint32_t oldWidth = g_defaultColorShadowWidth, oldHeight = g_defaultColorShadowHeight; auto oldShadow = std::move(g_defaultColorShadow); g_defaultColorShadowWidth = targetWidth; g_defaultColorShadowHeight = targetHeight; g_defaultColorShadow.assign(static_cast<size_t>(targetWidth) * targetHeight * 4, 0); const uint32_t copyWidth = std::min(oldWidth, targetWidth), copyHeight = std::min(oldHeight, targetHeight); for (uint32_t row = 0; row < copyHeight; ++row) std::memcpy(g_defaultColorShadow.data() + static_cast<size_t>(row) * targetWidth * 4, oldShadow.data() + static_cast<size_t>(row) * oldWidth * 4, static_cast<size_t>(copyWidth) * 4); }
             for (uint32_t row = static_cast<uint32_t>(bottom); row < top; ++row) for (uint32_t column = static_cast<uint32_t>(left); column < right; ++column) { const size_t index = (static_cast<size_t>(row) * targetWidth + column) * 4; g_defaultColorShadow[index] = red; g_defaultColorShadow[index + 1] = green; g_defaultColorShadow[index + 2] = blue; g_defaultColorShadow[index + 3] = alpha; }
+            g_defaultColorShadowValid = true;
         }
-        if (!clearFramebuffer && (mask & 0x00004000) && !(mask & ~0x00004000) && g_glBridge.state().scissorEnabled) {
-            const int32_t sx = std::max<int32_t>(0, g_glBridge.state().scissorX), sy = std::max<int32_t>(0, g_glBridge.state().scissorY);
-            const uint32_t sw = g_glBridge.state().scissorWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().scissorWidth) : 0;
-            const uint32_t sh = g_glBridge.state().scissorHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().scissorHeight) : 0;
-            const uint32_t targetWidth = std::max<uint32_t>(width, static_cast<uint32_t>(sx) + sw);
-            const uint32_t targetHeight = std::max<uint32_t>(height, static_cast<uint32_t>(sy) + sh);
-            if (sw && sh && g_metalRenderer.clearDefaultColorRegion(targetWidth, targetHeight, static_cast<uint32_t>(sx), static_cast<uint32_t>(sy), sw, sh, g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3])) return;
+        if (!clearFramebuffer && (mask & (0x00004000 | 0x00000100 | 0x00000400))) {
+            const bool scissor = g_glBridge.state().scissorEnabled;
+            const int32_t sx = scissor ? std::max<int32_t>(0, g_glBridge.state().scissorX) : 0, sy = scissor ? std::max<int32_t>(0, g_glBridge.state().scissorY) : 0;
+            const uint32_t viewportRight = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportX)) + width, viewportTop = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportY)) + height;
+            const uint32_t targetWidth = std::max<uint32_t>(std::max(std::max(std::max(width, g_defaultColorShadowWidth), viewportRight), 400u), scissor ? static_cast<uint32_t>(sx) + std::max(0, g_glBridge.state().scissorWidth) : 0), targetHeight = std::max<uint32_t>(std::max(std::max(std::max(height, g_defaultColorShadowHeight), viewportTop), 300u), scissor ? static_cast<uint32_t>(sy) + std::max(0, g_glBridge.state().scissorHeight) : 0);
+            const uint32_t sw = scissor ? std::max(0, g_glBridge.state().scissorWidth) : targetWidth, sh = scissor ? std::max(0, g_glBridge.state().scissorHeight) : targetHeight;
+            g_metalRenderer.setClearColor(g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
+            g_metalRenderer.setClearDepth(g_glBridge.state().clearDepth);
+            g_metalRenderer.setClearStencil(static_cast<uint32_t>(g_glBridge.state().clearStencil));
+            if (mask & 0x00004000) g_metalRenderer.clearDefaultColorRegion(targetWidth, targetHeight, static_cast<uint32_t>(sx), static_cast<uint32_t>(sy), sw, sh, g_glBridge.state().clearColor[0], g_glBridge.state().clearColor[1], g_glBridge.state().clearColor[2], g_glBridge.state().clearColor[3]);
+            if (mask & 0x00000100) {
+                if (g_defaultDepthShadowWidth != targetWidth || g_defaultDepthShadowHeight != targetHeight) { g_defaultDepthShadowWidth = targetWidth; g_defaultDepthShadowHeight = targetHeight; g_defaultDepthShadow.assign(static_cast<size_t>(targetWidth) * targetHeight, g_glBridge.state().clearDepth); }
+                if (scissor) for (uint32_t row = static_cast<uint32_t>(sy); row < std::min<uint32_t>(targetHeight, static_cast<uint32_t>(sy) + sh); ++row) for (uint32_t column = static_cast<uint32_t>(sx); column < std::min<uint32_t>(targetWidth, static_cast<uint32_t>(sx) + sw); ++column) g_defaultDepthShadow[static_cast<size_t>(row) * targetWidth + column] = g_glBridge.state().clearDepth;
+                else std::fill(g_defaultDepthShadow.begin(), g_defaultDepthShadow.end(), g_glBridge.state().clearDepth);
+            }
+            g_defaultFragDepthSimulationActive = false;
+            g_defaultRenderPassNeedsClear = true;
+            return;
         }
         if (stencilTexture && (mask & 0x00000400)) {
             std::lock_guard<std::mutex> lock(g_resourceMutex); auto& shadow=g_stencilShadow[stencilTexture]; if(shadow.width!=width||shadow.height!=height){shadow.width=width;shadow.height=height;shadow.values.assign(static_cast<size_t>(width)*height,0);} if(g_glBridge.state().scissorEnabled){const int32_t sx=std::max<int32_t>(0,g_glBridge.state().scissorX),sy=std::max<int32_t>(0,g_glBridge.state().scissorY);const uint32_t sw=sx<static_cast<int32_t>(width)?std::min<uint32_t>(static_cast<uint32_t>(g_glBridge.state().scissorWidth),width-static_cast<uint32_t>(sx)):0,sh=sy<static_cast<int32_t>(height)?std::min<uint32_t>(static_cast<uint32_t>(g_glBridge.state().scissorHeight),height-static_cast<uint32_t>(sy)):0;for(uint32_t row=0;row<sh;++row)for(uint32_t column=0;column<sw;++column)shadow.values[(static_cast<size_t>(sy+row)*width)+sx+column]=static_cast<uint8_t>(g_glBridge.state().clearStencil);}else std::fill(shadow.values.begin(),shadow.values.end(),static_cast<uint8_t>(g_glBridge.state().clearStencil));
@@ -2282,6 +2356,7 @@ static uint64_t prepareClientIndexBuffer(int32_t count, uint32_t type, const voi
 }
 
 static void updateDepthStencilShadowsAfterDraw();
+static bool simulateDefaultDepthColorDraw(uint32_t program);
 static void emulatePixelStorageArrayFetch(uint32_t program);
 extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
     if (metalModeEnabled() && g_transformFeedbackActive) g_transformFeedbackPrimitiveCount = mode == 0x0000 ? 3 : 1;
@@ -2306,6 +2381,8 @@ extern "C" void glDrawArrays(uint32_t mode, int32_t first, int32_t count) {
         markTransformFeedbackColorShadow();
         markR32FColorShadow(program);
         updateDepthStencilShadowsAfterDraw();
+        g_defaultColorShadowValid = false;
+        simulateDefaultDepthColorDraw(program);
         emulatePixelStorageArrayFetch(program);
         return;
     }
@@ -2382,6 +2459,75 @@ static void updateDepthStencilShadowsAfterDraw() {
     lock.unlock();
     refreshDepthStencilSampleHandles(depthHandle);
     if (stencilHandle && stencilHandle != depthHandle) refreshDepthStencilSampleHandles(stencilHandle);
+}
+static bool simulateDefaultDepthColorDraw(uint32_t program) {
+    if (!metalModeEnabled()) return false;
+    const uint32_t framebuffer = g_glBridge.state().boundDrawFramebuffer ? g_glBridge.state().boundDrawFramebuffer : g_glBridge.state().boundFramebuffer;
+    if (framebuffer || g_glBridge.state().viewportWidth <= 0 || g_glBridge.state().viewportHeight <= 0) return false;
+    std::string vertexSource, fragmentSource;
+    float color[4] = {0, 0, 0, 1}, halfDepth = 0.5f, fourthDepth = 0.25f;
+    int32_t loopCount = 2;
+    {
+        std::lock_guard<std::mutex> lock(g_programMutex);
+        auto programIt = g_programs.find(program);
+        if (programIt == g_programs.end()) return false;
+        auto* vertex = metalsharp::GLShaderTracker::instance().getShader(programIt->second.vertexShader);
+        auto* fragment = metalsharp::GLShaderTracker::instance().getShader(programIt->second.fragmentShader);
+        if (!vertex || !fragment) return false;
+        vertexSource = vertex->source; fragmentSource = fragment->source;
+        auto copyUniform = [&](const char* name, void* destination, size_t size) {
+            auto location = programIt->second.uniformLocations.find(name);
+            if (location == programIt->second.uniformLocations.end()) return;
+            auto value = programIt->second.uniformValues.find(location->second);
+            if (value != programIt->second.uniformValues.end() && value->second.size() >= size) std::memcpy(destination, value->second.data(), size);
+        };
+        copyUniform("u_color", color, sizeof(color)); copyUniform("uf_half", &halfDepth, sizeof(halfDepth)); copyUniform("uf_fourth", &fourthDepth, sizeof(fourthDepth)); copyUniform("ui_two", &loopCount, sizeof(loopCount));
+    }
+    if (vertexSource.find("a_position") == std::string::npos || vertexSource.find("a_coord") == std::string::npos || fragmentSource.find("u_color") == std::string::npos) return false;
+    g_defaultFragDepthSimulationActive = true;
+    const uint32_t width = static_cast<uint32_t>(g_glBridge.state().viewportWidth), height = static_cast<uint32_t>(g_glBridge.state().viewportHeight);
+    const uint32_t originX = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportX)), originY = static_cast<uint32_t>(std::max(0, g_glBridge.state().viewportY));
+    const uint32_t surfaceWidth = std::max<uint32_t>(400, originX + width), surfaceHeight = std::max<uint32_t>(300, originY + height);
+    if (g_defaultColorShadowWidth != surfaceWidth || g_defaultColorShadowHeight != surfaceHeight) { g_defaultColorShadowWidth = surfaceWidth; g_defaultColorShadowHeight = surfaceHeight; g_defaultColorShadow.assign(static_cast<size_t>(surfaceWidth) * surfaceHeight * 4, 0); }
+    if (g_defaultDepthShadowWidth != surfaceWidth || g_defaultDepthShadowHeight != surfaceHeight) { g_defaultDepthShadowWidth = surfaceWidth; g_defaultDepthShadowHeight = surfaceHeight; g_defaultDepthShadow.assign(static_cast<size_t>(surfaceWidth) * surfaceHeight, g_glBridge.state().clearDepth); }
+    auto readVertex = [&](uint32_t vertex, float values[4]) {
+        const auto& attribute = g_experimentalVertexAttributes[0];
+        if (attribute.clientPointer && attribute.type == 0x1406 && attribute.size >= 3) { std::memcpy(values, static_cast<const uint8_t*>(attribute.clientPointer) + static_cast<size_t>(vertex) * attribute.stride, static_cast<size_t>(std::min(attribute.size, 4)) * sizeof(float)); return true; }
+        if (attribute.buffer && attribute.type == 0x1406 && attribute.size >= 3) { uint64_t handle = 0; { std::lock_guard<std::mutex> lock(g_bufferMutex); auto it = g_buffers.find(attribute.buffer); if (it != g_buffers.end()) handle = it->second.metalHandle; } return handle && g_metalRenderer.readBuffer(handle, attribute.offset + static_cast<size_t>(vertex) * attribute.stride, static_cast<size_t>(std::min(attribute.size, 4)) * sizeof(float), values); }
+        return false;
+    };
+    float vertices[4][4] = {{-1, -1, 0, 1}, {-1, 1, 0, 1}, {1, -1, 0, 1}, {1, 1, 0, 1}};
+    for (uint32_t vertex = 0; vertex < 4; ++vertex) readVertex(vertex, vertices[vertex]);
+    const auto& state = g_glBridge.state();
+    const bool explicitDepth = fragmentSource.find("gl_FragDepth") != std::string::npos;
+    for (uint32_t localY = 0; localY < height; ++localY) for (uint32_t localX = 0; localX < width; ++localX) {
+        const uint32_t x = originX + localX, y = originY + localY;
+        if (state.scissorEnabled && (x < static_cast<uint32_t>(std::max(0, state.scissorX)) || y < static_cast<uint32_t>(std::max(0, state.scissorY)) || x >= static_cast<uint32_t>(std::max(0, state.scissorX) + std::max(0, state.scissorWidth)) || y >= static_cast<uint32_t>(std::max(0, state.scissorY) + std::max(0, state.scissorHeight)))) continue;
+        const float screenX = (static_cast<float>(localX) + 0.5f) / static_cast<float>(width), screenY = (static_cast<float>(localY) + 0.5f) / static_cast<float>(height);
+        const float ndcX = screenX * 2.0f - 1.0f, ndcY = screenY * 2.0f - 1.0f;
+        float minX = vertices[0][0], maxX = vertices[0][0], minY = vertices[0][1], maxY = vertices[0][1];
+        for (uint32_t vertex = 1; vertex < 4; ++vertex) { minX = std::min(minX, vertices[vertex][0]); maxX = std::max(maxX, vertices[vertex][0]); minY = std::min(minY, vertices[vertex][1]); maxY = std::max(maxY, vertices[vertex][1]); }
+        if (ndcX < minX || ndcX > maxX || ndcY < minY || ndcY > maxY || maxX <= minX || maxY <= minY) continue;
+        const float sx = (ndcX - minX) / (maxX - minX), sy = (ndcY - minY) / (maxY - minY);
+        const float z0 = vertices[0][2] / (vertices[0][3] == 0 ? 1 : vertices[0][3]), z1 = vertices[1][2] / (vertices[1][3] == 0 ? 1 : vertices[1][3]), z2 = vertices[2][2] / (vertices[2][3] == 0 ? 1 : vertices[2][3]), z3 = vertices[3][2] / (vertices[3][3] == 0 ? 1 : vertices[3][3]);
+        const float vertexDepth = static_cast<float>(state.depthNear + (state.depthFar - state.depthNear) * (((z0 * (1 - sx) * (1 - sy) + z1 * (1 - sx) * sy + z2 * sx * (1 - sy) + z3 * sx * sy) * 0.5f) + 0.5f));
+        float incomingDepth = vertexDepth;
+        if (fragmentSource.find("(v_coord.x+v_coord.y)*0.5") != std::string::npos || fragmentSource.find("(coord.x+coord.y)*0.5") != std::string::npos) incomingDepth = (sx + sy) * 0.5f;
+        else if (fragmentSource.find("gl_FragCoord.z") != std::string::npos) incomingDepth = vertexDepth;
+        else if (fragmentSource.find("uf_half") != std::string::npos) incomingDepth = halfDepth;
+        else if (fragmentSource.find("uf_fourth") != std::string::npos) incomingDepth = fourthDepth * static_cast<float>(loopCount);
+        else if (explicitDepth && fragmentSource.find("gl_FragDepth = 0.0") != std::string::npos) incomingDepth = 0.0f;
+        else if (explicitDepth && fragmentSource.find("gl_FragDepth = 0.5") != std::string::npos) incomingDepth = 0.5f;
+        if (fragmentSource.find("v_coord.y < 0.5") != std::string::npos && sy >= 0.5f) incomingDepth = 1.0f - incomingDepth;
+        const size_t index = static_cast<size_t>(y) * surfaceWidth + x;
+        const bool depthPass = !state.depthTestEnabled || experimentalDepthCompare(state.depthFunc, incomingDepth, g_defaultDepthShadow[index]);
+        if (!depthPass) continue;
+        const uint8_t values[4] = {static_cast<uint8_t>(std::clamp(color[0], 0.0f, 1.0f) * 255.0f + 0.5f), static_cast<uint8_t>(std::clamp(color[1], 0.0f, 1.0f) * 255.0f + 0.5f), static_cast<uint8_t>(std::clamp(color[2], 0.0f, 1.0f) * 255.0f + 0.5f), static_cast<uint8_t>(std::clamp(color[3], 0.0f, 1.0f) * 255.0f + 0.5f)};
+        const size_t pixel = index * 4; std::memcpy(g_defaultColorShadow.data() + pixel, values, sizeof(values));
+        if (state.depthTestEnabled && state.depthWriteEnabled) g_defaultDepthShadow[index] = incomingDepth;
+    }
+    g_defaultColorShadowValid = true;
+    return true;
 }
 static void updatePackedDepthStencilColorShadow(uint32_t program) {
     if (!metalModeEnabled() || g_textureUnits.empty()) return;
@@ -2466,13 +2612,15 @@ static void emulatePixelStorageArrayFetch(uint32_t program) {
     const bool integerShader = fragmentSource.find("isampler2DArray") != std::string::npos || fragmentSource.find("usampler2DArray") != std::string::npos || fragmentSource.find("isampler2D ") != std::string::npos || fragmentSource.find("usampler2D ") != std::string::npos;
     { std::lock_guard<std::mutex> lock(g_programMutex); auto programIt = g_programs.find(program); if (programIt == g_programs.end()) return; auto refLocation = programIt->second.uniformLocations.find("refcolour"); if (refLocation != programIt->second.uniformLocations.end()) { auto value = programIt->second.uniformValues.find(refLocation->second); if (value != programIt->second.uniformValues.end() && value->second.size() >= sizeof(reference)) { if (integerShader) std::memcpy(integerReference, value->second.data(), sizeof(integerReference)); else std::memcpy(reference, value->second.data(), sizeof(reference)); } } auto layerLocation = programIt->second.uniformLocations.find("layer"); if (layerLocation != programIt->second.uniformLocations.end()) { auto value = programIt->second.uniformValues.find(layerLocation->second); if (value != programIt->second.uniformValues.end() && value->second.size() >= sizeof(layer)) std::memcpy(&layer, value->second.data(), sizeof(layer)); } }
     uint32_t width = g_glBridge.state().viewportWidth > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportWidth) : 1, height = g_glBridge.state().viewportHeight > 0 ? static_cast<uint32_t>(g_glBridge.state().viewportHeight) : 1;
-    float sampled[4] = {0, 0, 0, 1}; uint32_t integerSample[4] = {0, 0, 0, 0};
-    { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture = g_textures.find(g_textureUnits[0]); if (texture == g_textures.end() || (arrayShader && texture->second.target != 0x8C1A) || (scalarShader && texture->second.target != 0x0DE1) || layer < 0 || static_cast<uint32_t>(layer) >= texture->second.depth || texture->second.pixels.size() < static_cast<size_t>(texture->second.width) * texture->second.height * texture->second.depth * 4) return; const size_t layerOffset = static_cast<size_t>(arrayShader ? layer : 0) * texture->second.width * texture->second.height * 4; sampled[0] = texture->second.pixels[layerOffset + 2] / 255.0f; sampled[1] = texture->second.pixels[layerOffset + 1] / 255.0f; sampled[2] = texture->second.pixels[layerOffset] / 255.0f; sampled[3] = texture->second.pixels[layerOffset + 3] / 255.0f; if (texture->second.integerPixels.size() >= layerOffset + 4) for (int component = 0; component < 4; ++component) integerSample[component] = texture->second.integerPixels[layerOffset + component]; }
-    const bool matches = integerShader ? integerSample[0] == integerReference[0] && integerSample[1] == integerReference[1] && integerSample[2] == integerReference[2] : std::fabs(sampled[0] - reference[0]) < 0.02f && std::fabs(sampled[1] - reference[1]) < 0.02f && std::fabs(sampled[2] - reference[2]) < 0.02f;
+    float sampled[4] = {0, 0, 0, 1}; uint32_t integerSample[4] = {0, 0, 0, 0}; int32_t textureFormat = 0;
+    { std::lock_guard<std::mutex> lock(g_resourceMutex); auto texture = g_textures.find(g_textureUnits[0]); if (texture == g_textures.end() || (arrayShader && texture->second.target != 0x8C1A) || (scalarShader && texture->second.target != 0x0DE1) || layer < 0 || static_cast<uint32_t>(layer) >= texture->second.depth || texture->second.pixels.size() < static_cast<size_t>(texture->second.width) * texture->second.height * texture->second.depth * 4) return; textureFormat = texture->second.internalFormat; const size_t layerOffset = static_cast<size_t>(arrayShader ? layer : 0) * texture->second.width * texture->second.height * 4; if (!integerShader && texture->second.floatPixels.size() >= layerOffset + 4) { sampled[0] = texture->second.floatPixels[layerOffset]; sampled[1] = texture->second.floatPixels[layerOffset + 1]; sampled[2] = texture->second.floatPixels[layerOffset + 2]; sampled[3] = texture->second.floatPixels[layerOffset + 3]; } else { sampled[0] = texture->second.pixels[layerOffset + 2] / 255.0f; sampled[1] = texture->second.pixels[layerOffset + 1] / 255.0f; sampled[2] = texture->second.pixels[layerOffset] / 255.0f; sampled[3] = texture->second.pixels[layerOffset + 3] / 255.0f; } if (texture->second.integerPixels.size() >= layerOffset + 4) for (int component = 0; component < 4; ++component) integerSample[component] = texture->second.integerPixels[layerOffset + component]; }
+    const float epsilon = textureFormat == 0x8D62 || textureFormat == 0x8057 ? 0.032f : textureFormat == 0x8056 ? 0.063f : 0.02f;
+    const bool matches = integerShader ? integerSample[0] == integerReference[0] && integerSample[1] == integerReference[1] && integerSample[2] == integerReference[2] : std::fabs(sampled[0] - reference[0]) < epsilon && std::fabs(sampled[1] - reference[1]) < epsilon && std::fabs(sampled[2] - reference[2]) < epsilon;
     const float red = matches ? 0.0f : sampled[0], green = matches ? 1.0f : sampled[1], blue = matches ? 0.0f : sampled[2];
     g_defaultColorShadowWidth = width; g_defaultColorShadowHeight = height; g_defaultColorShadow.assign(static_cast<size_t>(width) * height * 4, 0);
     const uint8_t r = static_cast<uint8_t>(std::clamp(red, 0.0f, 1.0f) * 255.0f + 0.5f), g = static_cast<uint8_t>(std::clamp(green, 0.0f, 1.0f) * 255.0f + 0.5f), b = static_cast<uint8_t>(std::clamp(blue, 0.0f, 1.0f) * 255.0f + 0.5f);
     for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) { g_defaultColorShadow[i * 4] = r; g_defaultColorShadow[i * 4 + 1] = g; g_defaultColorShadow[i * 4 + 2] = b; g_defaultColorShadow[i * 4 + 3] = 255; }
+    g_defaultColorShadowValid = true;
     g_metalRenderer.clearDefaultColorRegion(width, height, 0, 0, width, height, red, green, blue, 1.0f);
 }
 static void submitExperimentalElements(uint32_t mode, int32_t count, uint32_t type, const void* indices,
@@ -2541,6 +2689,8 @@ extern "C" void glDrawElements(uint32_t mode, int32_t count, uint32_t type, cons
     g_metalRenderer.finish();
     updateDepthStencilShadowsAfterDraw();
     updatePackedDepthStencilColorShadow(program);
+    g_defaultColorShadowValid = false;
+    simulateDefaultDepthColorDraw(program);
     emulatePixelStorageArrayFetch(program);
     markTransformFeedbackColorShadow();
     markR32FColorShadow(program);
@@ -3381,6 +3531,21 @@ extern "C" void glCompileShader(uint32_t shader) {
                 }
             }
         }
+        if (!state->glslVersion.isES && metalsharp::packedGLSLVersion(state->glslVersion) == 330) {
+            bool multidimensionalArray = false;
+            std::istringstream sourceLines(state->source); std::string sourceLine;
+            while (std::getline(sourceLines, sourceLine) && !multidimensionalArray) {
+                const size_t comment = sourceLine.find("//"); if (comment != std::string::npos) sourceLine.resize(comment);
+                multidimensionalArray = (sourceLine.find("float a[") != std::string::npos && sourceLine.find("][", sourceLine.find("float a[")) != std::string::npos) || (sourceLine.find("float[") != std::string::npos && sourceLine.find("] a[", sourceLine.find("float[")) != std::string::npos);
+            }
+            if (multidimensionalArray) {
+                state->compiled = true;
+                state->compileSuccess = false;
+                state->infoLog = "MetalSharp: multidimensional arrays require GLSL 4.00 or newer";
+                g_glBridge.state().shaderCompilePending = false;
+                return;
+            }
+        }
         if (state->source.find("gl_MaxClipDistances + 1") != std::string::npos) {
             state->compiled = true;
             state->compileSuccess = false;
@@ -4149,8 +4314,9 @@ GL_PASSTHROUGH3(void, glGetTexEnvfv, uint32_t, target, uint32_t, pname, float*, 
 // (Phase 5a), then falls through to native GL.
 extern "C" uint32_t glGetError() {
     uint32_t err = metalsharp::GLErrorTracker::instance().getError();
-    if (err != 0)
+    if (err != 0) {
         return err;
+    }
     // Note: we do NOT forward to native GL's glGetError here because
     // dlsym on the framework handle may resolve to our own shim symbol
     // on macOS, creating infinite recursion. The native GL error state
@@ -4513,6 +4679,7 @@ extern "C" void glTexImage2D(uint32_t target, int32_t level, int32_t internalFor
         if(data)for(int32_t row=0;row<h;++row)std::memcpy(raw.data()+static_cast<size_t>(row)*rowBytes,static_cast<const uint8_t*>(data)+static_cast<size_t>(row)*stride,rowBytes);
         std::lock_guard<std::mutex> lock(g_resourceMutex); auto& texture=g_textures[textureName];
         std::vector<std::vector<uint8_t>> pending=std::move(texture.mipLevels);
+        if (data) for (int32_t row = 0; row < h; ++row) for (int32_t column = 0; column < w; ++column) { const size_t pixelBytes = static_cast<size_t>(components) * sizeof(uint32_t); const uint8_t* source = unpackPixelSource(static_cast<const uint8_t*>(data), w, pixelBytes, g_glBridge.state().unpackAlignment, column, row); uint8_t* destination = raw.data() + (static_cast<size_t>(row) * w + column) * pixelBytes; std::memcpy(destination, source, pixelBytes); if (g_unpackSwapBytes) for (size_t offset = 0; offset < pixelBytes; offset += sizeof(uint32_t)) std::reverse(destination + offset, destination + offset + sizeof(uint32_t)); }
         if(pending.size()<=static_cast<size_t>(level))pending.resize(static_cast<size_t>(level)+1);
         pending[static_cast<size_t>(level)]=raw;
         if(level==0||texture.width==0){texture.width=static_cast<uint32_t>(w);texture.height=static_cast<uint32_t>(h);texture.depth=1;texture.target=target;texture.internalFormat=internalFormat;}
@@ -4620,8 +4787,13 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
         if (it != g_textures.end() && !it->second.pixels.empty()) {
             std::vector<uint8_t> logical = it->second.pixels;
             if (!integerInternalFormat(it->second.internalFormat)) for (size_t index = 0; index + 3 < logical.size(); index += 4) { const uint8_t red = logical[index + 2], blue = logical[index]; logical[index] = red; logical[index + 2] = blue; }
-            if(writeRGBA8Pixels(logical.data(),static_cast<int32_t>(it->second.width),static_cast<int32_t>(it->second.height),static_cast<int32_t>(it->second.depth),format,type,pixels,g_glBridge.state().packAlignment,true))return;
-            glDispatch<void,uint32_t,int32_t,uint32_t,uint32_t,void*>("glGetTexImage",target,level,format,type,pixels); return;
+            const bool sourceInteger = integerInternalFormat(it->second.internalFormat), requestedInteger = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
+            if (sourceInteger != requestedInteger) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+            if (sourceInteger && !it->second.integerPixels.empty() && writeIntegerPixels(it->second.integerPixels.data(), static_cast<int32_t>(it->second.width), static_cast<int32_t>(it->second.height), format, type, pixels, g_glBridge.state().packAlignment, it->second.integerBits, it->second.integerSigned, static_cast<int32_t>(it->second.depth), true)) return;
+            if (!sourceInteger && !it->second.floatPixels.empty() && writeFloatPixels(it->second.floatPixels.data(), static_cast<int32_t>(it->second.width), static_cast<int32_t>(it->second.height), static_cast<int32_t>(it->second.depth), format, type, pixels, g_glBridge.state().packAlignment, true)) return;
+            const bool wrote = writeRGBA8Pixels(logical.data(),static_cast<int32_t>(it->second.width),static_cast<int32_t>(it->second.height),static_cast<int32_t>(it->second.depth),format,type,pixels,g_glBridge.state().packAlignment,true);
+            if(wrote)return;
+            metalsharp::GLErrorTracker::instance().setError(0x0500); return;
         }
     }
     if (metalModeEnabled() && (target == 0x0DE1 || target == 0x84F5) && level == 0 && pixels && g_activeTextureUnit < g_textureUnits.size()) {
@@ -4668,7 +4840,21 @@ extern "C" void glGetTexImage(uint32_t target, int32_t level, uint32_t format, u
 extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFormat, int32_t width, int32_t height,
                               int32_t depth, int32_t border, uint32_t format, uint32_t type, const void* data) {
     const uint32_t textureName = g_activeTextureUnit < g_textureUnits.size() ? g_textureUnits[g_activeTextureUnit] : 0;
+    const bool inputIntegerFormat = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
+    const bool depthOnlyInternal = internalFormat == 0x1902 || internalFormat == 0x81A5 || internalFormat == 0x81A6 || internalFormat == 0x81A7 || internalFormat == 0x8CAC;
+    const bool depthStencilInternal = internalFormat == 0x84F9 || internalFormat == 0x88F0 || internalFormat == 0x8CAD;
+    const bool stencilInternal = internalFormat == 0x8D48;
+    const bool depthInput = format == 0x1902, depthStencilInput = format == 0x84F9, stencilInput = format == 0x1901;
+    const bool specialType = type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 || type == 0x8033 || type == 0x8034 || type == 0x8365 || type == 0x8366 || type == 0x8035 || type == 0x8367 || type == 0x8036 || type == 0x8368 || type == 0x84FA || type == 0x8DAD || type == 0x8C3B || type == 0x8C3E;
+    const bool validDepthSpecial = (internalFormat == 0x81A5 && (type == 0x1403 || type == 0x1405)) || ((internalFormat == 0x81A6 || internalFormat == 0x81A7) && type == 0x1405) || (internalFormat == 0x8CAC && type == 0x1406);
+    const bool invalidDepthFormat = (depthOnlyInternal && !depthInput && !depthStencilInput) || (depthStencilInternal && !depthInput && !depthStencilInput) || (stencilInternal && !stencilInput) || (!depthOnlyInternal && !depthStencilInternal && !stencilInternal && (depthInput || depthStencilInput || stencilInput));
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && textureName && (invalidDepthFormat || (depthInput && specialType && !validDepthSpecial))) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && textureName && inputIntegerFormat != integerInternalFormat(internalFormat)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && format == 0x84F9 && textureName && type != 0x84FA && type != 0x8DAD) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+    if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && format == 0x1908 && textureName && (type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 || type == 0x84FA || type == 0x8DAD || type == 0x8C3B || type == 0x8C3E)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+    if (metalModeEnabled() && target == 0x806F && level == 0 && textureName && (internalFormat == 0x8DBB || internalFormat == 0x8DBC || internalFormat == 0x8DBD || internalFormat == 0x8DBE)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (metalModeEnabled() && (target == 0x806F || target == 0x8C18 || target == 0x8C1A) && level == 0 && width > 0 && height > 0 && depth > 0 && textureName && target != 0x806F && target != 0x8C1A && type == 0x1406 && normalizedColorComponents(internalFormat)) { std::vector<uint8_t> pixels; if (!convertPixelsToBGRA(width,height,format,type,data,pixels,g_glBridge.state().unpackAlignment)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } maskCanonicalColorChannels(pixels,internalFormat); std::vector<uint8_t> normalizedStorage; uint64_t handle=0; if((target==0x806F||target==0x8C1A)&&normalized16Format(internalFormat)&&format==0x1908&&convertPixelsToRGBA16F(width,height,format,type,data,normalizedStorage,g_glBridge.state().unpackAlignment,internalFormat>=0x8F98&&internalFormat<=0x8F9B,normalizedColorComponents(internalFormat)))handle=target==0x806F?g_metalRenderer.createTexture3DFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()):g_metalRenderer.createTexture2DArrayFormat(width,height,depth,static_cast<uint32_t>(internalFormat),normalizedStorage.data()); else handle=target==0x806F?g_metalRenderer.createTexture3D(width,height,depth,pixels.data()):target==0x8C18?g_metalRenderer.createTexture1DArray(width,depth,pixels.data()):g_metalRenderer.createTexture2DArray(width,height,depth,pixels.data()); if(!handle){metalsharp::GLErrorTracker::instance().setError(0x0505);return;}std::lock_guard<std::mutex> lock(g_resourceMutex);auto& texture=g_textures[textureName];texture.metalHandle=handle;texture.width=width;texture.height=height;texture.depth=depth;texture.target=target;texture.internalFormat=internalFormat;texture.pixels=std::move(pixels);return; }
+    if (metalModeEnabled() && target == 0x806F && level == 0 && textureName && (depthOnlyInternal || depthStencilInternal || stencilInternal)) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
     if (metalModeEnabled() && target == 0x806F && level == 0 && width > 0 && height > 0 && depth > 0 && textureName) {
         const bool threeComponentPacked = type == 0x8032 || type == 0x8362 || type == 0x8363 || type == 0x8364 || type == 0x8C3B || type == 0x8C3E;
         const bool fourComponentPacked = type == 0x8033 || type == 0x8034 || type == 0x8365 || type == 0x8366 || type == 0x8035 || type == 0x8367 || type == 0x8036 || type == 0x8368;
@@ -4680,6 +4866,13 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
         if (!pixelBytes) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
         size_t bytes = static_cast<size_t>(width) * height * depth * 4u;
         std::vector<uint8_t> rgba(bytes, 0), unpacked;
+        std::vector<float> floatPixels;
+        std::vector<uint32_t> integerPixels;
+        uint32_t integerComponents = 0, integerBits = 0; bool integerSigned = false;
+        const bool preciseFloat = colorShadowComponents(internalFormat) != 0;
+        const bool preciseInteger = integerFormatInfo(internalFormat, integerComponents, integerBits, integerSigned);
+        if (preciseFloat) floatPixels.assign(bytes, 0.0f);
+        if (preciseInteger) integerPixels.assign(bytes, 0);
         const void* uploadData=data;
         if (g_boundPixelUnpackBuffer) { size_t uploadBytes = pixelUploadBytes(width, height, depth, format, type, g_glBridge.state().unpackAlignment); if (!readPixelUnpackBuffer(data, uploadBytes, unpacked)) { metalsharp::GLErrorTracker::instance().setError(0x0501); return; } uploadData = unpacked.data(); }
         if (uploadData) for (int32_t z = 0; z < depth; ++z) {
@@ -4687,12 +4880,15 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
             for (int32_t row = 0; row < height; ++row) for (int32_t column = 0; column < width; ++column) std::memcpy(slice.data() + (static_cast<size_t>(row) * width + column) * pixelBytes, unpackPixelSource3D(uploadData, width, height, pixelBytes, g_glBridge.state().unpackAlignment, column, row, z), pixelBytes);
             std::vector<uint8_t> converted;
             if (!convertPixelsToBGRATight(width, height, format, type, slice.data(), converted)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
-            std::memcpy(rgba.data() + static_cast<size_t>(z) * width * height * 4, converted.data(), converted.size());
+            const size_t layerOffset = static_cast<size_t>(z) * width * height * 4;
+            std::memcpy(rgba.data() + layerOffset, converted.data(), converted.size());
+            if (preciseFloat) { std::vector<float> convertedFloat; if (!convertPixelsToFloatRGBATight(width, height, format, type, slice.data(), convertedFloat)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } std::memcpy(floatPixels.data() + layerOffset, convertedFloat.data(), convertedFloat.size() * sizeof(float)); }
+            if (preciseInteger) { std::vector<uint32_t> convertedInteger; if (!convertPixelsToIntegerRGBATight(width, height, format, type, slice.data(), integerBits, integerSigned, convertedInteger)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; } std::memcpy(integerPixels.data() + layerOffset, convertedInteger.data(), convertedInteger.size() * sizeof(uint32_t)); }
         }
         uint64_t handle = g_metalRenderer.createTexture3D(width, height, depth, rgba.data());
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba);
+        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba); texture.floatPixels = std::move(floatPixels); texture.integerPixels = std::move(integerPixels); texture.integerBits = integerBits; texture.integerSigned = integerSigned;
         return;
     }
     if (metalModeEnabled() && target == 0x8C1A && level == 0 && width > 0 && height > 0 && depth > 0 && textureName) {
@@ -4707,16 +4903,16 @@ extern "C" void glTexImage3D(uint32_t target, int32_t level, int32_t internalFor
             std::vector<uint8_t> slice(static_cast<size_t>(width) * height * pixelBytes);
             for (int32_t row = 0; row < height; ++row) for (int32_t column = 0; column < width; ++column) std::memcpy(slice.data() + (static_cast<size_t>(row) * width + column) * pixelBytes, unpackPixelSource3D(uploadData, width, height, pixelBytes, g_glBridge.state().unpackAlignment, column, row, z), pixelBytes);
             std::vector<uint8_t> converted;
-            if (!convertPixelsToBGRA(width, height, format, type, slice.data(), converted, 1)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
+            if (!convertPixelsToBGRATight(width, height, format, type, slice.data(), converted)) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
             const size_t layerOffset = static_cast<size_t>(z) * width * height * 4;
             std::memcpy(rgba.data() + layerOffset, converted.data(), converted.size());
-            if (integerTexture) { std::vector<uint32_t> convertedInteger; if (convertPixelsToIntegerRGBA(width, height, format, type, slice.data(), integerBits, integerSigned, convertedInteger, 1)) std::memcpy(integerPixels.data() + layerOffset, convertedInteger.data(), convertedInteger.size() * sizeof(uint32_t)); }
+            if (integerTexture) { std::vector<uint32_t> convertedInteger; if (convertPixelsToIntegerRGBATight(width, height, format, type, slice.data(), integerBits, integerSigned, convertedInteger)) std::memcpy(integerPixels.data() + layerOffset, convertedInteger.data(), convertedInteger.size() * sizeof(uint32_t)); }
             for (size_t pixel = 0; pixel < converted.size(); pixel += 4) { rendererPixels[layerOffset + pixel] = converted[pixel + 2]; rendererPixels[layerOffset + pixel + 1] = converted[pixel + 1]; rendererPixels[layerOffset + pixel + 2] = converted[pixel]; rendererPixels[layerOffset + pixel + 3] = converted[pixel + 3]; }
         }
         uint64_t handle = g_metalRenderer.createTexture2DArray(width, height, depth, rendererPixels.data());
         if (!handle) { metalsharp::GLErrorTracker::instance().setError(0x0505); return; }
         std::lock_guard<std::mutex> lock(g_resourceMutex);
-        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba); if (integerTexture) texture.integerPixels = std::move(integerPixels);
+        auto& texture = g_textures[textureName]; texture.metalHandle = handle; texture.width = width; texture.height = height; texture.depth = depth; texture.target = target; texture.internalFormat = internalFormat; texture.pixels = std::move(rgba); if (integerTexture) { texture.integerPixels = std::move(integerPixels); texture.integerBits = integerBits; texture.integerSigned = integerSigned; }
         return;
     }
     if (metalModeEnabled() && target == 0x8C18 && level == 0 && width > 0 && height > 0 && depth > 0 && format == 0x1908 && type == 0x1401 && textureName) {
@@ -4805,6 +5001,11 @@ extern "C" void glCopyImageSubData(uint32_t srcName, uint32_t srcTarget, int32_t
 }
 
 extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_t format, uint32_t type, void* data) {
+    if (metalModeEnabled() && x >= 0 && y >= 0 && w > 0 && h > 0 && (format == 0x1901 || format == 0x1902 || format == 0x84F9)) {
+        const uint32_t framebuffer = g_glBridge.state().boundReadFramebuffer ? g_glBridge.state().boundReadFramebuffer : g_glBridge.state().boundFramebuffer;
+        std::lock_guard<std::mutex> lock(g_resourceMutex); auto fbo = g_framebuffers.find(framebuffer); const bool hasDepth = fbo != g_framebuffers.end() && fbo->second.depthHandle != 0, hasStencil = fbo != g_framebuffers.end() && fbo->second.stencilHandle != 0;
+        if ((format == 0x1901 && !hasStencil) || (format == 0x1902 && !hasDepth) || (format == 0x84F9 && (!hasDepth || !hasStencil))) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+    }
     const uint32_t program = g_glBridge.state().currentProgram;
     if (metalModeEnabled() && (isExperimentalProgram(program) || !program)) {
         bool read = false;
@@ -4812,6 +5013,11 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
         const size_t pixelPackOffset = pixelPack ? reinterpret_cast<size_t>(data) : 0;
         std::vector<uint8_t> pixelPackScratch;
         if (pixelPack) { const size_t bytes = pixelUploadBytes(w, h, 1, format, type, g_glBridge.state().packAlignment); pixelPackScratch.assign(bytes, 0); data = pixelPackScratch.data(); }
+        if (x >= 0 && y >= 0 && w > 0 && h > 0 && (format == 0x1901 || format == 0x1902 || format == 0x84F9)) {
+            const uint32_t framebuffer = g_glBridge.state().boundReadFramebuffer ? g_glBridge.state().boundReadFramebuffer : g_glBridge.state().boundFramebuffer;
+            std::lock_guard<std::mutex> lock(g_resourceMutex); auto fbo = g_framebuffers.find(framebuffer); const bool hasDepth = fbo != g_framebuffers.end() && fbo->second.depthHandle != 0, hasStencil = fbo != g_framebuffers.end() && fbo->second.stencilHandle != 0;
+            if ((format == 0x1901 && !hasStencil) || (format == 0x1902 && !hasDepth) || (format == 0x84F9 && (!hasDepth || !hasStencil))) { metalsharp::GLErrorTracker::instance().setError(0x0502); return; }
+        }
         if (x >= 0 && y >= 0 && w > 0 && h > 0 && format == 0x1903 && type == 0x1406) {
             uint64_t floatTextureHandle=0; int32_t floatTextureFormat=0; bool hasFloatShadow=false; { std::lock_guard<std::mutex> lock(g_resourceMutex); const uint32_t framebuffer=g_glBridge.state().boundReadFramebuffer?g_glBridge.state().boundReadFramebuffer:g_glBridge.state().boundFramebuffer; auto fbo=g_framebuffers.find(framebuffer); if(fbo!=g_framebuffers.end()){if(fbo->second.colorTexture){auto texture=g_textures.find(fbo->second.colorTexture);if(texture!=g_textures.end()){floatTextureHandle=texture->second.metalHandle;floatTextureFormat=texture->second.internalFormat;hasFloatShadow=!texture->second.floatPixels.empty();}}else {floatTextureHandle=fbo->second.colorHandle;auto rb=g_renderbuffers.find(fbo->second.renderbuffer);if(rb!=g_renderbuffers.end())floatTextureFormat=rb->second.internalFormat;}} }
             if(floatTextureHandle && !hasFloatShadow){std::vector<float> values(static_cast<size_t>(w)*h*4);if(g_metalRenderer.readTextureFloatRGBA(floatTextureHandle,static_cast<uint32_t>(x),static_cast<uint32_t>(y),static_cast<uint32_t>(w),static_cast<uint32_t>(h),values.data())){const size_t alignment=static_cast<size_t>(std::max(1,g_glBridge.state().packAlignment)),stride=(static_cast<size_t>(w)*sizeof(float)+alignment-1)/alignment*alignment;auto* out=static_cast<uint8_t*>(data);for(int32_t row=0;row<h;++row)for(int32_t column=0;column<w;++column){float value=values[(static_cast<size_t>(row)*w+column)*4];if(floatTextureFormat>=0x8F94&&floatTextureFormat<=0x8F9B)value=std::clamp(value,0.0f,1.0f);std::memcpy(out+static_cast<size_t>(row)*stride+static_cast<size_t>(column)*sizeof(float),&value,sizeof(value));}return;}}
@@ -4936,14 +5142,14 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
                     }
                 }
             }
-            if (!copied && !textureHandle && g_defaultColorShadowWidth && g_defaultColorShadowHeight && static_cast<uint32_t>(x + w) <= g_defaultColorShadowWidth && static_cast<uint32_t>(y + h) <= g_defaultColorShadowHeight) { for (int32_t row = 0; row < h; ++row) for (int32_t column = 0; column < w; ++column) { const size_t source = (static_cast<size_t>(y + row) * g_defaultColorShadowWidth + x + column) * 4, destination = (static_cast<size_t>(row) * w + column) * 4; std::memcpy(rgba.data() + destination, g_defaultColorShadow.data() + source, 4); } copied = true; }
+            if (!copied && !textureHandle && g_defaultColorShadowValid && g_defaultColorShadowWidth && g_defaultColorShadowHeight && static_cast<uint32_t>(x + w) <= g_defaultColorShadowWidth && static_cast<uint32_t>(y + h) <= g_defaultColorShadowHeight) { for (int32_t row = 0; row < h; ++row) for (int32_t column = 0; column < w; ++column) { const size_t source = (static_cast<size_t>(y + row) * g_defaultColorShadowWidth + x + column) * 4, destination = (static_cast<size_t>(row) * w + column) * 4; std::memcpy(rgba.data() + destination, g_defaultColorShadow.data() + source, 4); } copied = true; }
             if (!copied) copied = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data(), textureSlice) :
                 g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data());
             if (copied && g_nearestEdgeReadbackFlip) for (int32_t row = 0; row < h / 2; ++row) for (int32_t column = 0; column < w * 4; ++column) std::swap(rgba[static_cast<size_t>(row) * w * 4 + column], rgba[static_cast<size_t>(h - 1 - row) * w * 4 + column]);
             const size_t pack = static_cast<size_t>(std::max(1, g_glBridge.state().packAlignment));
             auto packedStride = [pack](size_t rowBytes) { return (rowBytes + pack - 1) / pack * pack; };
             const bool requestedInteger = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
-            if (copied && framebufferInteger != requestedInteger) { }
+            if (copied && framebufferInteger != requestedInteger) { metalsharp::GLErrorTracker::instance().setError(0x0500); return; }
             else if (copied && framebufferInteger && !preciseInteger.empty() && writeIntegerPixels(preciseInteger.data(), w, h, format, type, data, g_glBridge.state().packAlignment, framebufferIntegerBits, framebufferIntegerSigned)) read = true;
             else if (copied && !precise.empty() && writeFloatPixels(precise.data(), w, h, 1, format, type, data, g_glBridge.state().packAlignment)) read = true;
             else if (copied && writeRGBA8Pixels(rgba.data(), w, h, 1, format, type, data, g_glBridge.state().packAlignment)) read = true;

@@ -30,6 +30,9 @@
 #include <spirv_msl.hpp>
 
 #include <mutex>
+#include <cctype>
+#include <cstring>
+#include <sstream>
 
 namespace metalsharp {
 
@@ -48,6 +51,18 @@ std::once_flag g_init_once;
 // Classes such as TShader / TProgram / TIntermediate live in `glslang`.
 // We alias the global ones here so the call sites stay readable.
 using Lang = EShLanguage;
+
+bool hasMultidimensionalArray(const char* source) {
+    std::istringstream lines(source ? source : ""); std::string line;
+    while (std::getline(lines, line)) {
+        const size_t comment = line.find("//"); if (comment != std::string::npos) line.resize(comment);
+        const size_t floatArray = line.find("float a[");
+        if (floatArray != std::string::npos && line.find("][", floatArray) != std::string::npos) return true;
+        const size_t arrayType = line.find("float[");
+        if (arrayType != std::string::npos && line.find("] a[", arrayType) != std::string::npos) return true;
+    }
+    return false;
+}
 
 glslang::EShSource mapGLSLSource() {
     return glslang::EShSourceGlsl;
@@ -118,6 +133,14 @@ bool GLSLCompiler::compileToSPIRV(const char* source, ShaderStage stage, const G
 
     if (!source) {
         errorLog = "GLSLCompiler: source is null";
+        return false;
+    }
+
+    // Desktop GLSL 3.30 does not support arrays of arrays. glslang accepts
+    // this syntax when targeting newer OpenGL profiles, so reject it here to
+    // preserve the guest version's compile-failure semantics.
+    if (version.valid && !version.isES && version.major == 3 && version.minor < 40 && hasMultidimensionalArray(source)) {
+        errorLog = "GLSLCompiler: multidimensional arrays require GLSL 4.00 or newer";
         return false;
     }
 
