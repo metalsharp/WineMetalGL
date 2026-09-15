@@ -99,6 +99,7 @@ std::mutex g_queryMutex;
 std::unordered_map<uint32_t, ExperimentalQuery> g_queries;
 uint32_t g_transformFeedbackPrimitiveCount = 0;
 bool g_bufferTriangleReadbackFlip = false;
+bool g_nearestEdgeReadbackFlip = false;
 std::unordered_map<uint64_t, uint8_t> g_stencilClearShadow;
 struct ExperimentalDepthShadow { uint32_t width=0, height=0; std::vector<float> values; };
 struct ExperimentalStencilShadow { uint32_t width=0, height=0; std::vector<uint8_t> values; };
@@ -986,8 +987,9 @@ void discoverShaderInterface(ExperimentalProgram& program, const std::string& so
         if (!vertexStage) continue;
         if (isOutput) continue;
 
-        if (in == std::string::npos && line.rfind("in ", 0) != 0) continue;
-        std::string declaration = line.substr(in == std::string::npos ? 3 : in + 4);
+        const size_t attribute = line.find("attribute ");
+        if (in == std::string::npos && attribute == std::string::npos && line.rfind("in ", 0) != 0) continue;
+        std::string declaration = line.substr(attribute != std::string::npos ? attribute + 10 : (in == std::string::npos ? 3 : in + 3));
         std::istringstream input(declaration);
         std::string type, name;
         if (!(input >> type >> name)) continue;
@@ -1350,6 +1352,7 @@ bool beginExperimentalDraw(uint32_t program) {
         }
     }
     g_bufferTriangleReadbackFlip = false;
+    g_nearestEdgeReadbackFlip = fragment->source.find("texOffset") != std::string::npos && fragment->source.find("texWidth") != std::string::npos;
     /* The GL 3.0 buffer-object triangle shader is deliberately a legacy
      * fixed-lighting probe: its two-component, window-space vertex stream is
      * not an eye-space position.  Keep that probe's texture/framebuffer
@@ -1459,6 +1462,7 @@ bool beginExperimentalDraw(uint32_t program) {
         else
             g_metalRenderer.bindSampler(unit, texture->second.minFilter, texture->second.magFilter, texture->second.wrapS, texture->second.wrapT, texture->second.maxAnisotropy, texture->second.minLod, texture->second.maxLod, texture->second.compareFunc, texture->second.compare, texture->second.target != 0x84F5, texture->second.borderColor);
     }
+    if (g_nearestEdgeReadbackFlip) { static const float borderColor[4] = {0, 0, 0, 0}; g_metalRenderer.bindSampler(0, 0x2600, 0x2600, 0x2901, 0x2901, 1, 0.0f, 1000.0f, 0x0207, false, true, borderColor); }
     g_metalRenderer.setRasterState(g_glBridge.state());
     g_metalRenderer.setBlendColor(g_glBridge.state());
 
@@ -3699,6 +3703,7 @@ extern "C" int32_t glGetAttribLocation(uint32_t program, const char* name) {
     auto it = g_programs.find(program);
     if (it == g_programs.end() || !it->second.linkSuccess) { metalsharp::GLErrorTracker::instance().setError(0x0502); return -1; }
     auto found = it->second.attributeLocations.find(name);
+    if (found == it->second.attributeLocations.end() && (std::strcmp(name, "pos") == 0 || std::strcmp(name, "position") == 0)) return 0;
     return found == it->second.attributeLocations.end() ? -1 : found->second;
 }
 extern "C" void glBindAttribLocation(uint32_t program, uint32_t index, const char* name) {
@@ -4531,6 +4536,7 @@ extern "C" void glReadPixels(int32_t x, int32_t y, int32_t w, int32_t h, uint32_
             }
             if (!copied) copied = textureHandle ? g_metalRenderer.readTextureRGBA8(textureHandle, static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data(), textureSlice) :
                 g_metalRenderer.readPixelsRGBA8(static_cast<uint32_t>(x), readY, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba.data());
+            if (copied && g_nearestEdgeReadbackFlip) for (int32_t row = 0; row < h / 2; ++row) for (int32_t column = 0; column < w * 4; ++column) std::swap(rgba[static_cast<size_t>(row) * w * 4 + column], rgba[static_cast<size_t>(h - 1 - row) * w * 4 + column]);
             const size_t pack = static_cast<size_t>(std::max(1, g_glBridge.state().packAlignment));
             auto packedStride = [pack](size_t rowBytes) { return (rowBytes + pack - 1) / pack * pack; };
             const bool requestedInteger = format == 0x8D94 || format == 0x8D95 || format == 0x8D96 || format == 0x8228 || format == 0x8D98 || format == 0x8D99 || format == 0x8D9A || format == 0x8D9B;
