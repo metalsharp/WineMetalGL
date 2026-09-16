@@ -29,7 +29,7 @@ cts_dir=$(CDPATH= cd -- "$(dirname -- "$cts")" && pwd)
 export WINEPREFIX="$prefix" WINEARCH=wow64 WINEMETALGL=1 WINEMETALGL_EXPERIMENTAL=1
 export WINEDEBUG="${WINEDEBUG:--all}"
 export PATH="$runtime/bin:$PATH"
-export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH:-/Volumes/AverySSD/WineForge-macos15-deps/runtime/wine/lib}"
+export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH:-$runtime/lib}"
 
 "$runtime/bin/wine" wineboot -u >/dev/null 2>&1
 cd "$cts_dir"

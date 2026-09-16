@@ -43,8 +43,9 @@ and readback regressions.
 
 ## Targeted Khronos evidence
 
-Using the VK-GL-CTS build at
-`/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`:
+Using a locally built `glcts.exe` from a VK-GL-CTS checkout (set the checkout
+path explicitly; no machine-specific CTS path is required). The GL 3.3 tree
+contains thousands of shader, resource, texture, framebuffer, and API cases:
 
 | Test selection | Result |
 |---|---|
@@ -56,13 +57,17 @@ Using the VK-GL-CTS build at
 | `KHR-GL30.buffer_objects.*` | 5/5 Pass |
 | `KHR-GL30.transform_feedback.*` | 21/21 Pass |
 | `KHR-GL31.*` | 856/889 Pass; 33 explicitly NotSupported |
+| `KHR-GL33.shaders.indexing.*` | 297/297 Pass |
+| `KHR-GL33.shaders30.glsl_constructors.*` | 648/648 Pass |
 | GL 3.3 failure ledger | 108/108 Pass |
 
-The last complete broad `KHR-GL33.*` diagnostic snapshot contained 9,887
-cases: 6,441 Pass, 703 NotSupported, 2,734 Fail, and 9 InternalError. A
-subsequent run was interrupted before the complete result was available.
-Those results are retained for engineering follow-up and are not presented as
-a clean conformance result.
+The last complete broad `KHR-GL33.*` diagnostic snapshot traversed 9,887
+cases, including thousands of shader compilations and GL 3.3 resource,
+texture, framebuffer, and API cases: 6,441 Pass, 703 NotSupported, 2,734 Fail,
+and 9 InternalError. A subsequent run was interrupted before a newer complete
+result was available. The 108-case ledger is a focused regression subset, not
+a summary of all GL 3.3 work. These results are retained for engineering
+follow-up and are not presented as a clean conformance result.
 
 ## Implemented feature groups
 

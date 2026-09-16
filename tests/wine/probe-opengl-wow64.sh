@@ -3,11 +3,12 @@
 set -euo pipefail
 
 PROJECT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-WINE_RUNTIME=${WINEMETALGL_WINE_RUNTIME:-/Volumes/AverySSD/Crossover-WineForge-macos15/merged-build/install/wine-vulkan-portability-test}
+WINE_RUNTIME=${WINEMETALGL_WINE_RUNTIME:-}
+if test -z "$WINE_RUNTIME"; then echo 'Set WINEMETALGL_WINE_RUNTIME to a compatible Wine installation.' >&2; exit 2; fi
 # Wine's win32u/dwrite native modules dlopen FreeType by soname. Keep the
 # host closure explicit and relocatable instead of depending on Homebrew's
 # global search path.
-WINE_HOST_LIB_DIR=${WINEMETALGL_HOST_LIB_DIR:-/Volumes/AverySSD/WineForge-macos15-deps/runtime/wine/lib}
+WINE_HOST_LIB_DIR=${WINEMETALGL_HOST_LIB_DIR:-$WINE_RUNTIME/lib}
 if test -d "$WINE_HOST_LIB_DIR"; then
     export DYLD_LIBRARY_PATH="$WINE_HOST_LIB_DIR${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 fi

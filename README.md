@@ -1,8 +1,8 @@
 # WineMetalGL
 
 WineMetalGL is a general x86_64 Wine OpenGL conformance adapter. This
-reference backend translates Wine OpenGL calls to Metal on macOS 15 or newer and can be
-integrated with any compatible Wine build. It supports x86_64 and i386
+reference backend translates Wine OpenGL calls to Metal on macOS 15 or newer
+and can be integrated with any compatible Wine build. It supports x86_64 and i386
 Windows programs together in a WoW64 prefix; WineForge/Wine 11.17 is only the
 reference validation build, not a product dependency.
 
@@ -25,7 +25,7 @@ case passes. The detailed scope, tests, and unsupported behavior are in
 | 3.0 | 97% | Core resources, FBOs, instancing, textures, and GLSL 3.30 |
 | 3.1 | 96% | UBOs, primitive restart, texture promotion, and indirect work |
 | 3.2 | 80% | MSAA, geometry-adjacent paths, and expanded FBO behavior |
-| 3.3 | 70% | GL 3.3 transfer/shader/resource paths |
+| 3.3 | 70% | Thousands of CTS cases exercised; focused regression ledger 108/108 |
 | 4.0 | 45% | Tessellation compilation and limited draw support |
 | 4.1 | 35% | Separable programs and pipeline lifecycle |
 | 4.2 | 25% | Image, atomic, and expanded texture/resource subsets |
@@ -63,10 +63,11 @@ Enable the Metal-owned path with:
 WINEMETALGL=1 WINEMETALGL_EXPERIMENTAL=1
 ```
 
-The WoW64 probe is:
+The WoW64 probe is run against any compatible Wine installation:
 
 ```sh
-./tests/wine/probe-opengl-wow64.sh
+WINEMETALGL_WINE_RUNTIME=/path/to/wine-install \
+  ./tests/wine/probe-opengl-wow64.sh
 ```
 
 ## License

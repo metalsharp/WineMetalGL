@@ -13,14 +13,21 @@ Validation uses:
 - x86_64-only Mach-O artifacts.
 - A compatible x86_64 Wine build with the supplied OpenGL integration patch; the reference run used WineForge/Wine 11.17.
 - Fresh `WINEARCH=wow64` prefixes.
-- VK-GL-CTS `glcts.exe` from `/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`.
+- A locally built VK-GL-CTS `glcts.exe`. Set `CTS_ROOT` to the VK-GL-CTS checkout and use `$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe`.
+
+The VK-GL-CTS repository is the source of the conformance executable and test definitions; it is not vendored into this adapter. Set its checkout explicitly, for example:
+
+```sh
+CTS_ROOT=/path/to/VK-GL-CTS
+GLCTS="$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe"
+```
 
 The focused GL 3.3 failure ledger is:
 
 ```sh
 ./scripts/run-gl33-failure-ledger.sh \
-  /path/to/wine-vulkan-portability-test \
-  /path/to/glcts.exe \
+  /path/to/wine-install \
+  "$GLCTS" \
   /tmp/gl33-ledger.qpa
 ```
 
@@ -30,16 +37,18 @@ every expected case in the QPA result. The latest run was **108/108 Pass**.
 The broad sweep command is:
 
 ```sh
-glcts.exe --deqp-case='KHR-GL33.*' \
+"$GLCTS" --deqp-case='KHR-GL33.*' \
   --deqp-terminate-on-device-lost=disable \
   --deqp-log-filename=/tmp/gl33.qpa
 ```
 
 The broad sweep remains a diagnostic, not a full-conformance claim. The last
 complete 9,887-case snapshot recorded 6,441 Pass, 703 NotSupported, 2,734
-Fail, and 9 InternalError results; later focused fixes were not requalified by
-a completed broad sweep. Unsupported results are retained where the runtime
-cannot provide the required behavior. The machine-readable entry-point
+Fail, and 9 InternalError results. That invocation traversed thousands of GL
+3.3 shader compilations and resource/texture/FBO cases; the 108-case ledger is
+only the focused regression subset extracted from that larger run. Later
+focused fixes were not requalified by a completed broad sweep. Unsupported
+results are retained where the runtime cannot provide the required behavior. The machine-readable entry-point
 boundary is [`api-coverage.json`](api-coverage.json).
 
 ## Coverage summary
@@ -62,7 +71,7 @@ below.
 | 3.0 | 97% | Targeted `KHR-GL30.*`: 856/879 Pass, 23 NotSupported, 0 Fail |
 | 3.1 | 96% | Targeted `KHR-GL31.*`: 856/889 Pass, 33 NotSupported |
 | 3.2 | 80% | MSAA, expanded FBO, and adjacent core-resource subset |
-| 3.3 | 70% | Focused ledger 108/108; broad sweep is not yet clean |
+| 3.3 | 70% | Thousands of CTS cases exercised; focused ledger 108/108; broad sweep is not yet clean |
 | 4.0 | 45% | Tessellation compilation and limited evaluation draws |
 | 4.1 | 35% | Separable programs and program-pipeline lifecycle |
 | 4.2 | 25% | Image, atomic, and expanded texture/resource subset |
@@ -205,10 +214,12 @@ General geometry-shader semantics, the full multisample format matrix, and all
 
 ### Validation
 
-The exact 108-case failure ledger is the required focused regression suite and
-currently passes **108/108 in one invocation**. It covers the previously
-observed transfer, shader-array, primitive-restart, framebuffer, packed
-format, and readback failures.
+The exact 108-case failure ledger is the focused regression suite and currently
+passes **108/108 in one invocation**. It is not the entirety of the GL 3.3
+work: the full VK-GL-CTS GL 3.3 tree exercised thousands of additional shader,
+resource, texture, framebuffer, and API cases. The ledger covers the previously
+observed transfer, packed pixel, PBO, depth/stencil, framebuffer-blit,
+shader-array, primitive-restart, and readback failures.
 
 A complete `KHR-GL33.*` run was started in a fresh WoW64 prefix. It has not yet
 been accepted as a clean conformance run; the recorded complete diagnostic
