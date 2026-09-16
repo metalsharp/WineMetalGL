@@ -1,0 +1,2 @@
+# GLSL indexing subset (297 cases in the reference CTS build)
+KHR-GL33.shaders.indexing.*

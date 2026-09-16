@@ -1,0 +1,5 @@
+KHR-GL33.framebuffer_blit.multisampled_to_singlesampled_blit_color_config_test
+KHR-GL33.packed_depth_stencil.blit.depth24_stencil8
+KHR-GL33.packed_depth_stencil.blit.depth32f_stencil8
+KHR-GL33.packed_depth_stencil.verify_mixed_attachments.depth24_stencil8
+KHR-GL33.packed_depth_stencil.verify_mixed_attachments.depth32f_stencil8

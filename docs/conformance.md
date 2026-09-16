@@ -18,6 +18,7 @@ Validation uses:
 The VK-GL-CTS repository is the source of the conformance executable and test definitions; it is not vendored into this adapter. Set its checkout explicitly, for example:
 
 ```sh
+WINE_RUNTIME=/path/to/wine-install
 CTS_ROOT=/path/to/VK-GL-CTS
 GLCTS="$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe"
 ```
@@ -29,6 +30,26 @@ The broad sweep command is:
   --deqp-terminate-on-device-lost=disable \
   --deqp-log-filename=/tmp/gl33.qpa
 ```
+
+## Incremental GL 3.3 workflow
+
+Do not use the broad command during normal development. Start with one exact
+case, then run the smallest related shard:
+
+```sh
+./scripts/run-gl33-case.sh "$WINE_RUNTIME" "$GLCTS" \
+  KHR-GL33.some.failing.case /tmp/gl33-case.qpa
+
+./scripts/run-gl33-shard.sh "$WINE_RUNTIME" "$GLCTS" \
+  tests/cts/gl33-shards/shader-indexing.txt /tmp/gl33-shard.qpa
+```
+
+Shard definitions live in `tests/cts/gl33-shards/`. They cover the focused
+regression API/FBO/shader subsets plus the bounded shader-array, indexing, and
+constructor groups. Each run creates a fresh WoW64 prefix, accepts only Pass
+(or explicitly reported NotSupported for pattern shards), and retains a QPA on
+failure. After a fix, rerun the affected case, its shard, and then the focused
+regression ledger. Run `KHR-GL33.*` only once as the final release gate.
 
 The broad sweep remains a diagnostic, not a full-conformance claim. The last
 complete 9,887-case snapshot recorded 6,441 Pass, 703 NotSupported, 2,734

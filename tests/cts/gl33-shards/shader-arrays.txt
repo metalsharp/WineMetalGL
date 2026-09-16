@@ -1,0 +1,2 @@
+# GLSL array declaration/constructor/return subset
+KHR-GL33.shaders.arrays.*

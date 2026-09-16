@@ -1,0 +1,2 @@
+# GLSL constructor subset (648 cases in the reference CTS build)
+KHR-GL33.shaders30.glsl_constructors.*

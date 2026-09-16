@@ -34,7 +34,9 @@ patches/wine/README.md
 patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch
 scripts/build.sh
 scripts/probe-native.sh
+scripts/run-gl33-case.sh
 scripts/run-gl33-failure-ledger.sh
+scripts/run-gl33-shard.sh
 scripts/stage-host-libs.sh
 scripts/stage-release.sh
 scripts/stage-wine.sh
@@ -52,6 +54,13 @@ src/opengl/WGLShim.cpp
 src/runtime/Logger.cpp
 tests/native/glsl_translation_probe.c
 tests/native/probe-metalsharp-opengl.sh
+tests/cts/gl33-shards/README.md
+tests/cts/gl33-shards/regression-api.txt
+tests/cts/gl33-shards/regression-fbo-transfer.txt
+tests/cts/gl33-shards/regression-shader-arrays.txt
+tests/cts/gl33-shards/shader-arrays.txt
+tests/cts/gl33-shards/shader-constructors.txt
+tests/cts/gl33-shards/shader-indexing.txt
 tests/cts/gl33-failure-ledger.txt
 tests/wine/opengl_clear_metal.c
 tests/wine/opengl_compute.c
