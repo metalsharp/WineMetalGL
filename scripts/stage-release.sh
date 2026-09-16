@@ -40,8 +40,9 @@ cp "$wine_build/dlls/winemac.drv/winemac.so" "$output/artifacts/wine-driver/wine
 cp "$wine_build/dlls/win32u/win32u.so" "$output/artifacts/wine-driver/win32u.so"
 cp "$project_root/README.md" "$output/README.md"
 cp "$project_root/docs/api-coverage.json" "$output/api-coverage.json"
-cp "$project_root/docs/validation/RESULTS.md" "$output/RESULTS.md"
+sed 's#../conformance.md#docs/conformance.md#g' "$project_root/docs/validation/RESULTS.md" > "$output/RESULTS.md"
 cp "$project_root/docs/conformance.md" "$output/docs/conformance.md"
+cp "$project_root/docs/api-coverage.json" "$output/docs/api-coverage.json"
 
 printf 'WineMetalGL candidate staged from %s\nWine source/build: %s\nCommit: %s\n' \
     "$project_root" "$wine_build" "$(git -C "$project_root" rev-parse HEAD)" > "$output/STAGED-FROM.txt"
