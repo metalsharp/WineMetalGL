@@ -13,5 +13,6 @@ Metal, OpenGL, Foundation, QuartzCore, AppKit, CoreFoundation, libc++,
 libSystem, and libobjc.
 
 Wine integration requires the Wine patch series in `patches/wine/`. The
-prebuilt Wine artifacts are an accepted snapshot, not a substitute for
-applying those patches to a compatible source tree.
+prebuilt Wine artifacts are an accepted reference snapshot, not a substitute
+for applying the integration changes to a compatible Wine source tree. The
+adapter is not tied to WineForge, CrossOver, or MetalSharp.

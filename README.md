@@ -1,8 +1,10 @@
 # WineMetalGL
 
-WineMetalGL is a small, x86_64-only OpenGL-to-Metal sidecar for Wine on
-macOS 15. It uses one matching Wine 11.17 WoW64 runtime for x86_64 and i386
-Windows programs.
+WineMetalGL is a general x86_64 Wine OpenGL conformance adapter. This
+reference backend translates Wine OpenGL calls to Metal on macOS 15 or newer and can be
+integrated with any compatible Wine build. It supports x86_64 and i386
+Windows programs together in a WoW64 prefix; WineForge/Wine 11.17 is only the
+reference validation build, not a product dependency.
 
 ## Feature-level implementation
 
@@ -39,13 +41,15 @@ cmake --preset release
 cmake --build --preset release -j8
 ```
 
-The output is `build/release/metalsharp-opengl.dylib`. It must contain only
-one architecture: `x86_64`.
+The output is `build/release/metalsharp-opengl.dylib`. The historical filename is the sidecar ABI name; it does not require a
+specific Wine distribution or application runtime. It must contain only one architecture: `x86_64`.
 
 ## Wine
 
-Use the sidecar only with the matching Wine 11.17 build. Do not mix its
-`opengl32.dll`, Unix OpenGL/macOS drivers, or sidecar with another Wine build.
+Use the sidecar with the Wine build it was integrated and ABI-tested with. Do
+not mix its `opengl32.dll`, Unix OpenGL/macOS drivers, or sidecar with another
+Wine build. The supplied Wine 11.17 patch is a reference integration; other
+Wine revisions may need the same small OpenGL loader changes rebased.
 
 ```sh
 ./scripts/stage-wine.sh /path/to/wine-build

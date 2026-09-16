@@ -28,7 +28,7 @@ fi
 
 wine_source=${WINEMETALGL_WINE_SOURCE:-}
 if test -n "$wine_source"; then
-    patch_file="$project_root/patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch"
+    patch_file=${WINEMETALGL_WINE_PATCH:-$project_root/patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch}
     check_dir=$(mktemp -d "${TMPDIR:-/tmp}/winemetalgl-patch-check.XXXXXX")
     cleanup() { git -C "$wine_source" worktree remove --force "$check_dir" >/dev/null 2>&1 || true; }
     trap cleanup EXIT INT TERM

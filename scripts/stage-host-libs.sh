@@ -8,7 +8,7 @@ if test "$#" -ne 1; then
     exit 2
 fi
 runtime=$1
-source_dir=${WINEMETALGL_HOST_LIB_DIR:-/Volumes/AverySSD/WineForge-macos15-deps/runtime/wine/lib}
+source_dir=${WINEMETALGL_HOST_LIB_DIR:-$runtime/lib}
 destination="$runtime/lib"
 mkdir -p "$destination"
 for name in libfreetype.6.dylib libpng16.16.dylib libz.dylib libbz2.1.0.dylib libbrotlidec.1.dylib libbrotlicommon.1.dylib; do

@@ -9,9 +9,9 @@ entry point is exported or forwarded.
 
 Validation uses:
 
-- macOS 15 on an Apple M4 host.
+- macOS 15 or newer on an Apple Silicon host; the reference run used an Apple M4.
 - x86_64-only Mach-O artifacts.
-- WineForge/Wine 11.17 with the matching Wine integration patch.
+- A compatible x86_64 Wine build with the supplied OpenGL integration patch; the reference run used WineForge/Wine 11.17.
 - Fresh `WINEARCH=wow64` prefixes.
 - VK-GL-CTS `glcts.exe` from `/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`.
 
@@ -302,11 +302,11 @@ full Khronos OpenGL 4.6 run.
 
 ## Runtime and artifact boundary
 
-- Only x86_64 macOS 15 host artifacts are produced.
+- Only x86_64 macOS 15-or-newer host artifacts are produced.
 - Windows x86_64 and i386 guests are supported together in a fresh WoW64
   prefix.
 - The sidecar, Wine Unix drivers, and guest DLLs are ABI-coupled and must come
-  from the same Wine 11.17 build.
+  from the same integrated Wine build. WineForge/Wine 11.17 is the tested reference, not a product dependency.
 - Legacy Wine OpenGL compatibility remains available when
   `WINEMETALGL_EXPERIMENTAL=0`; Metal-owned paths require
   `WINEMETALGL=1 WINEMETALGL_EXPERIMENTAL=1`.

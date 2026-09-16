@@ -1,7 +1,8 @@
 # WineMetalGL staged artifacts
 
-These artifacts are ABI-coupled to the WineForge/Wine 11.17 build used by the
-release probes. They target only x86_64 macOS 15 hosts and x86_64/i386 Windows
+These artifacts are ABI-coupled to the integrated Wine build used by the
+release probes. The reference build is WineForge/Wine 11.17. They target
+x86_64 macOS 15-or-newer hosts and x86_64/i386 Windows
 guests in one WoW64 prefix.
 
 - `host-x86_64/metalsharp-opengl.dylib`: native Metal sidecar.

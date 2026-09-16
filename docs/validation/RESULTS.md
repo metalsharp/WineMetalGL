@@ -2,18 +2,19 @@
 
 Validation snapshot: 2026-09-15
 
-This is a bounded validation record for the x86_64 macOS 15 sidecar and its
-matching WineForge/Wine 11.17 WoW64 runtime. It is not a claim of complete
+This is a bounded validation record for the x86_64 macOS 15-or-newer sidecar
+and a compatible Wine WoW64 runtime. The reference build used WineForge/Wine
+11.17; the adapter is not tied to that distribution. It is not a claim of complete
 OpenGL 4.6 or complete Khronos GL 3.3 conformance. See
 [`../conformance.md`](../conformance.md) for the feature-level matrix.
 
 ## Host and runtime gates
 
-- Host: macOS 15, Apple M4.
+- Host: macOS 15 or newer, reference machine Apple M4.
 - Host artifact: one x86_64 Mach-O architecture; deployment target 15.0.
 - Guest artifacts: matching x86_64 and i386 `opengl32.dll` files.
 - Prefix: fresh `WINEARCH=wow64`.
-- Runtime: matching WineForge/Wine 11.17 build.
+- Runtime: compatible Wine build; reference runtime WineForge/Wine 11.17.
 - GLSL 3.30 translation path: glslang -> SPIR-V -> SPIRV-Cross -> MSL.
 - GLSL 4.50 translation is available for the declared experimental subset.
 
