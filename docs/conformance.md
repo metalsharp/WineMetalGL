@@ -22,18 +22,6 @@ CTS_ROOT=/path/to/VK-GL-CTS
 GLCTS="$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe"
 ```
 
-The focused GL 3.3 failure ledger is:
-
-```sh
-./scripts/run-gl33-failure-ledger.sh \
-  /path/to/wine-install \
-  "$GLCTS" \
-  /tmp/gl33-ledger.qpa
-```
-
-It runs all 108 recorded regression cases in one CTS invocation and checks
-every expected case in the QPA result. The latest run was **108/108 Pass**.
-
 The broad sweep command is:
 
 ```sh
@@ -44,11 +32,8 @@ The broad sweep command is:
 
 The broad sweep remains a diagnostic, not a full-conformance claim. The last
 complete 9,887-case snapshot recorded 6,441 Pass, 703 NotSupported, 2,734
-Fail, and 9 InternalError results. That invocation traversed thousands of GL
-3.3 shader compilations and resource/texture/FBO cases; the 108-case ledger is
-only the focused regression subset extracted from that larger run. Later
-focused fixes were not requalified by a completed broad sweep. Unsupported
-results are retained where the runtime cannot provide the required behavior. The machine-readable entry-point
+Fail, and 9 InternalError results. Unsupported results are retained where the runtime 
+cannot provide the required behavior. The machine-readable entry-point
 boundary is [`api-coverage.json`](api-coverage.json).
 
 ## Coverage summary
@@ -71,7 +56,7 @@ below.
 | 3.0 | 97% | Targeted `KHR-GL30.*`: 856/879 Pass, 23 NotSupported, 0 Fail |
 | 3.1 | 96% | Targeted `KHR-GL31.*`: 856/889 Pass, 33 NotSupported |
 | 3.2 | 80% | MSAA, expanded FBO, and adjacent core-resource subset |
-| 3.3 | 70% | Thousands of CTS cases exercised; focused ledger 108/108; broad sweep is not yet clean |
+| 3.3 | 70% |  |
 | 4.0 | 45% | Tessellation compilation and limited evaluation draws |
 | 4.1 | 35% | Separable programs and program-pipeline lifecycle |
 | 4.2 | 25% | Image, atomic, and expanded texture/resource subset |
