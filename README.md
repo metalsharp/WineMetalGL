@@ -45,11 +45,6 @@ specific Wine distribution or application runtime. It must contain only one arch
 
 ## Wine
 
-Use the sidecar with the Wine build it was integrated and ABI-tested with. Do
-not mix its `opengl32.dll`, Unix OpenGL/macOS drivers, or sidecar with another
-Wine build. The supplied Wine 11.17 patch is a reference integration; other
-Wine revisions may need the same small OpenGL loader changes rebased.
-
 ```sh
 ./scripts/stage-wine.sh /path/to/wine-build
 ./scripts/stage-host-libs.sh /path/to/wine-runtime
