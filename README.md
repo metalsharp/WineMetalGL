@@ -69,6 +69,12 @@ WINEMETALGL_WINE_RUNTIME=/path/to/wine-install \
   ./tests/wine/probe-opengl-wow64.sh
 ```
 
+## CI
+
+GitHub Actions runs the same reproducible build on macOS 15 or newer, checks
+the x86_64 artifact, runs the native translation probe, and uploads the built
+sidecar. The workflow is `.github/workflows/build.yml`.
+
 ## License
 
 The standalone source is MIT licensed. Wine integration is LGPL-2.1;

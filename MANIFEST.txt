@@ -1,4 +1,5 @@
 .gitignore
+.github/workflows/build.yml
 CMakeLists.txt
 CMakePresets.json
 DEPENDENCIES.md

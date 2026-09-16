@@ -1,0 +1,52 @@
+name: WineMetalGL build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winemetalgl-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS 15+ x86_64 build
+    runs-on: macos-15
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Check toolchain
+        run: |
+          cmake --version
+          ninja --version
+          clang --version
+
+      - name: Build the complete sidecar
+        run: ./scripts/build.sh
+
+      - name: Run native translation probe
+        run: ./tests/native/probe-metalsharp-opengl.sh
+
+      - name: Verify source and artifact gates
+        run: ./scripts/verify-source.sh
+
+      - name: Verify x86_64 macOS artifact
+        run: |
+          test "$(/usr/bin/lipo -archs build/release/metalsharp-opengl.dylib)" = x86_64
+          minos="$(otool -l build/release/metalsharp-opengl.dylib | awk '/LC_BUILD_VERSION/{found=1} found && /minos/{print $2; exit}')"
+          test "$minos" = 15.0
+
+      - name: Upload x86_64 sidecar
+        uses: actions/upload-artifact@v4
+        with:
+          name: winemetalgl-x86_64-macos15
+          path: build/release/metalsharp-opengl.dylib
+          if-no-files-found: error
