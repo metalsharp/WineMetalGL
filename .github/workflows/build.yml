@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: macOS 15+ x86_64 build
+  cmake-build:
+    name: CMake macOS 15+ x86_64 build
     runs-on: macos-15
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
@@ -29,8 +29,11 @@ jobs:
           ninja --version
           clang --version
 
-      - name: Build the complete sidecar
-        run: ./scripts/build.sh
+      - name: Configure with the repository preset
+        run: cmake --preset release
+
+      - name: Build the complete project
+        run: cmake --build --preset release --parallel 4
 
       - name: Run native translation probe
         run: ./tests/native/probe-metalsharp-opengl.sh
@@ -50,3 +53,28 @@ jobs:
           name: winemetalgl-x86_64-macos15
           path: build/release/metalsharp-opengl.dylib
           if-no-files-found: error
+
+  language-syntax:
+    name: Clang C/C++/Objective-C syntax checks
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Check C source
+        run: clang -arch x86_64 -fsyntax-only tests/native/glsl_translation_probe.c
+
+      - name: Check C++ source
+        run: clang++ -std=c++20 -arch x86_64 -Iinclude -fsyntax-only src/opengl/GLShaderTracker.cpp
+
+      - name: Check Objective-C source
+        run: |
+          cat > "$RUNNER_TEMP/objc-syntax-probe.m" <<'EOF'
+          #import <Foundation/Foundation.h>
+          @interface WineMetalGLCIProbe : NSObject
+          @end
+          EOF
+          clang -arch x86_64 -x objective-c -fsyntax-only "$RUNNER_TEMP/objc-syntax-probe.m"
+
+      - name: Check Objective-C++ source
+        run: clang++ -std=c++20 -arch x86_64 -fobjc-arc -Iinclude -fsyntax-only src/opengl/OpenGLBridge.mm
