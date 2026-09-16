@@ -3,8 +3,7 @@
 WineMetalGL is a general x86_64 Wine OpenGL conformance adapter. This
 reference backend translates Wine OpenGL calls to Metal on macOS 15 or newer
 and can be integrated with any compatible Wine build. It supports x86_64 and i386
-Windows programs together in a WoW64 prefix; WineForge/Wine 11.17 is only the
-reference validation build, not a product dependency.
+Windows programs together in a WoW64 prefix.
 
 ## Feature-level implementation
 
