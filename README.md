@@ -68,7 +68,9 @@ WINEMETALGL_WINE_RUNTIME=/path/to/wine-install \
 
 GitHub Actions runs the same reproducible build on macOS 15 or newer, checks
 the x86_64 artifact, runs the native translation probe, and uploads the built
-sidecar. The workflow is `.github/workflows/build.yml`.
+sidecar. The workflow is `.github/workflows/build.yml`. A separate manually
+dispatched self-hosted workflow runs one GL 3.3 case, shard, ledger, or the
+final full sweep: `.github/workflows/gl33-conformance.yml`.
 
 ## License
 

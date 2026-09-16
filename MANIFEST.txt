@@ -1,5 +1,6 @@
 .gitignore
 .github/workflows/build.yml
+.github/workflows/gl33-conformance.yml
 CMakeLists.txt
 CMakePresets.json
 DEPENDENCIES.md
@@ -36,6 +37,7 @@ scripts/build.sh
 scripts/probe-native.sh
 scripts/run-gl33-case.sh
 scripts/run-gl33-failure-ledger.sh
+scripts/run-gl33-full.sh
 scripts/run-gl33-shard.sh
 scripts/stage-host-libs.sh
 scripts/stage-release.sh

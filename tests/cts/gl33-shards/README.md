@@ -17,7 +17,7 @@ Rules:
 2. Run the smallest affected shard.
 3. Run the regression ledger after the related fix.
 4. Do not run `KHR-GL33.*` during normal iteration.
-5. Run the full selection only as the final release gate.
+5. Run `scripts/run-gl33-full.sh` only as the final release gate.
 
 A shard file can contain exact case paths or bounded CTS patterns. Blank lines
 and lines beginning with `#` are ignored. `NotSupported` is reported but does

@@ -1,0 +1,92 @@
+name: GL 3.3 conformance (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Test scope
+        required: true
+        default: shard
+        type: choice
+        options:
+          - case
+          - shard
+          - ledger
+          - full
+      wine_runtime:
+        description: Absolute path to the compatible Wine installation on the self-hosted runner
+        required: true
+        type: string
+      cts_executable:
+        description: Absolute path to glcts.exe from a VK-GL-CTS checkout
+        required: true
+        type: string
+      case_name:
+        description: Exact KHR-GL33 case when mode is case
+        required: false
+        type: string
+      shard_file:
+        description: Repository-relative shard file when mode is shard
+        required: false
+        default: tests/cts/gl33-shards/shader-indexing.txt
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: GL 3.3 ${{ inputs.mode }}
+    runs-on: [self-hosted, macOS, wine-gl33]
+    env:
+      WINE_RUNTIME: ${{ inputs.wine_runtime }}
+      CTS_EXECUTABLE: ${{ inputs.cts_executable }}
+      MODE: ${{ inputs.mode }}
+      CASE_NAME: ${{ inputs.case_name }}
+      SHARD_FILE: ${{ inputs.shard_file }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build current source
+        run: |
+          cmake --preset release
+          cmake --build --preset release --parallel 4
+
+      - name: Run selected GL 3.3 scope
+        run: |
+          set -eu
+          case "$MODE" in
+            case)
+              test -n "$CASE_NAME"
+              ./scripts/run-gl33-case.sh "$WINE_RUNTIME" "$CTS_EXECUTABLE" "$CASE_NAME" "$RUNNER_TEMP/gl33-case.qpa"
+              ;;
+            shard)
+              case "$SHARD_FILE" in
+                /*) shard="$SHARD_FILE" ;;
+                *) shard="$GITHUB_WORKSPACE/$SHARD_FILE" ;;
+              esac
+              ./scripts/run-gl33-shard.sh "$WINE_RUNTIME" "$CTS_EXECUTABLE" "$shard" "$RUNNER_TEMP/gl33-shard.qpa"
+              ;;
+            ledger)
+              ./scripts/run-gl33-failure-ledger.sh "$WINE_RUNTIME" "$CTS_EXECUTABLE" "$RUNNER_TEMP/gl33-ledger.qpa"
+              ;;
+            full)
+              ./scripts/run-gl33-full.sh "$WINE_RUNTIME" "$CTS_EXECUTABLE" "$RUNNER_TEMP/gl33-full.qpa"
+              ;;
+            *)
+              echo "unsupported mode: $MODE" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Verify source gates
+        run: ./scripts/verify-source.sh
+
+      - name: Upload selected QPA result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl33-${{ inputs.mode }}-qpa
+          path: ${{ runner.temp }}/gl33-*.qpa
+          if-no-files-found: ignore

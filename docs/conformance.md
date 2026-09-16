@@ -49,7 +49,16 @@ regression API/FBO/shader subsets plus the bounded shader-array, indexing, and
 constructor groups. Each run creates a fresh WoW64 prefix, accepts only Pass
 (or explicitly reported NotSupported for pattern shards), and retains a QPA on
 failure. After a fix, rerun the affected case, its shard, and then the focused
-regression ledger. Run `KHR-GL33.*` only once as the final release gate.
+regression ledger. The final exhaustive gate is available as:
+
+```sh
+./scripts/run-gl33-full.sh "$WINE_RUNTIME" "$GLCTS" /tmp/gl33-full.qpa
+```
+
+Run `KHR-GL33.*` only once as that final release gate, never as the normal
+inner-loop test. `.github/workflows/gl33-conformance.yml` exposes the same
+case/shard/ledger/full choices as a manual workflow on a self-hosted runner
+that has the compatible Wine installation and a local VK-GL-CTS checkout.
 
 The broad sweep remains a diagnostic, not a full-conformance claim. The last
 complete 9,887-case snapshot recorded 6,441 Pass, 703 NotSupported, 2,734
