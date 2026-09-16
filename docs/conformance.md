@@ -56,7 +56,7 @@ below.
 | 3.0 | 97% | Targeted `KHR-GL30.*`: 856/879 Pass, 23 NotSupported, 0 Fail |
 | 3.1 | 96% | Targeted `KHR-GL31.*`: 856/889 Pass, 33 NotSupported |
 | 3.2 | 80% | MSAA, expanded FBO, and adjacent core-resource subset |
-| 3.3 | 70% |  |
+| 3.3 | 70% | GL 3.3 transfer/shader/resource paths |
 | 4.0 | 45% | Tessellation compilation and limited evaluation draws |
 | 4.1 | 35% | Separable programs and program-pipeline lifecycle |
 | 4.2 | 25% | Image, atomic, and expanded texture/resource subset |
