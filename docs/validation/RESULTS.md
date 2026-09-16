@@ -1,264 +1,91 @@
-# WineMetalGL current validation
+# WineMetalGL validation results
 
-Validation date: 2026-09-14
+Validation snapshot: 2026-09-15
 
-The validated 1.9.13 artifacts are staged as a new immutable sibling beside the
-published 1.9.12, 1.9.11, 1.9.10, 1.9.9, 1.9.8, 1.9.7, 1.9.6, 1.9.5, 1.9.4, 1.9.3, 1.9.2, 1.9.1, 1.9.0, and 1.8.0 releases; no prior release is replaced.
+This is a bounded validation record for the x86_64 macOS 15 sidecar and its
+matching WineForge/Wine 11.17 WoW64 runtime. It is not a claim of complete
+OpenGL 4.6 or complete Khronos GL 3.3 conformance. See
+[`../conformance.md`](../conformance.md) for the feature-level matrix.
 
-## Host gates
+## Host and runtime gates
 
-```text
-x86_64 Mach-O sidecar: PASS
-macOS deployment target: 15.0
-GLSL330 glslang -> SPIR-V -> MSL translation: PASS
-WINEMETALGL_NATIVE_TRANSLATION_OK
-```
+- Host: macOS 15, Apple M4.
+- Host artifact: one x86_64 Mach-O architecture; deployment target 15.0.
+- Guest artifacts: matching x86_64 and i386 `opengl32.dll` files.
+- Prefix: fresh `WINEARCH=wow64`.
+- Runtime: matching WineForge/Wine 11.17 build.
+- GLSL 3.30 translation path: glslang -> SPIR-V -> SPIRV-Cross -> MSL.
+- GLSL 4.50 translation is available for the declared experimental subset.
 
-The sidecar and matching Wine Unix driver report exactly one Mach-O
-architecture (`x86_64`). No ARM or universal artifact is part of this release.
+The x86_64 and i386 Wine fixtures cover WGL creation/current-context state,
+sharing, swap interval, Metal surface presentation, legacy GLSL, GLSL 3.30,
+textures, FBOs, buffers, uniforms, compute/image paths, tessellation
+compilation, fixed-function paths, queries, synchronization, and readback.
 
-## Wine gates
+## Focused GL 3.3 regression ledger
 
-`tests/wine/probe-opengl-wow64.sh` was run against the freshly rebuilt Wine
-11.17 release runtime, with the release's matching `opengl32.dll`,
-`winemac.so`, `win32u.so`, and sidecar staged together.
-
-The runner created one fresh `WINEARCH=wow64` prefix and sequentially ran
-x86_64 and i386 Windows fixtures. Both guests passed:
-
-- `opengl32.dll` and WGL loading.
-- Window DC, pixel format, legacy and modern context creation, extension discovery, per-context state across concurrent threads, swap interval routing, post-creation display-list sharing, and shared sidecar object visibility.
-- GLSL 1.10/1.20 simple vertex/fragment translation, Metal draw/readback, compatibility FBO/readback, and shading-language version reporting.
-- GLSL 3.30 Metal compile/link/draw/readback with an experimental 3.3 context string and tracked viewport/clear-state queries.
-- Tracked polygon offset, depth-clamp, and clip-control raster state translated to Metal, including OpenGL-to-Metal depth-range mapping and target-0 per-target blend/color-mask entry points.
-- OpenGL SPIR-V shader-binary ingestion/specialization, MSL translation, linking, and draw/readback.
-- Bounded `glReadnPixels` robustness path.
-- MetalSharp program-binary serialization/restoration with subsequent draw/readback.
-- GLSL 4.50 Metal compile/link/draw/readback, separable-program pipeline lifecycle/draw, stage-uniform binding, and interface-mismatch rejection.
-- Tessellation control/evaluation shader compilation through SPIR-V/MSL.
-- Basic triangle and quad tessellation evaluation draws with per-edge/inner factor extraction and patch-default-factor state.
-- Simple triangle/point geometry pass-through emulation with varying interface handling, including loop-form vertex emission, and limited pass-through shader transform-feedback capture.
-- Fixed-function single/multi-texture environment modes (replace, modulate, add, subtract, decal, blend, and basic combine RGB/alpha operations), plus object/eye-linear, sphere-map, and normal-map texture-coordinate generation.
-- Program uniform/attribute interface reflection, uniform-array reflection, and program-resource queries for Metal-owned programs.
-- Indexed GL 3.3-style draw with a VBO, IBO, base-vertex offset, DSA vertex binding, multi-bind vertex buffers, vertex attribute, and uniform, plus direct and indirect multi-draw.
-- PBO pixel-pack readback; 2D mipmap generation; 2D, 3D, and 2D-array texture upload, 16-bit normalized/half-float upload/readback, RGBA8UI/RGBA16F/RGBA32F/sRGB, red/rg/luminance storage, subimage/copy update, packed-pixel/BGRA conversion, image copy, pixel-pack alignment, multi-bind texture/sampler state, internal-format queries, advanced texture/sampler state, swizzle state, and parameter queries, normalized, half-float, RGBA32F, depth, RGBA8UI, and R32UI integer GLSL texture sampling, and 2D/3D texture readback.
-- Color-texture plus depth/depth-stencil texture, renderbuffer, and array-layer FBO attachment, depth/depth-texture/stencil/stencil-texture clear readback, completeness, blit, and invalidate/discard calls.
-- Metal multisample color textures/renderbuffers with the effective device-supported raster sample count, resolve attachments, readback, and framebuffer blit.
-- Cube-map texture creation, sampling, mipmaps, face readback, and x86_64/i386 validation.
-- Rectangle-texture creation, unnormalized sampling, GLSL translation, and readback.
-- 1D texture creation, subimage updates, GLSL sampling, and readback.
-- Instanced drawing with Metal depth/stencil attachments.
-- Direct/indirect compute dispatch with ranged SSBO writeback, storage-block reflection, and program-resource interface queries on both guests.
-- Transform-feedback capture for gl_Position and simple scalar/vector-varying expressions, including interleaved and separate buffers, indexed draws, and ranged transform-feedback-buffer offsets.
-- Uniform-buffer object binding/range offsets, matrix uniform arrays/readback, multi-buffer base binding, bounded buffer mapping, immutable buffer-storage allocation and storage-flag reflection, persistent/coherent flags with WoW64 low-address copy/flush emulation, buffer-pointer reflection, and uniform-block name/size reflection.
-- Compute `imageStore` to 2D RGBA8, R32UI, R32F, RGBA8UI, and RGBA16F textures with readback, including multi-bind image-unit setup.
-- Arrays/elements indirect draw commands, including parameter-buffer-counted multi-draw.
-- Basic fixed-function immediate-mode triangle/texture rendering, point-size and line-width state, texture replace/modulate/add/decal, display lists with matrix command replay, multi-light diffuse/material/specular lighting, linear/exp fog, user clip planes, blending/constant-color/scissor/cull state, and fixed transform capture.
-- Sync/fence completion behavior and query-result buffer writes.
-- CAMetalLayer-backed default-surface presentation through `SwapBuffers`, including drawable resize/present.
-
-## Khronos CTS targeted evidence
-
-The VK-GL-CTS executable at
-`/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`
-was run in fresh WoW64 prefixes with the current sidecar. These are targeted
-results, not a full conformance claim:
-
-- `KHR-GL30.texture_repeat_mode.*`: 162/162 pass.
-- `KHR-GL30.texture_lod_basic.*`: 1/1 pass.
-- `KHR-GL30.texture_lod_bias.*`: 1/1 pass.
-- `KHR-GL30.framebuffer_blit.*`: 3/3 pass.
-- `KHR-GL30.info.extensions`: 1/1 pass; the earlier null function-pointer
-  crash was not reproduced.
-- `KHR-GL30.shaders30.*`: 651/651 pass.
-- `KHR-GL30.buffer_objects.*`: 5/5 pass, including the fixed-lighting
-  triangle raster check.
-- `KHR-GL30.transform_feedback.*`: 21/21 pass, including vertex
-  capture/query and rasterizer-discard behavior.
-- `KHR-GL31.api.coverage`: pass; active-uniform and uniform-block reflection
-  plus copy-buffer validation are covered by the GL 3.1 API gate.
-- `KHR-GL31.primitive_restart.restart_mode`: 1/1 pass, including points,
-  lines, line strips/loops, triangle strips/fans, and triangles.
-- `KHR-GL31.texture_size_promotion.functional`: pass, including signed-
-  normalized, array, 3D, multisample, and multisample-array paths.
-- `KHR-GL31.*`: 856/889 pass, with 33 explicitly unsupported cases and no
-  functional failures in the exercised group.
-
-The full Khronos OpenGL 4.6 suite was not run, so this release makes a
-bounded acceptance-matrix claim rather than a full-conformance claim. Features
-outside the tested support boundary remain explicitly unsupported or
-unresolved. The broader `KHR-GL30.*` smoke run reaches 856/879 with zero failures; its
-23 explicitly unsupported cases remain outside the release claim.
-
-Observed markers:
+The ledger is `tests/cts/gl33-failure-ledger.txt` and is executed by
+`scripts/run-gl33-failure-ledger.sh`. It deliberately runs all listed cases in
+one `glcts.exe` invocation and validates every expected QPA result.
 
 ```text
-WINEMETALGL_WOW64_X86_64_OK
-WINEMETALGL_WOW64_I386_OK
-WINEMETALGL_OPENGL32_LOAD_OK
-WINEMETALGL_WGL_CONTEXT_OK
-WINEMETALGL_WGL_MODERN_CONTEXT_OK
-WINEMETALGL_WGL_SWAP_INTERVAL_OK
-WINEMETALGL_WGL_MULTI_CONTEXT_OK
-WINEMETALGL_WGL_CONTEXT_STATE_OK
-WINEMETALGL_WGL_CONTEXT_THREADS_OK
-WINEMETALGL_WGL_SHARE_LISTS_OK
-WINEMETALGL_WGL_SHARED_OBJECTS_OK
-WINEMETALGL_PROGRAM_PIPELINE_OK
-WINEMETALGL_PROGRAM_PIPELINE_DRAW_OK
-WINEMETALGL_INTERFACE_REJECT_OK
-WINEMETALGL_MULTI_DRAW_OK
-WINEMETALGL_MULTI_INDIRECT_OK
-WINEMETALGL_MULTI_ELEMENTS_INDIRECT_OK
-WINEMETALGL_METAL_SURFACE_OK
-WINEMETALGL_DEFAULT_FBO_PRESENT_OK
-WINEMETALGL_RESIZE_PRESENT_OK
-WINEMETALGL_READBACK_OK
-WINEMETALGL_GLSL110_OK
-WINEMETALGL_GLSL120_OK
-WINEMETALGL_GLSL330_OK
-WINEMETALGL_SHADING_LANGUAGE_VERSION_OK
-WINEMETALGL_STATE_QUERY_OK
-WINEMETALGL_ROBUSTNESS_OK
-WINEMETALGL_RASTER_STATE_OK
-WINEMETALGL_CLIP_CONTROL_OK
-WINEMETALGL_GLSL450_OK
-WINEMETALGL_GL33_RESOURCES_OK
-WINEMETALGL_BUFFER_MAP_RANGE_OK
-WINEMETALGL_BUFFER_STORAGE_OK
-WINEMETALGL_BUFFER_POINTER_QUERY_OK
-WINEMETALGL_VERTEX_ATTRIB_QUERY_OK
-WINEMETALGL_MULTI_BIND_VERTEX_BUFFERS_OK
-WINEMETALGL_UNIFORM_ARRAY_REFLECTION_OK
-WINEMETALGL_PBO_READBACK_OK
-WINEMETALGL_UNPACK_ALIGNMENT_OK
-WINEMETALGL_INTERNAL_FORMAT_QUERY_OK
-WINEMETALGL_MIPMAP_OK
-WINEMETALGL_GL33_TEXTURE_OK
-WINEMETALGL_INTEGER_TEXTURE_SAMPLE_OK
-WINEMETALGL_HALF_FLOAT_TEXTURE_SAMPLE_OK
-WINEMETALGL_FLOAT_TEXTURE_SAMPLE_OK
-WINEMETALGL_DEPTH_TEXTURE_SAMPLE_OK
-WINEMETALGL_R32UI_TEXTURE_SAMPLE_OK
-WINEMETALGL_TEXTURE_PACKED_OK
-WINEMETALGL_TEXTURE_USHORT_OK
-WINEMETALGL_TEXTURE_HALF_FLOAT_OK
-WINEMETALGL_TEXTURE_RGBA16F_OK
-WINEMETALGL_TEXTURE_RGBA32F_OK
-WINEMETALGL_TEXTURE_RGBA8UI_OK
-WINEMETALGL_TEXTURE_SRGB_OK
-WINEMETALGL_TEXTURE_RED_OK
-WINEMETALGL_TEXTURE_RG_OK
-WINEMETALGL_TEXTURE_LUMINANCE_OK
-WINEMETALGL_READBACK_PACKED_OK
-WINEMETALGL_READBACK_HALF_FLOAT_OK
-WINEMETALGL_PACK_ALIGNMENT_OK
-WINEMETALGL_TEXTURE_BGRA_OK
-WINEMETALGL_TEXTURE_SAMPLER_PARAMS_OK
-WINEMETALGL_MULTI_BIND_TEXTURES_OK
-WINEMETALGL_TEXTURE_SAMPLER_QUERY_OK
-WINEMETALGL_TEXTURE_SWIZZLE_OK
-WINEMETALGL_COPY_IMAGE_OK
-WINEMETALGL_COPY_TEX_OK
-WINEMETALGL_TEX_STORAGE_OK
-WINEMETALGL_DSA_TEXTURE_OK
-WINEMETALGL_TEXTURE_VIEW_OK
-WINEMETALGL_SAMPLER_ADVANCED_OK
-WINEMETALGL_FBO_OK
-WINEMETALGL_FBO_DEPTH_TEXTURE_OK
-WINEMETALGL_FBO_DEPTH_READBACK_OK
-WINEMETALGL_FBO_DEPTH_TEXTURE_READBACK_OK
-WINEMETALGL_FBO_STENCIL_READBACK_OK
-WINEMETALGL_FBO_STENCIL_TEXTURE_READBACK_OK
-WINEMETALGL_FBO_ARRAY_LAYER_OK
-WINEMETALGL_BLIT_OK
-WINEMETALGL_INVALIDATE_FBO_OK
-WINEMETALGL_RENDERBUFFER_OK
-WINEMETALGL_MULTISAMPLE_OK
-WINEMETALGL_MULTISAMPLE_STORAGE_OK
-WINEMETALGL_SYNC_OK
-WINEMETALGL_QUERY_OK
-WINEMETALGL_QUERY_BUFFER_OK
-WINEMETALGL_TESSELLATION_COMPILE_OK
-WINEMETALGL_TESSELLATION_DRAW_OK
-WINEMETALGL_TESSELLATION_FACTORS_OK
-WINEMETALGL_TESSELLATION_DEFAULT_FACTORS_OK
-WINEMETALGL_TESSELLATION_QUAD_OK
-WINEMETALGL_GEOMETRY_PASSTHROUGH_OK
-WINEMETALGL_GEOMETRY_POINT_PASSTHROUGH_OK
-WINEMETALGL_GEOMETRY_VARYING_PASSTHROUGH_OK
-WINEMETALGL_UBO_OK
-WINEMETALGL_UNIFORM_MATRIX_ARRAY_OK
-WINEMETALGL_UNIFORM_MATRIX_DRAW_OK
-WINEMETALGL_BUFFER_SIZE_OK
-WINEMETALGL_UBO_RANGE_OK
-WINEMETALGL_MULTI_BIND_BUFFERS_OK
-WINEMETALGL_UBO_REFLECTION_OK
-WINEMETALGL_TEXTURE3D_OK
-WINEMETALGL_TEXTURE_ARRAY_OK
-WINEMETALGL_CLEAR_OK
-WINEMETALGL_CLEAR_BUFFER_OK
-WINEMETALGL_INSTANCED_OK
-WINEMETALGL_COMPUTE_OK
-WINEMETALGL_SSBO_REFLECTION_OK
-WINEMETALGL_RESOURCE_REFLECTION_OK
-WINEMETALGL_COMPUTE_RANGE_OK
-WINEMETALGL_COMPUTE_INDIRECT_OK
-WINEMETALGL_IMAGE_OK
-WINEMETALGL_MULTI_BIND_IMAGES_OK
-WINEMETALGL_IMAGE_R32UI_OK
-WINEMETALGL_IMAGE_R32F_OK
-WINEMETALGL_IMAGE_RGBA8UI_OK
-WINEMETALGL_IMAGE_RGBA16F_OK
-WINEMETALGL_TEXTURE_CUBE_OK
-WINEMETALGL_TEXTURE_CUBE_QUERY_OK
-WINEMETALGL_TEXTURE_RECTANGLE_OK
-WINEMETALGL_TEXTURE_1D_OK
-WINEMETALGL_INDIRECT_OK
-WINEMETALGL_INDIRECT_COUNT_OK
-WINEMETALGL_FIXED_OK
-WINEMETALGL_FIXED_LIST_MATRIX_OK
-WINEMETALGL_FIXED_LIGHTING_OK
-WINEMETALGL_FIXED_SPECULAR_OK
-WINEMETALGL_FIXED_FOG_OK
-WINEMETALGL_CLIP_PLANE_OK
-WINEMETALGL_FIXED_POINT_SIZE_OK
-WINEMETALGL_FIXED_LINE_WIDTH_OK
-WINEMETALGL_BLEND_OK
-WINEMETALGL_PER_TARGET_BLEND_OK
-WINEMETALGL_BLEND_CONSTANT_OK
-WINEMETALGL_SCISSOR_OK
-WINEMETALGL_CULL_OK
-WINEMETALGL_TRANSFORM_FIXED_OK
-WINEMETALGL_TRANSFORM_SHADER_OK
-WINEMETALGL_TRANSFORM_SHADER_ELEMENTS_OK
-WINEMETALGL_TRANSFORM_SHADER_RANGE_OK
-WINEMETALGL_TRANSFORM_SHADER_VARYING_OK
-WINEMETALGL_TRANSFORM_SHADER_SEPARATE_OK
-WINEMETALGL_SHADER_BINARY_OK
-WINEMETALGL_SHADER_SPECIALIZE_OK
-WINEMETALGL_PROGRAM_BINARY_OK
-WINEMETALGL_FIXED_TEXTURE_OK
-WINEMETALGL_FIXED_TEXTURE_REPLACE_OK
-WINEMETALGL_FIXED_TEXTURE_ADD_OK
-WINEMETALGL_FIXED_TEXTURE_DECAL_OK
-WINEMETALGL_FIXED_TEXTURE_COMBINE_OK
-WINEMETALGL_FIXED_TEXTURE_SUBTRACT_OK
-WINEMETALGL_FIXED_MULTITEXTURE_OK
-WINEMETALGL_FIXED_TEXGEN_OK
+ledger cases: 108
+Pass:          108
+Fail:            0
+NotSupported:   0
+Missing:        0
 ```
 
-The explicit `WINEMETALGL_METAL_SURFACE_OK`,
-`WINEMETALGL_DEFAULT_FBO_PRESENT_OK`, and `WINEMETALGL_READBACK_OK` markers
-prove the drawable-backed path without requiring verbose Wine logging. The
-native translation probe also reports `WINEMETALGL_NATIVE_TRANSLATION_OK`.
+This is the acceptance result for the previously observed transfer, packed
+pixel, PBO, depth/stencil, framebuffer-blit, shader-array, primitive-restart,
+and readback regressions.
 
-## Scope boundary
+## Targeted Khronos evidence
 
-This release does not claim complete Khronos OpenGL 4.6 conformance. The
-machine-readable support boundary is `docs/api-coverage.json`; geometry,
-general tessellation-control/evaluation semantics, general transform feedback,
-fixed-function lighting/matrices/display lists, image formats beyond the
-validated 2D RGBA8/R32UI/R32F/RGBA16F paths, and the full texture/sampler/FBO
-format matrix remain explicitly unadvertised. Fixed-function texture
-combine/coordinate generation is limited to the validated modes above.
+Using the VK-GL-CTS build at
+`/Volumes/AverySSD/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe`:
+
+| Test selection | Result |
+|---|---|
+| `KHR-GL30.texture_repeat_mode.*` | 162/162 Pass |
+| `KHR-GL30.texture_lod_basic.*` | 1/1 Pass |
+| `KHR-GL30.texture_lod_bias.*` | 1/1 Pass |
+| `KHR-GL30.framebuffer_blit.*` | 3/3 Pass |
+| `KHR-GL30.shaders30.*` | 651/651 Pass |
+| `KHR-GL30.buffer_objects.*` | 5/5 Pass |
+| `KHR-GL30.transform_feedback.*` | 21/21 Pass |
+| `KHR-GL31.*` | 856/889 Pass; 33 explicitly NotSupported |
+| GL 3.3 failure ledger | 108/108 Pass |
+
+The last complete broad `KHR-GL33.*` diagnostic snapshot contained 9,887
+cases: 6,441 Pass, 703 NotSupported, 2,734 Fail, and 9 InternalError. A
+subsequent run was interrupted before the complete result was available.
+Those results are retained for engineering follow-up and are not presented as
+a clean conformance result.
+
+## Implemented feature groups
+
+The validated implementation includes the following declared groups:
+
+- WGL context creation, pixel formats, current-context switching, sharing,
+  swap interval, and CAMetalLayer-backed presentation.
+- GLSL 1.10/1.20 and GLSL 3.30 vertex/fragment translation, with a GLSL 4.50
+  experimental subset.
+- VBO/IBO/VAO, indexed/instanced/base-vertex/indirect/multi-draw paths.
+- Uniforms, uniform arrays, selected uniform blocks, reflection, program
+  binaries, SPIR-V ingestion, and shader specialization.
+- 1D/2D/3D/array/rectangle/cube and selected multisample texture paths;
+  normalized, half-float, integer, depth/stencil, packed, PBO, swizzle,
+  alignment, subimage, copy, and readback handling.
+- Color/depth/stencil FBOs, renderbuffers, array layers, clear/readback,
+  completeness, blit/resolve, invalidate, and multisample paths.
+- Selected compute/SSBO/image-store, transform-feedback, tessellation,
+  geometry pass-through, fixed-function, query, and synchronization paths.
+
+## Explicit boundary
+
+The release does not claim complete Khronos OpenGL 4.6 conformance. Geometry
+shader semantics, full tessellation-control/evaluation semantics, full
+transform feedback, the complete texture/sampler/FBO format matrix, all image
+formats, vendor extensions, and unresolved GL 3.3 CTS groups remain outside
+the claim. The sidecar intentionally preserves accurate unsupported behavior.

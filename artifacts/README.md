@@ -1,4 +1,4 @@
-# WineMetalGL 1.8.0 staged artifacts
+# WineMetalGL staged artifacts
 
 These artifacts are ABI-coupled to the WineForge/Wine 11.17 build used by the
 release probes. They target only x86_64 macOS 15 hosts and x86_64/i386 Windows
@@ -10,6 +10,7 @@ guests in one WoW64 prefix.
 - `guest/x86_64/opengl32.dll`: x86_64 guest OpenGL client.
 - `guest/i386/opengl32.dll`: i386 guest OpenGL client.
 
-Use `scripts/stage-wine.sh` for a fresh Wine build instead of mixing these
-files with an unrelated runtime. These files are inspection/reproduction
+See `../docs/conformance.md` for the feature-level coverage and validation
+boundary. Use `scripts/stage-wine.sh` for a fresh Wine build instead of mixing
+these files with an unrelated runtime. These files are inspection/reproduction
 artifacts; no installed application runtime is modified by this repository.

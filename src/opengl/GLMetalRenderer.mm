@@ -231,7 +231,38 @@ bool GLMetalRenderer::createPipeline(const GLShaderState& vertexShader, const GL
     // Match the Metal render-target format. The OpenGL R32F renderbuffer
     // path is used by clip-distance coverage and scalar readback tests.
     const bool normalized16 = colorFormat == 0x822A || colorFormat == 0x822C || colorFormat == 0x8054 || colorFormat == 0x805B || colorFormat == 0x8F98 || colorFormat == 0x8F99 || colorFormat == 0x8F9A || colorFormat == 0x8F9B;
-    desc.colorAttachments[0].pixelFormat = colorFormat == 0x822E ? MTLPixelFormatR32Float : normalized16 ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm;
+    MTLPixelFormat renderFormat = MTLPixelFormatBGRA8Unorm;
+    if (colorFormat == 0x822E) renderFormat = MTLPixelFormatR32Float;
+    else if (normalized16) renderFormat = MTLPixelFormatRGBA16Float;
+    else switch (colorFormat) {
+    case 0x8229: renderFormat = MTLPixelFormatR8Unorm; break;
+    case 0x8F94: renderFormat = MTLPixelFormatR8Snorm; break;
+    case 0x8231: renderFormat = MTLPixelFormatR8Sint; break;
+    case 0x8232: renderFormat = MTLPixelFormatR8Uint; break;
+    case 0x822B: renderFormat = MTLPixelFormatRG8Unorm; break;
+    case 0x8F95: renderFormat = MTLPixelFormatRG8Snorm; break;
+    case 0x8237: renderFormat = MTLPixelFormatRG8Sint; break;
+    case 0x8238: renderFormat = MTLPixelFormatRG8Uint; break;
+    case 0x8233: renderFormat = MTLPixelFormatR16Sint; break;
+    case 0x8234: renderFormat = MTLPixelFormatR16Uint; break;
+    case 0x8235: renderFormat = MTLPixelFormatR32Sint; break;
+    case 0x8236: renderFormat = MTLPixelFormatR32Uint; break;
+    case 0x8239: renderFormat = MTLPixelFormatRG16Sint; break;
+    case 0x823A: renderFormat = MTLPixelFormatRG16Uint; break;
+    case 0x823B: renderFormat = MTLPixelFormatRG32Sint; break;
+    case 0x823C: renderFormat = MTLPixelFormatRG32Uint; break;
+    case 0x8D7C: renderFormat = MTLPixelFormatRGBA8Uint; break;
+    case 0x8D8E: renderFormat = MTLPixelFormatRGBA8Sint; break;
+    case 0x8D76: renderFormat = MTLPixelFormatRGBA16Uint; break;
+    case 0x8D88: renderFormat = MTLPixelFormatRGBA16Sint; break;
+    case 0x8D70: renderFormat = MTLPixelFormatRGBA32Uint; break;
+    case 0x8D82: renderFormat = MTLPixelFormatRGBA32Sint; break;
+    case 0x8814: renderFormat = MTLPixelFormatRGBA32Float; break;
+    case 0x8059: renderFormat = MTLPixelFormatRGB10A2Unorm; break;
+    case 0x906F: renderFormat = MTLPixelFormatRGB10A2Uint; break;
+    default: break;
+    }
+    desc.colorAttachments[0].pixelFormat = renderFormat;
     // Blend state from GL state. Unsupported factors fall back to the
     // conservative GL default (one, zero) rather than silently selecting a
     // different blend equation.
@@ -1315,7 +1346,7 @@ uint64_t GLMetalRenderer::createTexture3DFormat(uint32_t width, uint32_t height,
     const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;const MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:MTLPixelFormatBGRA8Unorm;const size_t bpp=normalized16?8:4;
     MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init]; descriptor.textureType = MTLTextureType3D; descriptor.pixelFormat = format; descriptor.width = width; descriptor.height = height; descriptor.depth = depth; descriptor.mipmapLevelCount = 1; descriptor.arrayLength = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
     id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor]; if (!texture) return 0;
-    if (data) { const size_t bytes=static_cast<size_t>(width)*height*depth*bpp;std::vector<uint8_t> upload(bytes);if(normalized16)std::memcpy(upload.data(),data,bytes);else for(size_t i=0;i<bytes;i+=4){upload[i]=static_cast<const uint8_t*>(data)[i+2];upload[i+1]=static_cast<const uint8_t*>(data)[i+1];upload[i+2]=static_cast<const uint8_t*>(data)[i];upload[i+3]=static_cast<const uint8_t*>(data)[i+3];}MTLRegion region=MTLRegionMake3D(0,0,0,width,height,depth);[texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:upload.data() bytesPerRow:width*bpp bytesPerImage:static_cast<size_t>(width)*height*bpp];}
+    if (data) { const size_t bytes=static_cast<size_t>(width)*height*depth*bpp;std::vector<uint8_t> upload(bytes);std::memcpy(upload.data(),data,bytes);MTLRegion region=MTLRegionMake3D(0,0,0,width,height,depth);[texture replaceRegion:region mipmapLevel:0 slice:0 withBytes:upload.data() bytesPerRow:width*bpp bytesPerImage:static_cast<size_t>(width)*height*bpp];}
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
 
@@ -1335,7 +1366,7 @@ uint64_t GLMetalRenderer::createTexture2DArrayFormat(uint32_t width, uint32_t he
     const bool normalized16=glInternalFormat==0x822A||glInternalFormat==0x822C||glInternalFormat==0x8054||glInternalFormat==0x805B||glInternalFormat==0x8F98||glInternalFormat==0x8F99||glInternalFormat==0x8F9A||glInternalFormat==0x8F9B;const MTLPixelFormat format=normalized16?MTLPixelFormatRGBA16Float:MTLPixelFormatBGRA8Unorm;const size_t bpp=normalized16?8:4;
     MTLTextureDescriptor* descriptor = [[MTLTextureDescriptor alloc] init]; descriptor.textureType = MTLTextureType2DArray; descriptor.pixelFormat = format; descriptor.width = width; descriptor.height = height; descriptor.depth = 1; descriptor.arrayLength = layers; descriptor.mipmapLevelCount = 1; descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite | MTLTextureUsageRenderTarget;
     id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor]; if (!texture) return 0;
-    if (data) { const size_t layerBytes=static_cast<size_t>(width)*height*bpp; std::vector<uint8_t> upload(layerBytes*layers); if(normalized16)std::memcpy(upload.data(),data,upload.size());else for(size_t i=0;i<upload.size();i+=4){upload[i]=static_cast<const uint8_t*>(data)[i+2];upload[i+1]=static_cast<const uint8_t*>(data)[i+1];upload[i+2]=static_cast<const uint8_t*>(data)[i];upload[i+3]=static_cast<const uint8_t*>(data)[i+3];} MTLRegion region=MTLRegionMake2D(0,0,width,height);for(uint32_t layer=0;layer<layers;++layer)[texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:upload.data()+static_cast<size_t>(layer)*layerBytes bytesPerRow:width*bpp bytesPerImage:layerBytes]; }
+    if (data) { const size_t layerBytes=static_cast<size_t>(width)*height*bpp; std::vector<uint8_t> upload(layerBytes*layers); std::memcpy(upload.data(),data,upload.size()); MTLRegion region=MTLRegionMake2D(0,0,width,height);for(uint32_t layer=0;layer<layers;++layer)[texture replaceRegion:region mipmapLevel:0 slice:layer withBytes:upload.data()+static_cast<size_t>(layer)*layerBytes bytesPerRow:width*bpp bytesPerImage:layerBytes]; }
     std::lock_guard<std::mutex> lock(m_impl->mutex);uint64_t handle=m_impl->nextTextureHandle++;m_impl->textures[handle]=texture;return handle;
 }
 

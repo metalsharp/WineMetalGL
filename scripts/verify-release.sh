@@ -17,6 +17,7 @@ for path in \
     "$stage/artifacts/wine-driver/win32u.so" \
     "$stage/artifacts/wine-driver/opengl32.so" \
     "$stage/api-coverage.json" \
+    "$stage/docs/conformance.md" \
     "$stage/SHA256SUMS"; do
     test -f "$path" || { printf 'missing staged artifact: %s\n' "$path" >&2; exit 1; }
 done
@@ -42,7 +43,7 @@ python3 -m json.tool "$stage/api-coverage.json" >/dev/null
     shasum -a 256 -c SHA256SUMS >/dev/null
 )
 
-if grep -R -i -n 'VKMT' "$stage/README.md" "$stage/api-coverage.json" "$stage/RESULTS.md" 2>/dev/null; then
+if grep -R -i -n 'VKMT' "$stage/README.md" "$stage/api-coverage.json" "$stage/RESULTS.md" "$stage/docs/conformance.md" 2>/dev/null; then
     printf '%s\n' 'staged standalone metadata contains VKMT-specific naming' >&2
     exit 1
 fi

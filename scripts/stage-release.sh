@@ -30,7 +30,7 @@ if test -e "$output"; then
     exit 1
 fi
 mkdir -p "$output/artifacts/guest/i386" "$output/artifacts/guest/x86_64" \
-    "$output/artifacts/host-x86_64" "$output/artifacts/wine-driver"
+    "$output/artifacts/host-x86_64" "$output/artifacts/wine-driver" "$output/docs"
 
 cp "$source_library" "$output/artifacts/host-x86_64/metalsharp-opengl.dylib"
 cp "$wine_build/dlls/opengl32/i386-windows/opengl32.dll" "$output/artifacts/guest/i386/opengl32.dll"
@@ -41,6 +41,7 @@ cp "$wine_build/dlls/win32u/win32u.so" "$output/artifacts/wine-driver/win32u.so"
 cp "$project_root/README.md" "$output/README.md"
 cp "$project_root/docs/api-coverage.json" "$output/api-coverage.json"
 cp "$project_root/docs/validation/RESULTS.md" "$output/RESULTS.md"
+cp "$project_root/docs/conformance.md" "$output/docs/conformance.md"
 
 printf 'WineMetalGL candidate staged from %s\nWine source/build: %s\nCommit: %s\n' \
     "$project_root" "$wine_build" "$(git -C "$project_root" rev-parse HEAD)" > "$output/STAGED-FROM.txt"
