@@ -197,20 +197,6 @@ General geometry-shader semantics, the full multisample format matrix, and all
 - Explicit lifetime release for tracked Metal buffers and textures on GL
   deletion.
 
-### Validation
-
-The exact 108-case failure ledger is the focused regression suite and currently
-passes **108/108 in one invocation**. It is not the entirety of the GL 3.3
-work: the full VK-GL-CTS GL 3.3 tree exercised thousands of additional shader,
-resource, texture, framebuffer, and API cases. The ledger covers the previously
-observed transfer, packed pixel, PBO, depth/stencil, framebuffer-blit,
-shader-array, primitive-restart, and readback failures.
-
-A complete `KHR-GL33.*` run was started in a fresh WoW64 prefix. It has not yet
-been accepted as a clean conformance run; the recorded complete diagnostic
-snapshot is summarized above. Therefore this release does not claim complete
-GL 3.3 Khronos conformance despite the passing focused ledger.
-
 ### Boundary
 
 General format/target combinations, complete texture swizzle coverage,
