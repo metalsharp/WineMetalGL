@@ -33,5 +33,24 @@ CTS process does fail it.
 - `shader-indexing.txt`: the GL 3.3 shader-indexing group.
 - `shader-constructors.txt`: the GL 3.3 GLSL constructor group.
 
-The 108-case file `../gl33-failure-ledger.txt` remains the combined regression
-gate. It is intentionally separate from the smaller edit-test shards.
+The captured full-sweep failures are split into three mini-suites for focused
+iteration:
+
+- `failures-packed-depth.txt`: 10 packed depth rectangle cases.
+- `failures-packed-snorm.txt`: 22 SNORM varied-rectangle readback cases.
+- `failures-struct-samplers.txt`: 6 uniform-struct sampler image cases.
+
+Run one failure suite at a time, for example:
+
+```sh
+./scripts/run-gl33-shard.sh \
+  /path/to/wine-install \
+  /path/to/VK-GL-CTS/build-win64/external/openglcts/modules/glcts.exe \
+  tests/cts/gl33-shards/failures-packed-snorm.txt \
+  /tmp/gl33-packed-snorm.qpa
+```
+
+These files are a snapshot of the latest full-sweep failure set and should be
+updated when a new full sweep changes the categorized failures. The 108-case
+file `../gl33-failure-ledger.txt` remains the combined regression gate. It is
+intentionally separate from the smaller edit-test shards.

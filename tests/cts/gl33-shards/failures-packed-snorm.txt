@@ -1,0 +1,23 @@
+# Captured full-sweep failure suite: SNORM varied-rectangle readbacks (22 cases)
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_bgr
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_bgra
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_blue
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_green
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_red
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_rg
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_rgb
+KHR-GL33.packed_pixels.varied_rectangle.r16_snorm_format_rgba
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_bgr
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_bgra
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_blue
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_green
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_red
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_rg
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_rgb
+KHR-GL33.packed_pixels.varied_rectangle.r8_snorm_format_rgba
+KHR-GL33.packed_pixels.varied_rectangle.rg16_snorm_format_rg
+KHR-GL33.packed_pixels.varied_rectangle.rg8_snorm_format_rg
+KHR-GL33.packed_pixels.varied_rectangle.rgb16_snorm_format_rgb
+KHR-GL33.packed_pixels.varied_rectangle.rgb8_snorm_format_rgb
+KHR-GL33.packed_pixels.varied_rectangle.rgba16_snorm_format_rgba
+KHR-GL33.packed_pixels.varied_rectangle.rgba8_snorm_format_rgba

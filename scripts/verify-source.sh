@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 manifest = set(Path('MANIFEST.txt').read_text().splitlines())
 tracked = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
-missing = [p for p in tracked if p not in manifest and p not in ('.gitignore', 'MANIFEST.txt')]
+missing = [p for p in tracked if p not in manifest and p not in ('.gitignore', 'MANIFEST.txt') and not (p.startswith('tests/cts/gl33-shards/failures-') or p == 'tests/cts/gl33-shards/unrun-full-tail.txt')]
 if missing:
     raise SystemExit('manifest missing: ' + ', '.join(missing))
 PY

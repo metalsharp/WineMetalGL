@@ -1,0 +1,11 @@
+# Captured full-sweep failure suite: packed depth rectangle uploads (10 cases)
+KHR-GL33.packed_pixels.rectangle.depth_component16_format_depth_component
+KHR-GL33.packed_pixels.rectangle.depth_component24_format_depth_component
+KHR-GL33.packed_pixels.rectangle.depth_component32_format_depth_component
+KHR-GL33.packed_pixels.rectangle.depth_component32f_format_depth_component
+KHR-GL33.packed_pixels.rectangle.depth_component_format_depth_component
+KHR-GL33.packed_pixels.varied_rectangle.depth_component16_format_depth_component
+KHR-GL33.packed_pixels.varied_rectangle.depth_component24_format_depth_component
+KHR-GL33.packed_pixels.varied_rectangle.depth_component32_format_depth_component
+KHR-GL33.packed_pixels.varied_rectangle.depth_component32f_format_depth_component
+KHR-GL33.packed_pixels.varied_rectangle.depth_component_format_depth_component

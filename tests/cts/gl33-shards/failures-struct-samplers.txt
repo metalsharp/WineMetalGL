@@ -1,0 +1,7 @@
+# Captured full-sweep failure suite: uniform-struct sampler image checks (6 cases)
+KHR-GL33.shaders.struct.uniform.sampler_array_fragment
+KHR-GL33.shaders.struct.uniform.sampler_array_vertex
+KHR-GL33.shaders.struct.uniform.sampler_fragment
+KHR-GL33.shaders.struct.uniform.sampler_nested_fragment
+KHR-GL33.shaders.struct.uniform.sampler_nested_vertex
+KHR-GL33.shaders.struct.uniform.sampler_vertex

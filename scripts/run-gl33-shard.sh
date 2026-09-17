@@ -58,9 +58,9 @@ counts = collections.Counter(results.values())
 print("shard_cases=%d pass=%d fail=%d not_supported=%d internal_error=%d" % (
     len(results), counts["Pass"], counts["Fail"], counts["NotSupported"], counts["InternalError"]))
 if not results or counts["Fail"] or counts["InternalError"]:
-    for case, status in sorted(results.items()):
-        if status not in ("Pass", "NotSupported"):
-            print("not_passed=%s [%s]" % (case, status))
+    failures = [(case, status) for case, status in sorted(results.items()) if status not in ("Pass", "NotSupported")]
+    for case, status in failures[:20]: print("not_passed=%s [%s]" % (case, status))
+    if len(failures) > 20: print("not_passed_remaining=%d" % (len(failures) - 20))
     raise SystemExit(1)
 PY
 validation_status=$?
