@@ -10,9 +10,11 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 wine_build=$1
 output=$2
 source_library="$project_root/build/release/metalsharp-opengl.dylib"
+config_file="$project_root/config/winemetalgl.conf"
 
 for path in \
     "$source_library" \
+    "$config_file" \
     "$wine_build/dlls/opengl32/i386-windows/opengl32.dll" \
     "$wine_build/dlls/opengl32/x86_64-windows/opengl32.dll" \
     "$wine_build/dlls/opengl32/opengl32.so" \
@@ -37,6 +39,7 @@ cp "$wine_build/dlls/opengl32/i386-windows/opengl32.dll" "$output/artifacts/gues
 cp "$wine_build/dlls/opengl32/x86_64-windows/opengl32.dll" "$output/artifacts/guest/x86_64/opengl32.dll"
 cp "$wine_build/dlls/opengl32/opengl32.so" "$output/artifacts/wine-driver/opengl32.so"
 cp "$wine_build/dlls/winemac.drv/winemac.so" "$output/artifacts/wine-driver/winemac.so"
+cp "$config_file" "$output/artifacts/wine-driver/winemetalgl.conf"
 cp "$wine_build/dlls/win32u/win32u.so" "$output/artifacts/wine-driver/win32u.so"
 cp "$project_root/README.md" "$output/README.md"
 cp "$project_root/docs/api-coverage.json" "$output/api-coverage.json"

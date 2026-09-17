@@ -1,0 +1,202 @@
+diff --git a/dlls/opengl32/wgl.c b/dlls/opengl32/wgl.c
+index 9d5287f..564bd84 100644
+--- a/dlls/opengl32/wgl.c
++++ b/dlls/opengl32/wgl.c
+@@ -21,6 +21,7 @@
+ #include <assert.h>
+ #include <stdarg.h>
+ #include <stdlib.h>
++#include <stdio.h>
+ #include <math.h>
+ 
+ #include "ntstatus.h"
+@@ -43,6 +44,28 @@ WINE_DECLARE_DEBUG_CHANNEL(fps);
+ 
+ static const MAT2 identity = { {0,1},{0,0},{0,0},{0,1} };
+ 
++static void winemetalgl_max_feature_level(unsigned int *major, unsigned int *minor)
++{
++    const char *value = getenv("WINEMETALGL_MAX_FEATURE_LEVEL");
++    unsigned int parsed_major, parsed_minor;
++
++    *major = 3;
++    *minor = 3;
++    if (value && sscanf(value, "%u.%u", &parsed_major, &parsed_minor) == 2)
++    {
++        *major = parsed_major;
++        *minor = parsed_minor;
++    }
++}
++
++static BOOL winemetalgl_feature_level_allowed(unsigned int major, unsigned int minor)
++{
++    unsigned int max_major, max_minor;
++
++    winemetalgl_max_feature_level(&max_major, &max_minor);
++    return major < max_major || (major == max_major && minor <= max_minor);
++}
++
+ #define WINE_GL_RESERVED_FORMATS_HDC      2
+ #define WINE_GL_RESERVED_FORMATS_PTR      3
+ #define WINE_GL_RESERVED_FORMATS_NUM      4
+@@ -2252,14 +2275,15 @@ int WINAPI wglGetLayerPaletteEntries( HDC hdc, int plane, int start, int count,
+ PROC WINAPI wglGetProcAddress( LPCSTR name )
+ {
+     const struct registry_entry *func;
+-    /* dEQP uses the historical name for the array multisample allocation
+-     * entry point; Wine's generated table exposes the core storage spelling. */
+-    if (!strcmp(name, "glTexImage3DMultisample")) name = "glTexStorage3DMultisample";
+     const enum opengl_extension *ext;
+     struct context *ctx;
+ 
+     if (!(ctx = get_current_context())) return NULL;
+ 
++    /* dEQP uses the historical name for the array multisample allocation
++     * entry point; Wine's generated table exposes the core storage spelling. */
++    if (!strcmp(name, "glTexImage3DMultisample")) name = "glTexStorage3DMultisample";
++
+     if (!(func = get_function_entry( name )))
+     {
+         WARN( "Function %s unknown\n", name );
+@@ -2274,7 +2298,7 @@ PROC WINAPI wglGetProcAddress( LPCSTR name )
+     }
+ 
+     if (func->major && getenv("WINEMETALGL_EXPERIMENTAL") && !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1") &&
+-        func->major >= 3)
++        func->major >= 3 && winemetalgl_feature_level_allowed(func->major, func->minor))
+         return func->func;
+ 
+     if (func->major && (ctx->base.major_version > func->major
+diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+index 514d56e..eafe13a 100644
+--- a/dlls/winemac.drv/opengl.c
++++ b/dlls/winemac.drv/opengl.c
+@@ -39,7 +39,10 @@
+ #include <OpenGL/OpenGL.h>
+ #include <OpenGL/glu.h>
+ #include <OpenGL/CGLRenderers.h>
++#include <ctype.h>
+ #include <dlfcn.h>
++#include <limits.h>
++#include <stdio.h>
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wgl);
+ 
+@@ -53,6 +56,27 @@ struct gl_info {
+ 
+ static struct gl_info gl_info;
+ 
++static void winemetalgl_max_feature_level(unsigned int *major, unsigned int *minor)
++{
++    const char *value = getenv("WINEMETALGL_MAX_FEATURE_LEVEL");
++    unsigned int parsed_major, parsed_minor;
++
++    *major = 3;
++    *minor = 3;
++    if (value && sscanf(value, "%u.%u", &parsed_major, &parsed_minor) == 2)
++    {
++        *major = parsed_major;
++        *minor = parsed_minor;
++    }
++}
++
++static BOOL winemetalgl_feature_level_allowed(unsigned int major, unsigned int minor)
++{
++    unsigned int max_major, max_minor;
++
++    winemetalgl_max_feature_level(&max_major, &max_minor);
++    return major < max_major || (major == max_major && minor <= max_minor);
++}
+ 
+ struct macdrv_context
+ {
+@@ -106,6 +130,68 @@ static int (*pmetalsharp_is_drawable_backed)(void);
+ static void (*pmetalsharp_set_current_context)(void *context);
+ static void (*pmetalsharp_set_swap_interval)(int interval);
+ 
++static char *trim_winemetalgl_config(char *value)
++{
++    char *end;
++
++    while (*value && isspace((unsigned char)*value)) value++;
++    end = value + strlen(value);
++    while (end > value && isspace((unsigned char)end[-1])) *--end = 0;
++    return value;
++}
++
++static void set_winemetalgl_config_default(const char *name, const char *value)
++{
++    if (!getenv(name)) setenv(name, value, 1);
++}
++
++static void load_winemetalgl_config(void)
++{
++    const char *override = getenv("WINEMETALGL_CONFIG_FILE");
++    char path[PATH_MAX], line[512];
++    FILE *file = NULL;
++
++    if (override && override[0]) file = fopen(override, "r");
++    else
++    {
++        Dl_info info;
++        char *slash;
++
++        if (dladdr((void *)load_winemetalgl_config, &info) && info.dli_fname &&
++            strlen(info.dli_fname) < sizeof(path))
++        {
++            strcpy(path, info.dli_fname);
++            slash = strrchr(path, '/');
++            if (slash)
++            {
++                slash[1] = 0;
++                strncat(path, "winemetalgl.conf", sizeof(path) - strlen(path) - 1);
++                file = fopen(path, "r");
++            }
++        }
++    }
++
++    if (!file) return;
++    while (fgets(line, sizeof(line), file))
++    {
++        char *key, *value, *equals, *comment;
++
++        if ((comment = strchr(line, '#'))) *comment = 0;
++        key = trim_winemetalgl_config(line);
++        if (!*key || !(equals = strchr(key, '='))) continue;
++        *equals = 0;
++        key = trim_winemetalgl_config(key);
++        value = trim_winemetalgl_config(equals + 1);
++        if (!strcmp(key, "winemetalgl.enabled")) set_winemetalgl_config_default("WINEMETALGL", value);
++        else if (!strcmp(key, "winemetalgl.experimental"))
++            set_winemetalgl_config_default("WINEMETALGL_EXPERIMENTAL", value);
++        else if (!strcmp(key, "winemetalgl.maxFeatureLevel"))
++            set_winemetalgl_config_default("WINEMETALGL_MAX_FEATURE_LEVEL", value);
++    }
++    fclose(file);
++    TRACE("loaded WineMetalGL config %s\n", override && override[0] ? debugstr_a(override) : "next to winemac.so");
++}
++
+ static void update_metal_surface(struct macdrv_context *context)
+ {
+     if (!pmetalsharp_set_metal_layer) return;
+@@ -2196,6 +2282,12 @@ static BOOL macdrv_context_create(int format, void *share, const int *attrib_lis
+     }
+ 
+     const BOOL metalsharp_experimental = getenv("WINEMETALGL_EXPERIMENTAL") && !strcmp(getenv("WINEMETALGL_EXPERIMENTAL"), "1");
++    if (metalsharp_experimental && major >= 3 && !winemetalgl_feature_level_allowed(major, minor))
++    {
++        WARN("WineMetalGL max feature level rejects %u.%u\n", major, minor);
++        RtlSetLastWin32Error(ERROR_INVALID_VERSION_ARB);
++        return FALSE;
++    }
+     if (!metalsharp_experimental && (major > gl_info.max_major || (major == gl_info.max_major && minor > gl_info.max_minor)))
+     {
+         WARN("Profile version %u.%u not supported\n", major, minor);
+@@ -2617,6 +2709,7 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+ {
+     const char *metalsharp;
+ 
++    load_winemetalgl_config();
+     TRACE("()\n");
+ 
+     if (version != WINE_OPENGL_DRIVER_VERSION)

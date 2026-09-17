@@ -51,11 +51,21 @@ specific Wine distribution or application runtime. It must contain only one arch
 ./scripts/stage-release.sh /path/to/wine-build /path/to/output
 ```
 
-Enable the Metal-owned path with:
+The Wine integration bundles `artifacts/wine-driver/winemetalgl.conf` next to
+`winemac.so`. It enables the experimental WineMetalGL path by default and caps
+reported/requested OpenGL support at 3.3:
 
-```sh
-WINEMETALGL=1 WINEMETALGL_EXPERIMENTAL=1
+```ini
+winemetalgl.enabled = 1
+winemetalgl.experimental = 1
+winemetalgl.maxFeatureLevel = 3.3
 ```
+
+Set `WINEMETALGL_CONFIG_FILE` to override the bundled configuration. Explicit
+`WINEMETALGL`, `WINEMETALGL_EXPERIMENTAL`, and
+`WINEMETALGL_MAX_FEATURE_LEVEL` environment variables take precedence. For the
+bounded GL 4.0 API-coverage run, the runner explicitly raises the max level to
+4.0; the default remains 3.3.
 
 The WoW64 probe is run against any compatible Wine installation:
 

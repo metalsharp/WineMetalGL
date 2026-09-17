@@ -16,6 +16,7 @@ for path in \
     "$stage/artifacts/wine-driver/winemac.so" \
     "$stage/artifacts/wine-driver/win32u.so" \
     "$stage/artifacts/wine-driver/opengl32.so" \
+    "$stage/artifacts/wine-driver/winemetalgl.conf" \
     "$stage/api-coverage.json" \
     "$stage/docs/conformance.md" \
     "$stage/SHA256SUMS"; do

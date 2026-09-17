@@ -3,6 +3,7 @@
 .github/workflows/gl33-conformance.yml
 CMakeLists.txt
 CMakePresets.json
+config/winemetalgl.conf
 DEPENDENCIES.md
 LICENSE
 LICENSES/SPIRV-Cross-Apache-2.0.txt
@@ -16,6 +17,7 @@ artifacts/guest/i386/opengl32.dll
 artifacts/guest/x86_64/opengl32.dll
 artifacts/host-x86_64/metalsharp-opengl.dylib
 artifacts/wine-driver/opengl32.so
+artifacts/wine-driver/winemetalgl.conf
 artifacts/wine-driver/win32u.so
 artifacts/wine-driver/winemac.so
 docs/api-coverage.json
@@ -34,6 +36,7 @@ include/metalsharp/ShaderStage.h
 include/metalsharp/WGLContextManager.h
 patches/wine/README.md
 patches/wine/wine-11.17/0001-winemetalgl-metal-surface-and-extension-parser.patch
+patches/wine/wine-11.17/0002-winemetalgl-default-config-and-feature-cap.patch
 scripts/build.sh
 scripts/probe-native.sh
 scripts/run-gl33-case.sh

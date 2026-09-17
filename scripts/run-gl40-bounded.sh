@@ -26,7 +26,7 @@ trap 'rm -rf "$prefix" 2>/dev/null || true' EXIT INT TERM HUP
 cts_dir=$(CDPATH= cd -- "$(dirname -- "$cts")" && pwd)
 host_lib_dir=${WINEMETALGL_HOST_LIB_DIR:-$runtime/lib}
 export WINEPREFIX="$prefix" WINEARCH=wow64 WINEMETALGL=1
-export WINEMETALGL_EXPERIMENTAL=1 WINEMETALGL_GL40_COVERAGE=1
+export WINEMETALGL_EXPERIMENTAL=1 WINEMETALGL_MAX_FEATURE_LEVEL=4.0 WINEMETALGL_GL40_COVERAGE=1
 export WINEDEBUG="${WINEDEBUG:--all}"
 export PATH="$runtime/bin:$PATH"
 export DYLD_LIBRARY_PATH="$host_lib_dir${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
