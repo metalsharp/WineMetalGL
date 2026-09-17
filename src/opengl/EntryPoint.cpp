@@ -4912,18 +4912,42 @@ static const char* const g_experimentalExtensions[] = {
     "GL_ARB_shader_objects", "GL_ARB_vertex_shader", "GL_ARB_fragment_shader",
     "GL_ARB_multitexture", "GL_ARB_texture_storage", "GL_ARB_texture_multisample", "GL_ARB_texture_storage_multisample", "METALSHARP_opengl_bridge"
 };
+static const char* const g_boundedGL40Extensions[] = {
+    /* These extension gates are needed for the GL 4.0 API coverage loader.
+     * Keep them opt-in so the GL 3.1-3.3 evidence does not claim additional
+     * extension coverage. */
+    "GL_ARB_separate_shader_objects", "GL_EXT_direct_state_access"
+};
 static constexpr size_t g_experimentalExtensionCount = sizeof(g_experimentalExtensions) / sizeof(g_experimentalExtensions[0]);
+static constexpr size_t g_boundedGL40ExtensionCount = sizeof(g_boundedGL40Extensions) / sizeof(g_boundedGL40Extensions[0]);
+static bool boundedGL40CoverageEnabled() {
+    const char* value = std::getenv("WINEMETALGL_GL40_COVERAGE");
+    return value && std::strcmp(value, "1") == 0;
+}
+static size_t reportedExperimentalExtensionCount() {
+    return g_experimentalExtensionCount + (boundedGL40CoverageEnabled() ? g_boundedGL40ExtensionCount : 0);
+}
+static const char* reportedExperimentalExtension(size_t index) {
+    if (index < g_experimentalExtensionCount) return g_experimentalExtensions[index];
+    index -= g_experimentalExtensionCount;
+    return index < g_boundedGL40ExtensionCount ? g_boundedGL40Extensions[index] : "";
+}
 extern "C" const uint8_t* glGetString_EXTENSIONS_override(uint32_t name) {
     if (name != 0x1F03) return nullptr;
-    static const char kExts[] = "GL_ARB_vertex_buffer_object GL_ARB_framebuffer_object GL_EXT_framebuffer_object GL_ARB_shader_objects GL_ARB_vertex_shader GL_ARB_fragment_shader GL_ARB_multitexture GL_ARB_texture_storage GL_ARB_texture_multisample GL_ARB_texture_storage_multisample METALSHARP_opengl_bridge";
-    return reinterpret_cast<const uint8_t*>(kExts);
+    if (!boundedGL40CoverageEnabled()) {
+        static const char kExts[] = "GL_ARB_vertex_buffer_object GL_ARB_framebuffer_object GL_EXT_framebuffer_object GL_ARB_shader_objects GL_ARB_vertex_shader GL_ARB_fragment_shader GL_ARB_multitexture GL_ARB_texture_storage GL_ARB_texture_multisample GL_ARB_texture_storage_multisample METALSHARP_opengl_bridge";
+        return reinterpret_cast<const uint8_t*>(kExts);
+    }
+    static const char kBoundedGL40Exts[] = "GL_ARB_vertex_buffer_object GL_ARB_framebuffer_object GL_EXT_framebuffer_object GL_ARB_shader_objects GL_ARB_vertex_shader GL_ARB_fragment_shader GL_ARB_multitexture GL_ARB_texture_storage GL_ARB_texture_multisample GL_ARB_texture_storage_multisample METALSHARP_opengl_bridge GL_ARB_separate_shader_objects GL_EXT_direct_state_access";
+    return reinterpret_cast<const uint8_t*>(kBoundedGL40Exts);
 }
 
 GL_PASSTHROUGH1(unsigned char, glIsEnabled, uint32_t, cap)
 
 // glGetStringi is hand-written following the glGetString pattern.
 extern "C" const uint8_t* glGetStringi(uint32_t name, uint32_t index) {
-    if (name == 0x1F03 && index < g_experimentalExtensionCount) return reinterpret_cast<const uint8_t*>(g_experimentalExtensions[index]);
+    if (name == 0x1F03 && index < reportedExperimentalExtensionCount())
+        return reinterpret_cast<const uint8_t*>(reportedExperimentalExtension(index));
     ensureGLInit(); auto fn = reinterpret_cast<const uint8_t* (*)(uint32_t, uint32_t)>(g_glBridge.getGLProcAddress("glGetStringi"));
     return fn ? fn(name,index) : reinterpret_cast<const uint8_t*>("");
 }
@@ -6455,7 +6479,7 @@ extern "C" void glGetIntegerv(uint32_t pname, int32_t* params) {
         switch (pname) {
         case 0x821B: *params=3; return; /* GL_MAJOR_VERSION */
         case 0x821C: *params=3; return; /* GL_MINOR_VERSION */
-        case 0x821D: *params=static_cast<int32_t>(g_experimentalExtensionCount); return; /* GL_NUM_EXTENSIONS */
+        case 0x821D: *params=static_cast<int32_t>(reportedExperimentalExtensionCount()); return; /* GL_NUM_EXTENSIONS */
         case 0x8869: *params=16; return; /* GL_MAX_VERTEX_ATTRIBS */
         case 0x8872: case 0x8B4D: *params=16; return; /* texture units */
         case 0x8A2F: case 0x90DD: *params=16; return; /* UBO/SSBO bindings */

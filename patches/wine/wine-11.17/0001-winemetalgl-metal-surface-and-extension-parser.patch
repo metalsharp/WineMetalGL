@@ -334,7 +334,7 @@ index 696734f..0baa9eb 100644
  
      return TRUE;
  }
-@@ -2511,6 +2589,13 @@ static BOOL macdrv_pbuffer_updated(HDC hdc, struct opengl_drawable *base, GLenum
+@@ -2511,6 +2589,20 @@ static BOOL macdrv_pbuffer_updated(HDC hdc, struct opengl_drawable *base, GLenum
  
  static void macdrv_init_extensions(struct opengl_funcs *funcs, BOOLEAN extensions[GL_EXTENSION_COUNT])
  {
@@ -345,6 +345,13 @@ index 696734f..0baa9eb 100644
 +    extensions[GL_ARB_instanced_arrays] = 1;
 +    extensions[GL_ARB_vertex_array_object] = 1;
 +    extensions[GL_ARB_framebuffer_object] = 1;
++    if (getenv("WINEMETALGL_GL40_COVERAGE") && !strcmp(getenv("WINEMETALGL_GL40_COVERAGE"), "1"))
++    {
++        /* The bounded GL 4.0 API coverage case initializes several entry
++         * points through extension gates even though the shim reports GL 3.3. */
++        extensions[GL_ARB_separate_shader_objects] = 1;
++        extensions[GL_EXT_direct_state_access] = 1;
++    }
      extensions[WGL_WINE_query_renderer] = 1;
      funcs->p_wglQueryCurrentRendererIntegerWINE = macdrv_wglQueryCurrentRendererIntegerWINE;
      funcs->p_wglQueryCurrentRendererStringWINE = macdrv_wglQueryCurrentRendererStringWINE;
@@ -357,7 +364,7 @@ index 696734f..0baa9eb 100644
      TRACE("()\n");
  
      if (version != WINE_OPENGL_DRIVER_VERSION)
-@@ -2557,10 +2644,387 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
+@@ -2557,10 +2644,389 @@ UINT macdrv_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, co
  
  #undef LOAD_FUNCPTR
  

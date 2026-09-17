@@ -15,6 +15,7 @@ artifacts/README.md
 artifacts/guest/i386/opengl32.dll
 artifacts/guest/x86_64/opengl32.dll
 artifacts/host-x86_64/metalsharp-opengl.dylib
+artifacts/wine-driver/opengl32.so
 artifacts/wine-driver/win32u.so
 artifacts/wine-driver/winemac.so
 docs/api-coverage.json
@@ -39,6 +40,7 @@ scripts/run-gl33-case.sh
 scripts/run-gl33-failure-ledger.sh
 scripts/run-gl33-full.sh
 scripts/run-gl33-shard.sh
+scripts/run-gl40-bounded.sh
 scripts/stage-host-libs.sh
 scripts/stage-release.sh
 scripts/stage-wine.sh

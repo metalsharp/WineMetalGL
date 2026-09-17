@@ -1,6 +1,6 @@
 # WineMetalGL validation results
 
-Validation snapshot: 2026-09-15
+Validation snapshot: 2026-09-16
 
 This is a bounded validation record for the x86_64 macOS 15-or-newer sidecar
 and a compatible Wine WoW64 runtime. The reference build used WineForge/Wine
@@ -68,6 +68,28 @@ and 9 InternalError. A subsequent run was interrupted before a newer complete
 result was available. The 108-case ledger is a focused regression subset, not
 a summary of all GL 3.3 work. These results are retained for engineering
 follow-up and are not presented as a clean conformance result.
+
+## Bounded GL 4.0 evidence
+
+This is a separate engineering result and does not expand the release claim.
+With `WINEMETALGL_GL40_COVERAGE=1`, the exact first 1,000 cases from the
+11,863-case `KHR-GL40` caselist were run in one dEQP invocation using a trie
+caselist. The result was:
+
+```text
+cases:         1000
+Pass:            30
+Fail:            58
+NotSupported:   912
+InternalError:    0
+```
+
+The 58 failures are in `KHR-GL40.draw_indirect.*`; the unsupported results are
+preserved as `NotSupported`. The standalone `KHR-GL40.api.coverage` case also
+passed (`1/1`). Reproduce the single-invocation run with
+`scripts/run-gl40-bounded.sh`; set `WINEMETALGL_HOST_LIB_DIR` when the runtime
+needs an external x86_64 EGL dependency. This bounded run is not a claim of
+GL 4.0 conformance, complete GL 3.3 conformance, or GL 4.6 support.
 
 ## Implemented feature groups
 
