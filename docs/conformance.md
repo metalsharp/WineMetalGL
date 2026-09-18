@@ -5,66 +5,6 @@ separates **implemented code**, **validated behavior**, and **unsupported or
 unresolved behavior**. A feature is not considered complete merely because an
 entry point is exported or forwarded.
 
-## Test environment
-
-Validation uses:
-
-- macOS 15 or newer on an Apple Silicon host; the reference run used an Apple M4.
-- x86_64-only Mach-O artifacts.
-- A compatible x86_64 Wine build with the supplied OpenGL integration patch; the reference run used WineForge/Wine 11.17.
-- Fresh `WINEARCH=wow64` prefixes.
-- A locally built VK-GL-CTS `glcts.exe`. Set `CTS_ROOT` to the VK-GL-CTS checkout and use `$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe`.
-
-The VK-GL-CTS repository is the source of the conformance executable and test definitions; it is not vendored into this adapter. Set its checkout explicitly, for example:
-
-```sh
-WINE_RUNTIME=/path/to/wine-install
-CTS_ROOT=/path/to/VK-GL-CTS
-GLCTS="$CTS_ROOT/build-win64/external/openglcts/modules/glcts.exe"
-```
-
-The broad sweep command is:
-
-```sh
-"$GLCTS" --deqp-case='KHR-GL33.*' \
-  --deqp-terminate-on-device-lost=disable \
-  --deqp-log-filename=/tmp/gl33.qpa
-```
-
-## Incremental GL 3.3 workflow
-
-Do not use the broad command during normal development. Start with one exact
-case, then run the smallest related shard:
-
-```sh
-./scripts/run-gl33-case.sh "$WINE_RUNTIME" "$GLCTS" \
-  KHR-GL33.some.failing.case /tmp/gl33-case.qpa
-
-./scripts/run-gl33-shard.sh "$WINE_RUNTIME" "$GLCTS" \
-  tests/cts/gl33-shards/shader-indexing.txt /tmp/gl33-shard.qpa
-```
-
-Shard definitions live in `tests/cts/gl33-shards/`. They cover the focused
-regression API/FBO/shader subsets plus the bounded shader-array, indexing, and
-constructor groups. Each run creates a fresh WoW64 prefix, accepts only Pass
-(or explicitly reported NotSupported for pattern shards), and retains a QPA on
-failure. After a fix, rerun the affected case, its shard, and then the focused
-regression ledger. The final exhaustive gate is available as:
-
-```sh
-./scripts/run-gl33-full.sh "$WINE_RUNTIME" "$GLCTS" /tmp/gl33-full.qpa
-```
-
-Run `KHR-GL33.*` only once as that final release gate, never as the normal
-inner-loop test. `.github/workflows/gl33-conformance.yml` exposes the same
-case/shard/ledger/full choices as a manual workflow on a self-hosted runner
-that has the compatible Wine installation and a local VK-GL-CTS checkout.
-
-The broad sweep remains a diagnostic, not a full-conformance claim. The last
-complete 9,887-case snapshot recorded 6,441 Pass, 703 NotSupported, 2,734
-Fail, and 9 InternalError results. Unsupported results are retained where the runtime 
-cannot provide the required behavior. The machine-readable entry-point
-boundary is [`api-coverage.json`](api-coverage.json).
 
 ## Coverage summary
 
