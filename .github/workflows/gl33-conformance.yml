@@ -39,7 +39,7 @@ jobs:
     runs-on: [self-hosted, macOS, wine-gl33]
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build the core and the Wine module and install them
         env:
