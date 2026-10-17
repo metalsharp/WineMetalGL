@@ -40,8 +40,4 @@ void wmgl_window_destroy( void *host );
 /* The Metal device the core renders with. */
 void *wmgl_window_default_device( void );
 
-/* Logging of wmgl_unix.h. */
-extern int wmgl_log_max;
-void wmgl_log( int level, const char *format, ... ) __attribute__((format(printf, 2, 3)));
-
 #endif

@@ -1,7 +1,6 @@
 #include "core/stats.h"
 
 #include "core/metal/device.h"
-#include "core/util/log.h"
 
 #include <mach/mach_time.h>
 #include <os/signpost.h>
@@ -115,12 +114,11 @@ void printProfile(uint64_t frames) {
     std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.nanos > b.second.nanos; });
     const double n = static_cast<double>(frames);
     for (const auto& [number, t] : threads)
-        logRawFormat(LogCategory::Perf, "winemetalgl:stats: thread %llu: %.2f ms/frame in %.0f calls/frame (lock %.2f ms)\n",
+        std::fprintf(stderr, "winemetalgl:stats: thread %llu: %.2f ms/frame in %.0f calls/frame (lock %.2f ms)\n",
                      static_cast<unsigned long long>(number), ms(t.nanos) / n, static_cast<double>(t.calls) / n,
                      ms(t.lockNanos) / n);
     for (size_t i = 0; i < top.size() && i < 15; ++i)
-        logRawFormat(LogCategory::Perf, "winemetalgl:stats:   %-36s %7.2f ms/frame %7.1f calls/frame (lock %.2f ms)\n",
-                     top[i].first,
+        std::fprintf(stderr, "winemetalgl:stats:   %-36s %7.2f ms/frame %7.1f calls/frame (lock %.2f ms)\n", top[i].first,
                      ms(top[i].second.nanos) / n, static_cast<double>(top[i].second.calls) / n,
                      ms(top[i].second.lockNanos) / n);
 }
@@ -192,7 +190,7 @@ void describeOnce(const std::string& key, const char* format, ...) {
     va_start(args, format);
     std::vsnprintf(message, sizeof(message), format, args);
     va_end(args);
-    logRawFormat(LogCategory::Perf, "winemetalgl:stats: %s\n", message);
+    std::fprintf(stderr, "winemetalgl:stats: %s\n", message);
 }
 
 namespace {
@@ -221,7 +219,7 @@ void endFrame() {
     if (!g_reporting) return;
     const uint64_t now = nowNanos();
     const Frame& f = t.frame;
-    logRawFormat(LogCategory::Perf,
+    std::fprintf(stderr,
                  "winemetalgl:stats: frame %llu %.2f ms | gl %.2f ms in %llu calls | present %.2f ms (drawable %.2f ms) | "
                  "draws %llu passes %llu | pipelines %llu (%.2f ms) links %llu (%.2f ms) | transient %llu KiB | "
                  "waits %llu (%.2f ms) | lock %.2f ms | converted %llu vertices, %llu reused (client %llu format %llu "

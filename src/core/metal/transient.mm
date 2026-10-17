@@ -50,8 +50,7 @@ TransientAllocation TransientAllocator::allocate(size_t size, uint64_t serial, s
                                                     options:MTLResourceStorageModeShared |
                                                             MTLResourceCPUCacheModeWriteCombined];
     if (!chunk.buffer) {
-        logOnce(LogLevel::Warn, LogCategory::Gpu, "transient-memory", "no GPU memory for %zu bytes of per-draw data",
-                size);
+        logOnce(LogLevel::Warn, "transient-memory", "no GPU memory for %zu bytes of per-draw data", size);
         return {};
     }
     chunk.buffer.label = @"WineMetalGL transient";
