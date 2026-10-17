@@ -15,7 +15,7 @@
 struct wmgl_core wmgl;
 static void *core_handle;
 /* What the PE side tells about the process (wmgl_unix_init), for the log. */
-static char program[1024], host_version[256];
+static char program[3 * 1024], host_version[256];
 
 void *wmgl_core_symbol( const char *name )
 {

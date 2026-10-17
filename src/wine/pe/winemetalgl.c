@@ -174,10 +174,16 @@ static BOOL init_pixel_formats(void)
     struct wmgl_pixel_format *formats;
     const char *(CDECL *wine_version)(void);
     HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
-    static char program[MAX_PATH];
+    /* Long paths (a deep Steam library) do not fit MAX_PATH: UTF-8 of up to 1023 characters. */
+    static WCHAR path[1024];
+    static char program[3 * 1024];
+    DWORD len;
 
     /* For the log: the program, and Wine's build (its version, and whose). */
-    if (GetModuleFileNameA( NULL, program, sizeof(program) )) init.program = (UINT64)(ULONG_PTR)program;
+    const DWORD size = sizeof(path) / sizeof(path[0]);
+    if ((len = GetModuleFileNameW( NULL, path, size )) && len < size &&
+        WideCharToMultiByte( CP_UTF8, 0, path, -1, program, sizeof(program), NULL, NULL ))
+        init.program = (UINT64)(ULONG_PTR)program;
     if ((*(FARPROC *)&wine_version = GetProcAddress( ntdll, "wine_get_build_id" )) ||
         (*(FARPROC *)&wine_version = GetProcAddress( ntdll, "wine_get_version" )))
         init.host_version = (UINT64)(ULONG_PTR)wine_version();
