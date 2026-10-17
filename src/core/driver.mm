@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 #include "core/context.h"
 #include "core/metal/device.h"
 #include "core/proc_table.h"
 #include "core/stats.h"
 #include "core/surface.h"
+#include "core/util/crash.h"
 #include "core/util/log.h"
 #include "core/util/version.h"
 
@@ -87,18 +89,50 @@ bool validVersion(int major, int minor) {
 }
 
 Context* asContext(wmgl_context* c) { return reinterpret_cast<Context*>(c); }
+
+// Why a context request is refused, for the log.
+wmgl_context* refuseContext(int* error, int code, int major, int minor, int flags, int profile, const char* why) {
+    WMGL_WARN(Driver, "context refused: OpenGL %d.%d flags 0x%x profile 0x%x: %s", major, minor, flags, profile, why);
+    if (error) *error = code;
+    return nullptr;
+}
+
+NSUncaughtExceptionHandler* g_previousObjcHandler;
+
+void onObjcException(NSException* exception) {
+    NSString* text = [NSString stringWithFormat:@"%@: %@", exception.name, exception.reason];
+    crashReport("uncaught Objective-C exception", text.UTF8String);
+    if (g_previousObjcHandler) g_previousObjcHandler(exception);
+}
+
+#ifndef WMGL_COMMIT
+#define WMGL_COMMIT ""
+#endif
 Surface* asSurface(wmgl_surface* s) { return reinterpret_cast<Surface*>(s); }
 
 }  // namespace
 
 WMGL_EXPORT int wmgl_initialize(unsigned int abi_version) {
     CallPool pool;  // see CallPool (context.h)
+    installCrashHandlers();
+    static std::once_flag objcOnce;
+    std::call_once(objcOnce, [] {
+        if (const char* v = std::getenv("WINEMETALGL_CRASH_HANDLER"); v && !std::strcmp(v, "0")) return;
+        g_previousObjcHandler = NSGetUncaughtExceptionHandler();
+        NSSetUncaughtExceptionHandler(onObjcException);
+    });
     if (abi_version != WMGL_DRIVER_ABI_VERSION) {
-        WMGL_ERR("driver ABI mismatch: caller %u, core %u", abi_version, WMGL_DRIVER_ABI_VERSION);
+        logBanner(WMGL_VERSION, WMGL_COMMIT, nullptr);
+        WMGL_ERR(Driver, "driver ABI mismatch: caller %u, core %u", abi_version, WMGL_DRIVER_ABI_VERSION);
         return -1;
     }
-    if (!Device::get().mtl()) return -1;
-    WMGL_INFO("WineMetalGL core on %s", Device::get().name());
+    const bool device = Device::get().mtl() != nil;
+    logBanner(WMGL_VERSION, WMGL_COMMIT, device ? Device::get().name() : nullptr);
+    if (!device) {
+        WMGL_ERR(Driver, "no Metal device: the core cannot start");
+        return -1;
+    }
+    WMGL_INFO(Driver, "WineMetalGL core on %s", Device::get().name());
     return 0;
 }
 
@@ -113,7 +147,7 @@ WMGL_EXPORT wmgl_surface* wmgl_surface_create_window(void* layer, int format, in
     CallPool pool;  // see CallPool (context.h)
     auto* surface = new Surface((__bridge CAMetalLayer*)layer, format, width, height);
     surface->retain();
-    WMGL_TRACE("surface %p window %dx%d format %d", surface, width, height, format);
+    WMGL_INFO(Driver, "surface %p: window %dx%d, pixel format %d", surface, width, height, format);
     return reinterpret_cast<wmgl_surface*>(surface);
 }
 
@@ -121,12 +155,15 @@ WMGL_EXPORT wmgl_surface* wmgl_surface_create_pbuffer(int format, int width, int
     CallPool pool;  // see CallPool (context.h)
     auto* surface = new Surface(nil, format, width, height);
     surface->retain();
+    WMGL_INFO(Driver, "surface %p: pbuffer %dx%d, pixel format %d", surface, width, height, format);
     return reinterpret_cast<wmgl_surface*>(surface);
 }
 
 WMGL_EXPORT void wmgl_surface_destroy(wmgl_surface* surface) {
     CallPool pool;  // see CallPool (context.h)
-    if (surface) asSurface(surface)->release();
+    if (!surface) return;
+    WMGL_TRACE(Driver, "surface %p released", surface);
+    asSurface(surface)->release();
 }
 
 WMGL_EXPORT void wmgl_surface_flush(wmgl_surface* handle, unsigned int flags, int width, int height, int interval) {
@@ -134,6 +171,7 @@ WMGL_EXPORT void wmgl_surface_flush(wmgl_surface* handle, unsigned int flags, in
     Surface* surface = asSurface(handle);
     if (!surface) return;
     if (flags & WMGL_FLUSH_UPDATED) {
+        WMGL_TRACE(Driver, "surface %p resized to %dx%d", handle, width, height);
         Context* ctx = currentContext();
         surface->resize(width, height, ctx && ctx->drawSurface() == surface ? &ctx->stream() : nullptr);
     }
@@ -178,7 +216,7 @@ WMGL_EXPORT wmgl_context* wmgl_context_create(int format, wmgl_context* share, c
         case kNoError: config.noError = a[1] != 0; break;
         case kReleaseBehavior: break;
         default:
-            WMGL_WARN("unknown context attribute 0x%x", a[0]);
+            WMGL_WARN(Driver, "unknown context attribute 0x%x", a[0]);
             if (error) *error = WMGL_ERROR_INVALID_ATTRIB;
             return nullptr;
         }
@@ -190,10 +228,9 @@ WMGL_EXPORT wmgl_context* wmgl_context_create(int format, wmgl_context* share, c
         int esMajor, esMinor;
         esMaxVersion(esMajor, esMinor);
         if (!validEsVersion(requestedMajor, requestedMinor) || (flags & ~(kDebugBit | kRobustAccessBit)) ||
-            requestedMajor * 10 + requestedMinor > esMajor * 10 + esMinor) {
-            if (error) *error = WMGL_ERROR_INVALID_VERSION;
-            return nullptr;
-        }
+            requestedMajor * 10 + requestedMinor > esMajor * 10 + esMinor)
+            return refuseContext(error, WMGL_ERROR_INVALID_VERSION, requestedMajor, requestedMinor, flags, profile,
+                                 "not an OpenGL ES version or flags this core implements");
         int maxMajor, maxMinor;
         honestMaxVersion(maxMajor, maxMinor);
         config.es = true;
@@ -206,32 +243,32 @@ WMGL_EXPORT wmgl_context* wmgl_context_create(int format, wmgl_context* share, c
         config.minor = maxMinor;
         RefPtr<ShareGroup> group = share ? asContext(share)->shareRef() : makeRef<ShareGroup>();
         auto* ctx = new Context(group, config, format);
-        WMGL_TRACE("context %p OpenGL ES %d.%d (requested %d.%d)", ctx, esMajor, esMinor, requestedMajor, requestedMinor);
+        WMGL_INFO(Driver, "context %p: OpenGL ES %d.%d (requested %d.%d, flags 0x%x, pixel format %d, shares with %p)",
+                  ctx,
+                  esMajor, esMinor, requestedMajor, requestedMinor, flags, format, share);
         return reinterpret_cast<wmgl_context*>(ctx);
     }
-    if (!validVersion(requestedMajor, requestedMinor)) {
-        if (error) *error = WMGL_ERROR_INVALID_VERSION;
-        return nullptr;
-    }
+    if (!validVersion(requestedMajor, requestedMinor))
+        return refuseContext(error, WMGL_ERROR_INVALID_VERSION, requestedMajor, requestedMinor, flags, profile,
+                             "not an OpenGL version");
     // WGL_ARB_create_context(_robustness): unknown flags, and the
     // forward-compatible flag before 3.0, are ERROR_INVALID_VERSION_ARB.
     if ((flags & ~(kDebugBit | kForwardCompatibleBit | kRobustAccessBit)) ||
-        ((flags & kForwardCompatibleBit) && requestedMajor < 3)) {
-        if (error) *error = WMGL_ERROR_INVALID_VERSION;
-        return nullptr;
-    }
+        ((flags & kForwardCompatibleBit) && requestedMajor < 3))
+        return refuseContext(error, WMGL_ERROR_INVALID_VERSION, requestedMajor, requestedMinor, flags, profile,
+                             "unknown flags, or forward compatible before 3.0");
     // The profile mask applies from 3.2 (it is ignored before): exactly one of
     // the core and compatibility bits.
     const bool profiles = requestedMajor > 3 || (requestedMajor == 3 && requestedMinor >= 2);
-    if (profiles && profileGiven && profile != kCoreBit && profile != kCompatBit) {
-        if (error) *error = WMGL_ERROR_INVALID_PROFILE;
-        return nullptr;
-    }
+    if (profiles && profileGiven && profile != kCoreBit && profile != kCompatBit)
+        return refuseContext(error, WMGL_ERROR_INVALID_PROFILE, requestedMajor, requestedMinor, flags, profile,
+                             "not exactly one of the core and compatibility profiles");
     int maxMajor, maxMinor;
     maxVersion(maxMajor, maxMinor);
     if (requestedMajor > maxMajor || (requestedMajor == maxMajor && requestedMinor > maxMinor)) {
-        if (error) *error = WMGL_ERROR_INVALID_VERSION;
-        return nullptr;
+        char why[64];
+        std::snprintf(why, sizeof(why), "above the highest version, %d.%d", maxMajor, maxMinor);
+        return refuseContext(error, WMGL_ERROR_INVALID_VERSION, requestedMajor, requestedMinor, flags, profile, why);
     }
     // Profiles exist from 3.2; earlier requests (and legacy wglCreateContext) get compatibility.
     // A forward-compatible 3.0 or 3.1 context drops the deprecated features:
@@ -245,8 +282,9 @@ WMGL_EXPORT wmgl_context* wmgl_context_create(int format, wmgl_context* share, c
     config.minor = maxMinor;
     RefPtr<ShareGroup> group = share ? asContext(share)->shareRef() : makeRef<ShareGroup>();
     auto* ctx = new Context(group, config, format);
-    WMGL_TRACE("context %p %d.%d %s (requested %d.%d)", ctx, config.major, config.minor,
-               config.coreProfile ? "core" : "compat", requestedMajor, requestedMinor);
+    WMGL_INFO(Driver, "context %p: OpenGL %d.%d %s (requested %d.%d, flags 0x%x, pixel format %d, shares with %p)", ctx,
+              config.major, config.minor, config.coreProfile ? "core" : "compatibility", requestedMajor, requestedMinor, flags,
+              format, share);
     return reinterpret_cast<wmgl_context*>(ctx);
 }
 
@@ -254,6 +292,7 @@ WMGL_EXPORT void wmgl_context_destroy(wmgl_context* handle) {
     CallPool pool;  // see CallPool (context.h)
     Context* ctx = asContext(handle);
     if (!ctx) return;
+    WMGL_INFO(Driver, "context %p destroyed", ctx);
     if (currentContext() == ctx) setCurrentContext(nullptr);
     delete ctx;
 }
@@ -262,6 +301,7 @@ WMGL_EXPORT int wmgl_make_current(wmgl_context* handle, wmgl_surface* draw, wmgl
     CallPool pool;  // see CallPool (context.h)
     Context* previous = currentContext();
     Context* ctx = asContext(handle);
+    WMGL_TRACE(Driver, "make current: context %p, draw %p, read %p (was %p)", ctx, draw, read, previous);
     // Switching contexts flushes the previous one (WGL requires an implicit glFlush).
     if (previous && previous != ctx) previous->stream().flush();
     setCurrentContext(ctx);
@@ -325,4 +365,29 @@ WMGL_EXPORT void wmgl_max_es_version(int* major, int* minor) {
     esMaxVersion(a, b);
     if (major) *major = a;
     if (minor) *minor = b;
+}
+
+// Logging for the Wine module (core/util/log.h). Optional: cores before 3.3.0
+// do not export them.
+
+namespace {
+LogCategory moduleCategory(const char* name) {
+    LogCategory category = LogCategory::Wine;
+    logCategoryFromName(name, category);
+    return category;
+}
+}  // namespace
+
+WMGL_EXPORT void wmgl_log_set_host(const char* program, const char* host_version) { logSetHost(program, host_version); }
+
+WMGL_EXPORT int wmgl_log_level(const char* category) {
+    const LogCategory c = moduleCategory(category);
+    for (int level = static_cast<int>(LogLevel::Trace); level >= 0; --level)
+        if (logCaptured(static_cast<LogLevel>(level), c)) return level;
+    return -1;
+}
+
+WMGL_EXPORT void wmgl_log_write(int level, const char* category, const char* text) {
+    if (level < 0) return;
+    logText(static_cast<LogLevel>(level > 3 ? 3 : level), moduleCategory(category), text);
 }

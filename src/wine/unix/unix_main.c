@@ -13,8 +13,9 @@
 #define GL_DEBUG_CALLBACK_USER_PARAM 0x8245
 
 struct wmgl_core wmgl;
-BOOL wmgl_trace;
 static void *core_handle;
+/* What the PE side tells about the process (wmgl_unix_init), for the log. */
+static char program[1024], host_version[256];
 
 void *wmgl_core_symbol( const char *name )
 {
@@ -30,7 +31,7 @@ static BOOL load_core(void)
     void *handle;
     unsigned int i;
 
-    wmgl_trace = getenv( "WINEMETALGL_WINE_DEBUG" ) != NULL;
+    wmgl_log_start( NULL, NULL, NULL );
     /* libwinemetalgl.dylib sits next to winemetalgl.so. */
     if (!dladdr( (void *)load_core, &info ) || !info.dli_fname) return FALSE;
     snprintf( path, sizeof(path), "%s", info.dli_fname );
@@ -38,10 +39,14 @@ static BOOL load_core(void)
     snprintf( path, sizeof(path), "%s/libwinemetalgl.dylib", dir );
     if (!(handle = dlopen( path, RTLD_NOW | RTLD_LOCAL )))
     {
-        WMGL_ERR( "cannot load %s: %s\n", path, dlerror() );
+        WMGL_ERR( "cannot load %s: %s (program %s)\n", path, dlerror(), program );
         return FALSE;
     }
     core_handle = handle;
+    /* From here the core's log has the messages (before the core starts, so
+     * that its log file is named after the program). */
+    wmgl_log_start( handle, program, host_version );
+    WMGL_INFO( "winemetalgl.so %s loaded the core %s\n", info.dli_fname, path );
 #define LOAD(field, name) if (!(*(void **)&wmgl.field = dlsym( handle, name ))) { WMGL_ERR( "%s missing\n", name ); return FALSE; }
     LOAD(initialize, "wmgl_initialize");
     LOAD(get_pixel_formats, "wmgl_get_pixel_formats");
@@ -59,6 +64,8 @@ static BOOL load_core(void)
     LOAD(max_versions, "wmgl_max_versions");
 #undef LOAD
     *(void **)&wmgl.version = dlsym( handle, "wmgl_version" );
+    if (!dlsym( handle, "wmgl_log_write" ))
+        WMGL_ERR( "this WineMetalGL core is older than the module (it has no log): messages go to stderr\n" );
     if (wmgl.initialize( WMGL_DRIVER_ABI_VERSION ))
     {
         WMGL_ERR( "the WineMetalGL core refused to initialise (driver ABI %u)\n", WMGL_DRIVER_ABI_VERSION );
@@ -86,12 +93,20 @@ extern NTSTATUS wmgl_unix_init_formats( void *args );
 NTSTATUS wmgl_unix_init( void *args )
 {
     struct wmgl_init_params *params = args;
+    const char *client_program = (const char *)(ULONG_PTR)params->program;
+    const char *client_host = (const char *)(ULONG_PTR)params->host_version;
+
+    /* The first call wins: one process, one program. */
+    if (client_program && !program[0]) snprintf( program, sizeof(program), "%s", client_program );
+    if (client_host && !host_version[0]) snprintf( host_version, sizeof(host_version), "%s", client_host );
     pthread_once( &core_once, load_core_once );
     if (!core_loaded)
     {
         memset( params, 0, sizeof(*params) );
+        params->log_level = wmgl_pe_log_level();
         return STATUS_SUCCESS;
     }
+    params->log_level = wmgl_pe_log_level();
     return wmgl_unix_init_formats( args );
 }
 

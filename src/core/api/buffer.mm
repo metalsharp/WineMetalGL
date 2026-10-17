@@ -13,6 +13,7 @@
 #include "core/format/pixel_transfer.h"
 #include "core/limits.h"
 #include "core/metal/device.h"
+#include "core/util/log.h"
 #include "gl_api.gen.h"
 
 namespace wmgl::api {
@@ -56,7 +57,7 @@ void returnReleasedMemory() {
     for (const auto& [pointer, bytes] : memory) g_bufferRelease(pointer, bytes);
 }
 
-id<MTLBuffer> newStorage(GLsizeiptr size) {
+id<MTLBuffer> allocateStorage(GLsizeiptr size) {
     if (size <= 0) return nil;
     // Padded to 256 bytes, so texture views of the buffer (texture buffers,
     // buffer images) have room for Metal's aligned rows at any size.
@@ -76,6 +77,14 @@ id<MTLBuffer> newStorage(GLsizeiptr size) {
                                                  std::lock_guard<std::mutex> lock(releasedMemory().lock);
                                                  releasedMemory().memory.emplace_back(pointer, bytes);
                                              }];
+}
+
+id<MTLBuffer> newStorage(GLsizeiptr size) {
+    id<MTLBuffer> storage = allocateStorage(size);
+    if (!storage && size > 0)
+        WMGL_WARN(Buffer, "no memory for a buffer of %lld bytes (%s)", static_cast<long long>(size),
+                  g_bufferAllocate ? "the 32-bit program's address space" : "Metal");
+    return storage;
 }
 
 bool gpuBusy(Context& ctx, const Buffer& buffer) {

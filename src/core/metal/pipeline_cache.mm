@@ -139,7 +139,7 @@ id<MTLRenderPipelineState> PipelineCache::render(const PipelineKey& key, LinkedP
     desc.stencilAttachmentPixelFormat = static_cast<MTLPixelFormat>(key.stencilFormat);
     NSError* error = nil;
     id<MTLRenderPipelineState> state = [Device::get().mtl() newRenderPipelineStateWithDescriptor:desc error:&error];
-    if (!state) WMGL_ERR("render pipeline creation failed: %s", error.localizedDescription.UTF8String);
+    if (!state) WMGL_ERR(Pipeline, "render pipeline creation failed: %s", error.localizedDescription.UTF8String);
     std::lock_guard<std::mutex> lock(mutex_);
     render_.emplace(key, state);
     return state;

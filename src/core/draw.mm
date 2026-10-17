@@ -151,7 +151,8 @@ void warnUndrawable(const Framebuffer& fb, const char* point, const Attachment* 
                       : !image->defined()        ? "the level is not defined"
                                                  : "the level has no storage");
     }
-    logOnce(LogLevel::Warn, key, "framebuffer %u %s: %s; its draws are dropped", fb.name, point, what);
+    logOnce(LogLevel::Warn, LogCategory::Draw, key, "framebuffer %u %s: %s; its draws are dropped", fb.name, point,
+            what);
 }
 
 }  // namespace
@@ -853,7 +854,8 @@ bool DrawState::bindVertexInputs(id<MTLRenderCommandEncoder> encoder, PipelineKe
         const size_t elements = static_cast<size_t>(first - rebase) + count;
         if (elements > kMaxConvertedVertices) {
             // An index range this wide is almost certainly garbage indices.
-            logOnce(LogLevel::Warn, "converted-span", "draw skipped: %zu vertices to convert", elements);
+            logOnce(LogLevel::Warn, LogCategory::Draw, "converted-span", "draw skipped: %zu vertices to convert",
+                    elements);
             return false;
         }
         const size_t stride = 16 * group.size();
@@ -1080,7 +1082,8 @@ id<MTLTexture> DrawState::imageBinding(LinkedProgram& program, size_t index) {
                 buffer->lastUseSerial = serial;
             }
         }
-        if (!view && u.texture) WMGL_TRACE("image unit %d: no view for image type 0x%x, format 0x%x", unit, slot.type, slot.format);
+        if (!view && u.texture) WMGL_TRACE(Draw, "image unit %d: no view for image type 0x%x, format 0x%x", unit,
+                                           slot.type, slot.format);
     }
     return view ? view : dummyImage(slot.type);
 }
@@ -1763,7 +1766,8 @@ id<MTLComputePipelineState> stripsProvokingLastKernel() {
         id<MTLFunction> function = [Device::get().utilityLibrary() newFunctionWithName:@"wmgl_strips_provoking_last"];
         NSError* error = nil;
         if (function) state = [Device::get().mtl() newComputePipelineStateWithFunction:function error:&error];
-        if (!state) WMGL_ERR("strip conversion kernel: %s", error ? error.localizedDescription.UTF8String : "missing");
+        if (!state) WMGL_ERR(Pipeline, "strip conversion kernel: %s",
+                             error ? error.localizedDescription.UTF8String : "missing");
     });
     return state;
 }
@@ -1776,7 +1780,8 @@ id<MTLComputePipelineState> tessFactorsKernel() {
         id<MTLFunction> function = [Device::get().utilityLibrary() newFunctionWithName:@"wmgl_tess_factors"];
         NSError* error = nil;
         if (function) state = [Device::get().mtl() newComputePipelineStateWithFunction:function error:&error];
-        if (!state) WMGL_ERR("tessellation factor kernel: %s", error ? error.localizedDescription.UTF8String : "missing");
+        if (!state) WMGL_ERR(Pipeline, "tessellation factor kernel: %s",
+                             error ? error.localizedDescription.UTF8String : "missing");
     });
     return state;
 }
@@ -2003,7 +2008,7 @@ bool DrawState::issue(GLenum mode, GLint first, GLsizei count, GLsizei instances
     }
     vertexRebase_ = 0;
     if (!bound) {
-        WMGL_WARN("too many vertex buffers for one draw");
+        WMGL_WARN(Draw, "too many vertex buffers for one draw");
         return false;
     }
     // Consecutive draws often have the same pipeline: compared before the cache's hash.
@@ -3463,7 +3468,7 @@ bool DrawState::drawMetalPatches(LinkedProgram& program, LinkedProgram& evaluati
         id<MTLRenderPipelineState> pipeline = ctx_.share().pipelines().render(key, evaluation);
         if (!pipeline) {
             evaluation.metalTessellationFailed = true;
-            WMGL_WARN("no Metal tessellation pipeline for the patches of link %llu: tessellating them on the CPU",
+            WMGL_WARN(Draw, "no Metal tessellation pipeline for the patches of link %llu: tessellating them on the CPU",
                       static_cast<unsigned long long>(program.uid));
             drawn = false;
         } else {
@@ -3547,7 +3552,7 @@ id<MTLComputePipelineState> utilityKernel(const char* name) {
     id<MTLFunction> function = [Device::get().utilityLibrary() newFunctionWithName:@(name)];
     NSError* error = nil;
     id<MTLComputePipelineState> state = function ? [Device::get().mtl() newComputePipelineStateWithFunction:function error:&error] : nil;
-    if (!state) WMGL_ERR("%s kernel: %s", name, error ? error.localizedDescription.UTF8String : "missing");
+    if (!state) WMGL_ERR(Pipeline, "%s kernel: %s", name, error ? error.localizedDescription.UTF8String : "missing");
     return state;
 }
 
@@ -4232,7 +4237,7 @@ id<MTLRenderPipelineState> clearPipeline(const TargetFormats& formats, const uin
                                                                options:options
                                                                  error:&error];
     if (!library) {
-        WMGL_ERR("clear shader: %s", error.localizedDescription.UTF8String);
+        WMGL_ERR(Pipeline, "clear shader: %s", error.localizedDescription.UTF8String);
         return cache[key] = nil;
     }
     MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
@@ -4247,7 +4252,7 @@ id<MTLRenderPipelineState> clearPipeline(const TargetFormats& formats, const uin
     desc.depthAttachmentPixelFormat = formats.depth;
     desc.stencilAttachmentPixelFormat = formats.stencil;
     id<MTLRenderPipelineState> pipeline = [Device::get().mtl() newRenderPipelineStateWithDescriptor:desc error:&error];
-    if (!pipeline) WMGL_ERR("clear pipeline: %s", error.localizedDescription.UTF8String);
+    if (!pipeline) WMGL_ERR(Pipeline, "clear pipeline: %s", error.localizedDescription.UTF8String);
     return cache[key] = pipeline;
 }
 

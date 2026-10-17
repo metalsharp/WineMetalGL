@@ -61,7 +61,7 @@ Context* currentContext() { return t_current; }
 void setCurrentContext(Context* context) { t_current = context; }
 
 void noCurrentContext(const char* command) {
-    logOnce(LogLevel::Warn, command, "%s called without a current context", command);
+    logOnce(LogLevel::Warn, LogCategory::Context, command, "%s called without a current context", command);
 }
 
 Context::Context(RefPtr<ShareGroup> share, const ContextConfig& config, int pixelFormat)
@@ -275,19 +275,20 @@ void logCallArguments(Context& ctx, const char* format, ...) {
     va_start(args, format);
     std::vsnprintf(line, sizeof(line), format, args);
     va_end(args);
-    WMGL_WARN("  the call: %s", line);
+    WMGL_WARN(Context, "  the call: %s", line);
 }
 
 void Context::setError(GLenum error) {
     if (error_ == GL_NO_ERROR) error_ = error;
-    if (logEnabled(LogLevel::Trace)) WMGL_TRACE("GL error 0x%04x in %s", error, currentCommand);
+    if (logEnabled(LogLevel::Trace, LogCategory::Context)) WMGL_TRACE(Context, "GL error 0x%04x in %s", error,
+                                                                      currentCommand);
     // Each command's error once: an application that ignores errors shows
     // what failed (a refused attachment later drops every draw).
-    if (logEnabled(LogLevel::Warn)) {
+    if (logEnabled(LogLevel::Warn, LogCategory::Context)) {
         char key[96];
         std::snprintf(key, sizeof(key), "error-%s-%04x", currentCommand, error);
         // The generated entry point then logs the call's arguments.
-        logArguments = logOnce(LogLevel::Warn, key, "GL error 0x%04x in %s (reported once per command and error)", error,
+        logArguments = logOnce(LogLevel::Warn, LogCategory::Context, key, "GL error 0x%04x in %s (reported once per command and error)", error,
                                currentCommand) || logArguments;
     }
     if (state.debugOutput) {
@@ -310,7 +311,7 @@ GLenum Context::takeError() {
 }
 
 void Context::unimplemented(const char* command) {
-    logOnce(LogLevel::Warn, command, "unimplemented: %s", command);
+    logOnce(LogLevel::Warn, LogCategory::Api, command, "unimplemented: %s", command);
     setError(GL_INVALID_OPERATION);
 }
 

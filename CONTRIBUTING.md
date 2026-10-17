@@ -7,7 +7,9 @@ on macOS; the [README](README.md) describes what it covers and the
 ## Before you start
 
 - **Bugs and game reports**: open an issue with the matching template, and
-  include the `GL_RENDERER` string and a log (`WINEMETALGL_LOG=2`).
+  include the `GL_RENDERER` string and the program's log file from
+  `~/Library/Logs/WineMetalGL`, from a run with `WINEMETALGL_LOG=2`
+  ([Logging](docs/logging.md)).
 - **Security issues**: never in a public issue. See [SECURITY.md](SECURITY.md).
 - **Larger changes** (a new GL feature, a change to the driver ABI or the Wine
   patches): open an issue first, so the approach is agreed before the work.

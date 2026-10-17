@@ -131,7 +131,7 @@ void ProgramStringARB(Context& ctx, GLenum target, GLenum format, GLsizei len, c
         // The program object keeps the program that loaded before.
         ctx.arb.errorPosition = parsed->errorPosition;
         ctx.arb.errorString = parsed->error;
-        WMGL_TRACE("glProgramStringARB: %s at %d", parsed->error.c_str(), parsed->errorPosition);
+        WMGL_TRACE(Shader, "glProgramStringARB: %s at %d", parsed->error.c_str(), parsed->errorPosition);
         return ctx.setError(GL_INVALID_OPERATION);
     }
     static std::atomic<uint64_t> serials{0};

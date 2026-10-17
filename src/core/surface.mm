@@ -55,10 +55,10 @@ float windowUpscale() {
         const float f = metalFxFactor(settings);
         if (f <= 1.0f) return 1.0f;
         if (![MTLFXSpatialScalerDescriptor supportsDevice:Device::get().mtl()]) {
-            WMGL_WARN("MetalFX spatial upscaling (x%.2f) is not supported on this device", f);
+            WMGL_WARN(Surface, "MetalFX spatial upscaling (x%.2f) is not supported on this device", f);
             return 1.0f;
         }
-        WMGL_INFO("MetalFX spatial upscaling of window back buffers: x%.2f", f);
+        WMGL_INFO(Surface, "MetalFX spatial upscaling of window back buffers: x%.2f", f);
         return f;
     }();
     return factor;
@@ -378,7 +378,7 @@ id<MTLTexture> Surface::upscale(id<MTLCommandBuffer> commandBuffer, id<MTLTextur
         upscaled_ = nil;
         if (!scaler) {
             // The present pass stretches the back buffer over the drawable.
-            WMGL_WARN("MetalFX spatial scaler creation failed (%lux%lu, format %lu); presenting without it",
+            WMGL_WARN(Surface, "MetalFX spatial scaler creation failed (%lux%lu, format %lu); presenting without it",
                       static_cast<unsigned long>(source.width), static_cast<unsigned long>(source.height),
                       static_cast<unsigned long>(source.pixelFormat));
             upscaleFailed_ = true;
@@ -391,7 +391,7 @@ id<MTLTexture> Surface::upscale(id<MTLCommandBuffer> commandBuffer, id<MTLTextur
         out.storageMode = MTLStorageModePrivate;
         out.usage = scaler.outputTextureUsage | MTLTextureUsageShaderRead;
         upscaled_ = [Device::get().mtl() newTextureWithDescriptor:out];
-        WMGL_INFO("MetalFX spatial scaler %lux%lu -> %lux%lu", static_cast<unsigned long>(source.width),
+        WMGL_INFO(Surface, "MetalFX spatial scaler %lux%lu -> %lux%lu", static_cast<unsigned long>(source.width),
                   static_cast<unsigned long>(source.height), static_cast<unsigned long>(outWidth),
                   static_cast<unsigned long>(outHeight));
     }
@@ -414,7 +414,7 @@ void Surface::ensurePresentPipeline() {
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     NSError* error = nil;
     presentPipeline_ = [Device::get().mtl() newRenderPipelineStateWithDescriptor:desc error:&error];
-    if (!presentPipeline_) WMGL_ERR("present pipeline: %s", error.localizedDescription.UTF8String);
+    if (!presentPipeline_) WMGL_ERR(Pipeline, "present pipeline: %s", error.localizedDescription.UTF8String);
     MTLSamplerDescriptor* s = [MTLSamplerDescriptor new];
     s.minFilter = s.magFilter = MTLSamplerMinMagFilterNearest;
     presentSampler_ = [Device::get().mtl() newSamplerStateWithDescriptor:s];
@@ -465,7 +465,7 @@ bool Surface::swap(CommandStream& stream) {
         drawable = [layer_ nextDrawable];
     }
     if (!drawable) {
-        WMGL_WARN("no drawable available");
+        WMGL_WARN(Surface, "no drawable available");
         stream.flush();
         return false;
     }

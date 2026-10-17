@@ -86,7 +86,8 @@ id<MTLRenderPipelineState> blitPipeline(NSString* fragment, MTLPixelFormat color
     desc.rasterSampleCount = samples;
     NSError* error = nil;
     id<MTLRenderPipelineState> pipeline = [Device::get().mtl() newRenderPipelineStateWithDescriptor:desc error:&error];
-    if (!pipeline) WMGL_ERR("blit pipeline %s: %s", fragment.UTF8String, error.localizedDescription.UTF8String);
+    if (!pipeline) WMGL_ERR(Pipeline, "blit pipeline %s: %s", fragment.UTF8String,
+                            error.localizedDescription.UTF8String);
     cache[key] = pipeline;
     return pipeline;
 }

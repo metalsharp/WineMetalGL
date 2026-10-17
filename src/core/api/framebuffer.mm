@@ -364,12 +364,13 @@ GLenum CheckFramebufferStatus(Context& ctx, GLenum target) {
         return 0;
     }
     const GLenum status = completeness(ctx, binding->get());
-    if (status != GL_FRAMEBUFFER_COMPLETE && logEnabled(LogLevel::Trace)) {
+    if (status != GL_FRAMEBUFFER_COMPLETE && logEnabled(LogLevel::Trace, LogCategory::Draw)) {
         GLsizei w = 0, h = 0, s = 0;
         bool fl;
         const Framebuffer* fb = binding->get();
         const FormatInfo* f = fb ? attachmentFormat(fb->color[0], w, h, s, fl) : nullptr;
-        WMGL_TRACE("framebuffer %u incomplete: 0x%04x (color 0: format 0x%04x %dx%d samples %d)", fb ? fb->name : 0,
+        WMGL_TRACE(Draw, "framebuffer %u incomplete: 0x%04x (color 0: format 0x%04x %dx%d samples %d)",
+                   fb ? fb->name : 0,
                    status, f ? f->internalFormat : 0, w, h, s);
     }
     return status;

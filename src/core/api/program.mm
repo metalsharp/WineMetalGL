@@ -375,7 +375,7 @@ void CompileShader(Context& ctx, GLuint shader) {
     s->compileStatus = result.ok;
     s->infoLog = result.log;
     if (!result.ok) {
-        WMGL_INFO("shader %u failed to compile:\n%s", shader, result.log.c_str());
+        WMGL_WARN(Shader, "shader %u failed to compile:\n%s", shader, result.log.c_str());
         // WINEMETALGL_DUMP_SHADERS=1 also prints the source.
         if (const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS"); v && v[0] == '1')
             std::fprintf(stderr, "winemetalgl: shader %u source:\n%s\n", shader, s->source.c_str());
@@ -445,7 +445,7 @@ void SpecializeShader(Context& ctx, GLuint shader, const GLchar* pEntryPoint, GL
         s->spirvGlsl = result.glsl;
         s->spirvUniforms = result.uniformLocations;
     }
-    if (!s->compileStatus) WMGL_INFO("SPIR-V shader %u failed to specialize:\n%s", shader, s->infoLog.c_str());
+    if (!s->compileStatus) WMGL_WARN(Shader, "SPIR-V shader %u failed to specialize:\n%s", shader, s->infoLog.c_str());
     // WINEMETALGL_DUMP_SHADERS=1 prints the GLSL a module became.
     if (const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS"); v && v[0] == '1')
         std::fprintf(stderr, "winemetalgl: SPIR-V shader %u as GLSL:\n%s\n", shader, s->spirvGlsl.c_str());
@@ -613,7 +613,7 @@ void linkFrom(Context& ctx, Program* p, shader::LinkInput input, std::string log
     p->infoLog = log;
     p->validateStatus = false;
     if (!ok) {
-        WMGL_INFO("program %u failed to link:\n%s", program, log.c_str());
+        WMGL_WARN(Shader, "program %u failed to link:\n%s", program, log.c_str());
         // A failed relink of a program in use (current, or a program
         // pipeline's stage) keeps its old executable in use.
         if (p->useCount == 0 && p->stageUses == 0) p->linked.reset();

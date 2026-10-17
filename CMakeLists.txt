@@ -99,6 +99,7 @@ add_library(wmgl_portable STATIC
     src/core/shader/spirv_validate.cpp
     src/core/shader/subroutines.cpp
     src/core/compat/arb_program.cpp
+    src/core/util/crash.cpp
     src/core/util/log.cpp
     src/core/util/metalfx_config.cpp
     vendor/tessellator/tessellator.cpp
@@ -126,7 +127,10 @@ add_library(winemetalgl_core SHARED
     "${WMGL_GEN_DIR}/gl_entry.gen.cpp"
     "${WMGL_GEN_DIR}/gl_stubs.gen.cpp"
     "${WMGL_GEN_DIR}/gl_list.gen.cpp")
-target_compile_definitions(winemetalgl_core PRIVATE WMGL_VERSION="${PROJECT_VERSION}")
+# The commit the core is built from, for the log's banner (core/util/log.h).
+execute_process(COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}" describe --always --dirty --abbrev=12
+                OUTPUT_VARIABLE WMGL_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+target_compile_definitions(winemetalgl_core PRIVATE WMGL_VERSION="${PROJECT_VERSION}" WMGL_COMMIT="${WMGL_COMMIT}")
 add_dependencies(winemetalgl_core wmgl_generated)
 # Generated and other .cpp sources include Metal-using headers: build them as Objective-C++.
 set_source_files_properties(
@@ -161,7 +165,7 @@ install(TARGETS winemetalgl_core LIBRARY DESTINATION lib)
 
 # Host tests (no GPU, no Wine).
 add_executable(wmgl_host_tests tests/host/main.cpp tests/host/shader_tests.cpp tests/host/format_tests.cpp
-    tests/host/fp64_tests.cpp tests/host/metalfx_tests.cpp tests/host/arb_program_tests.cpp)
+    tests/host/fp64_tests.cpp tests/host/metalfx_tests.cpp tests/host/arb_program_tests.cpp tests/host/log_tests.cpp)
 target_link_libraries(wmgl_host_tests PRIVATE wmgl_portable)
 
 # GPU tests: drive the core through the driver ABI on pbuffers (Metal, no Wine).
