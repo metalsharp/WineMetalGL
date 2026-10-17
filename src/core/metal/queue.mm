@@ -1,5 +1,6 @@
 #include "core/metal/queue.h"
 
+#include <atomic>
 #include <chrono>
 
 #include "core/metal/device.h"
@@ -8,13 +9,76 @@
 
 namespace wmgl {
 
+namespace {
+
+const char* commandBufferErrorName(NSInteger code) {
+    switch (code) {
+    case MTLCommandBufferErrorInternal: return "internal error";
+    case MTLCommandBufferErrorTimeout: return "timed out";
+    case MTLCommandBufferErrorPageFault: return "GPU page fault";
+    case MTLCommandBufferErrorAccessRevoked: return "access revoked";
+    case MTLCommandBufferErrorNotPermitted: return "not permitted";
+    case MTLCommandBufferErrorOutOfMemory: return "out of memory";
+    case MTLCommandBufferErrorInvalidResource: return "invalid resource";
+    case MTLCommandBufferErrorMemoryless: return "memoryless storage exhausted";
+    case MTLCommandBufferErrorDeviceRemoved: return "device removed";
+    case MTLCommandBufferErrorStackOverflow: return "stack overflow";
+    default: return "error";
+    }
+}
+
+const char* encoderStateName(MTLCommandEncoderErrorState state) {
+    switch (state) {
+    case MTLCommandEncoderErrorStateCompleted: return "completed";
+    case MTLCommandEncoderErrorStateAffected: return "affected";
+    case MTLCommandEncoderErrorStatePending: return "pending";
+    case MTLCommandEncoderErrorStateFaulted: return "FAULTED";
+    default: return "unknown";
+    }
+}
+
+// Each encoder's state is recorded (at some cost) when GPU errors are logged
+// in detail: WINEMETALGL_LOG=gpu:2.
+bool detailedErrors() {
+    static const bool detailed = logEnabled(LogLevel::Info, LogCategory::Gpu);
+    return detailed;
+}
+
+// The first failures are logged, then one in 256: a hung GPU fails every buffer.
+std::atomic<uint64_t> g_failures{0};
+
+void logFailure(id<MTLCommandBuffer> done, uint64_t serial) {
+    const uint64_t n = g_failures.fetch_add(1);
+    if (n >= 16 && n % 256) return;
+    NSError* error = done.error;
+    WMGL_ERR(Gpu, "command buffer %llu failed: %s (%s %ld: %s)%s", static_cast<unsigned long long>(serial),
+             commandBufferErrorName(error.code), error.domain.UTF8String, static_cast<long>(error.code),
+             error.localizedDescription.UTF8String, n >= 16 ? " [failures are now logged one in 256]" : "");
+    NSArray* infos = error.userInfo[MTLCommandBufferEncoderInfoErrorKey];
+    for (id<MTLCommandBufferEncoderInfo> info in infos) {
+        NSString* signposts = info.debugSignposts.count ? [info.debugSignposts componentsJoinedByString:@" > "] : @"";
+        WMGL_ERR(Gpu, "  encoder \"%s\": %s%s%s", info.label.UTF8String ?: "", encoderStateName(info.errorState),
+                 signposts.length ? ", signposts " : "", signposts.UTF8String);
+    }
+}
+
+}  // namespace
+
 Queue::Queue() {
     queue_ = [Device::get().mtl() newCommandQueueWithMaxCommandBufferCount:256];
     queue_.label = @"WineMetalGL";
 }
 
 id<MTLCommandBuffer> Queue::create(uint64_t* serial) {
-    id<MTLCommandBuffer> buffer = [queue_ commandBuffer];
+    id<MTLCommandBuffer> buffer;
+    if (detailedErrors()) {
+        MTLCommandBufferDescriptor* desc = [MTLCommandBufferDescriptor new];
+        desc.errorOptions = MTLCommandBufferErrorOptionEncoderExecutionStatus;
+        buffer = [queue_ commandBufferWithDescriptor:desc];
+    } else {
+        buffer = [queue_ commandBuffer];
+    }
+    if (!buffer) logOnce(LogLevel::Error, LogCategory::Gpu, "no-command-buffer", "Metal gave no command buffer");
     std::lock_guard<std::mutex> lock(mutex_);
     *serial = next_++;
     reserved_.insert(*serial);
@@ -32,9 +96,7 @@ void Queue::commit(id<MTLCommandBuffer> buffer, uint64_t serial) {
             stats::addGpuNanos(static_cast<uint64_t>((done.GPUEndTime - done.GPUStartTime) * 1e9));
             stats::addGpuInterval(done.GPUStartTime, done.GPUEndTime);
         }
-        if (done.status == MTLCommandBufferStatusError)
-            WMGL_ERR("command buffer %llu failed: %s", static_cast<unsigned long long>(serial),
-                     done.error.localizedDescription.UTF8String);
+        if (done.status == MTLCommandBufferStatusError) logFailure(done, serial);
         // Notify under the lock: once a waiter sees the queue idle it may
         // destroy the queue, so nothing may touch it after the unlock.
         std::lock_guard<std::mutex> lock(mutex_);

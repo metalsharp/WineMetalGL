@@ -249,6 +249,8 @@ static void *window_surface( const struct wmgl_window_placement *placement )
         }
         if (!(window->surface = wmgl.surface_create_window( layer, window->format, width, height )))
         {
+            WMGL_ERR( "window %#llx: the core made no surface (%dx%d, pixel format %d)\n",
+                      (unsigned long long)placement->hwnd, width, height, window->format );
             wmgl_window_destroy( window->host );
             window->host = NULL;
             return NULL;
@@ -356,7 +358,13 @@ NTSTATUS wmgl_unix_set_pixel_format( void *args )
     struct dc_format *dc;
 
     params->ret = FALSE;
-    if (format <= 0 || (unsigned int)format > format_count) return STATUS_SUCCESS;
+    if (format <= 0 || (unsigned int)format > format_count)
+    {
+        WMGL_WARN( "SetPixelFormat(dc %#llx, %d): no such pixel format (there are %u)\n",
+                  (unsigned long long)params->hdc,
+                   format, format_count );
+        return STATUS_SUCCESS;
+    }
     pthread_mutex_lock( &wgl_lock );
     if (params->hwnd)
     {
@@ -373,6 +381,14 @@ NTSTATUS wmgl_unix_set_pixel_format( void *args )
         if (!dc->format || dc->format == format) dc->format = format, params->ret = TRUE;
     }
     pthread_mutex_unlock( &wgl_lock );
+    if (params->ret)
+        WMGL_INFO( "SetPixelFormat(dc %#llx, window %#llx, %d)\n", (unsigned long long)params->hdc,
+                   (unsigned long long)params->hwnd, format );
+    else
+        WMGL_WARN( "SetPixelFormat(dc %#llx, window %#llx, %d) refused: %s\n", (unsigned long long)params->hdc,
+                   (unsigned long long)params->hwnd, format,
+                   params->hwnd && (unsigned int)format > onscreen_count ? "not a format for windows"
+                                                                          : "the DC or window has another format" );
     return STATUS_SUCCESS;
 }
 
@@ -412,11 +428,14 @@ NTSTATUS wmgl_unix_create_context( void *args )
     pthread_mutex_lock( &wgl_lock );
     if (!(format = dc_pixel_format( params->hdc, params->hwnd )))
     {
+        WMGL_WARN( "wglCreateContext(dc %#llx): the DC has no pixel format\n", (unsigned long long)params->hdc );
         params->error = ERROR_INVALID_PIXEL_FORMAT;
         goto done;
     }
     if (params->share && !(share = context_from_handle( params->share )))
     {
+        WMGL_WARN( "wglCreateContext(dc %#llx): context %#llx to share with is not a context\n",
+                   (unsigned long long)params->hdc, (unsigned long long)params->share );
         params->error = ERROR_INVALID_OPERATION;
         goto done;
     }
@@ -424,6 +443,8 @@ NTSTATUS wmgl_unix_create_context( void *args )
     share_core = share ? share->core : root_context;
     if (!share_core || !(core = wmgl.context_create( format, share_core, attribs, &error )))
     {
+        WMGL_WARN( "wglCreateContext(dc %#llx, pixel format %d): the core refused (error %d%s)\n",
+                   (unsigned long long)params->hdc, format, error, share_core ? "" : ", no root context" );
         params->error = error == 1 ? ERROR_INVALID_VERSION_ARB : error == 2 ? ERROR_INVALID_PROFILE_ARB
                                                                             : ERROR_INVALID_PARAMETER;
         goto done;
@@ -441,6 +462,8 @@ NTSTATUS wmgl_unix_create_context( void *args )
     context->format = format;
     contexts[i] = context;
     params->ret = HANDLE_BASE + i;
+    WMGL_INFO( "context %#llx (core %p) on dc %#llx, pixel format %d%s\n", (unsigned long long)params->ret, core,
+               (unsigned long long)params->hdc, format, share ? ", shared" : "" );
 done:
     pthread_mutex_unlock( &wgl_lock );
     return STATUS_SUCCESS;
@@ -452,9 +475,17 @@ NTSTATUS wmgl_unix_delete_context( void *args )
     struct context *context;
 
     pthread_mutex_lock( &wgl_lock );
-    if (!(context = context_from_handle( params->context ))) params->error = ERROR_INVALID_HANDLE;
+    if (!(context = context_from_handle( params->context )))
+    {
+        WMGL_WARN( "wglDeleteContext(%#llx): not a context\n", (unsigned long long)params->context );
+        params->error = ERROR_INVALID_HANDLE;
+    }
     /* Not while another thread has it current (as Windows). */
-    else if (context->thread && context->thread != &current_context) params->error = ERROR_BUSY;
+    else if (context->thread && context->thread != &current_context)
+    {
+        WMGL_WARN( "wglDeleteContext(%#llx): current in another thread\n", (unsigned long long)params->context );
+        params->error = ERROR_BUSY;
+    }
     else
     {
         if (current_context == params->context)
@@ -495,12 +526,14 @@ NTSTATUS wmgl_unix_make_current( void *args )
     }
     if (!(context = context_from_handle( params->context )))
     {
+        WMGL_WARN( "wglMakeCurrent(%#llx): not a context\n", (unsigned long long)params->context );
         params->error = ERROR_INVALID_HANDLE;
         goto done;
     }
     /* One thread at a time (as Windows). */
     if (context->thread && context->thread != &current_context)
     {
+        WMGL_WARN( "wglMakeCurrent(%#llx): current in another thread\n", (unsigned long long)params->context );
         params->error = ERROR_BUSY;
         goto done;
     }
@@ -510,13 +543,20 @@ NTSTATUS wmgl_unix_make_current( void *args )
         params->error = dc_pixel_format( params->draw_hdc, params->draw.hwnd ) &&
                         dc_pixel_format( params->read_hdc, params->read.hwnd ) ? ERROR_INVALID_HANDLE
                                                                                : ERROR_INVALID_PIXEL_FORMAT;
+        WMGL_WARN( "wglMakeCurrent(%#llx, draw dc %#llx window %#llx, read dc %#llx): %s\n",
+                   (unsigned long long)params->context, (unsigned long long)params->draw_hdc,
+                   (unsigned long long)params->draw.hwnd, (unsigned long long)params->read_hdc,
+                   params->error == ERROR_INVALID_PIXEL_FORMAT ? "a DC without a pixel format" : "no surface for a DC" );
         goto done;
     }
     if (!wmgl.make_current( context->core, draw, read))
     {
+        WMGL_WARN( "wglMakeCurrent(%#llx): the core refused\n", (unsigned long long)params->context );
         params->error = ERROR_INVALID_OPERATION;
         goto done;
     }
+    WMGL_TRACE( "wglMakeCurrent(%#llx, window %#llx)\n", (unsigned long long)params->context,
+                (unsigned long long)params->draw.hwnd );
     if (current_object) current_object->thread = NULL;
     context->thread = &current_context;
     current_context = params->context;
@@ -546,6 +586,8 @@ NTSTATUS wmgl_unix_copy_context( void *args )
 {
     struct wmgl_copy_context_params *params = args;
     /* wglCopyContext: attribute groups between contexts are not copied. */
+    WMGL_WARN( "wglCopyContext(%#llx, %#llx, %#x) is not implemented\n", (unsigned long long)params->source,
+               (unsigned long long)params->dest, params->mask );
     params->ret = FALSE;
     return STATUS_SUCCESS;
 }
@@ -676,6 +718,7 @@ NTSTATUS wmgl_unix_create_pbuffer( void *args )
     if (params->format <= 0 || (unsigned int)params->format > format_count ||
         !formats[params->format - 1].draw_to_pbuffer)
     {
+        WMGL_WARN( "wglCreatePbufferARB: pixel format %d is not one for pbuffers\n", params->format );
         params->error = ERROR_INVALID_PIXEL_FORMAT;
         return STATUS_SUCCESS;
     }
@@ -688,12 +731,14 @@ NTSTATUS wmgl_unix_create_pbuffer( void *args )
         case WGL_TEXTURE_TARGET_ARB: texture_target = attribs[i + 1]; break;
         case WGL_MIPMAP_TEXTURE_ARB: break;
         default:
+            WMGL_WARN( "wglCreatePbufferARB: unknown attribute %#x\n", attribs[i] );
             params->error = ERROR_INVALID_DATA;
             return STATUS_SUCCESS;
         }
     }
     if (width <= 0 || height <= 0)
     {
+        WMGL_WARN( "wglCreatePbufferARB: size %dx%d\n", width, height );
         params->error = ERROR_INVALID_DATA;
         return STATUS_SUCCESS;
     }
@@ -705,6 +750,8 @@ NTSTATUS wmgl_unix_create_pbuffer( void *args )
     }
     if (!(surface = wmgl.surface_create_pbuffer( params->format, width, height )))
     {
+        WMGL_ERR( "wglCreatePbufferARB: the core made no %dx%d pbuffer (pixel format %d)\n", width, height,
+                 params->format );
         params->error = ERROR_NO_SYSTEM_RESOURCES;
         return STATUS_SUCCESS;
     }

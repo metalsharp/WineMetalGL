@@ -96,14 +96,15 @@ void finalize(Query& q) {
             samples += value;
         }
         q.result = q.target == GL_SAMPLES_PASSED ? samples : (samples ? 1 : 0);
-        if (logEnabled(LogLevel::Trace)) {
-            WMGL_TRACE("occlusion query: %zu slots, %llu samples", q.visibilitySlots.size(),
+        if (logEnabled(LogLevel::Trace, LogCategory::Draw)) {
+            WMGL_TRACE(Draw, "occlusion query: %zu slots, %llu samples", q.visibilitySlots.size(),
                        static_cast<unsigned long long>(samples));
             for (size_t i = 0; i < q.visibilitySlots.size(); ++i) {
                 uint64_t value;
                 std::memcpy(&value, static_cast<const uint8_t*>(q.visibilitySlots[i].first.contents) + q.visibilitySlots[i].second,
                             sizeof(value));
-                if (!value) WMGL_TRACE("occlusion query: slot %zu (offset %u) counted nothing", i, q.visibilitySlots[i].second);
+                if (!value) WMGL_TRACE(Draw, "occlusion query: slot %zu (offset %u) counted nothing", i,
+                                       q.visibilitySlots[i].second);
             }
         }
         q.visibilitySlots.clear();
@@ -157,7 +158,8 @@ bool queryResultReady(Context& ctx, Query& q, bool wait) {
             } else if (spin < 100000 + 50000) {
                 usleep(100);
             } else {
-                logOnce(LogLevel::Warn, "timer-handler", "a timer query's completion handler did not run; its result is 0");
+                logOnce(LogLevel::Warn, LogCategory::Gpu, "timer-handler",
+                        "a timer query's completion handler did not run; its result is 0");
                 break;
             }
         }
@@ -267,7 +269,8 @@ void queriesBeforeDraw(Context& ctx, id<MTLRenderCommandEncoder> encoder, GLsize
     ctx.drawSampleBound = drawBound;
     if (!anyOcclusionActive(ctx)) return;
     if (drawBound >= (1ull << 32))
-        logOnce(LogLevel::Warn, "visibility-wrap", "a draw can cover 2^32 samples or more: occlusion counts may wrap");
+        logOnce(LogLevel::Warn, LogCategory::Draw, "visibility-wrap",
+                "a draw can cover 2^32 samples or more: occlusion counts may wrap");
     auto& slot = ctx.occlusionSlot;
     const uint64_t pass = ctx.stream().passGeneration();
     const bool current = slot.valid && slot.pass == pass && slot.epoch == ctx.occlusionEpoch;
@@ -279,7 +282,8 @@ void queriesBeforeDraw(Context& ctx, id<MTLRenderCommandEncoder> encoder, GLsize
     NSUInteger offset = 0;
     if (!ctx.stream().allocateVisibilitySlot(buffer, offset)) {
         if (current) return;  // the pass's last slot keeps counting
-        logOnce(LogLevel::Warn, "visibility-slots", "occlusion query slots exhausted; samples not counted");
+        logOnce(LogLevel::Warn, LogCategory::Draw, "visibility-slots",
+                "occlusion query slots exhausted; samples not counted");
         return;
     }
     [encoder setVisibilityResultMode:MTLVisibilityResultModeCounting offset:offset];

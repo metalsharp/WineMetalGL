@@ -29,6 +29,7 @@
 #include "core/shader/spirv_passes.h"
 #include "core/shader/subroutines.h"
 #include "core/shader/transform_feedback.h"
+#include "core/util/log.h"
 
 namespace wmgl::shader {
 namespace {
@@ -2752,7 +2753,8 @@ static LinkResult linkImpl(const LinkInput& input, const CaptureCode* capture, G
     if (!result.ok && input.internal)
         if (const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS"); v && v[0] == '1')
             for (const ShaderSource& shader : input.shaders)
-                std::fprintf(stderr, "winemetalgl: internal stage %d failed to link:\n%s\n", static_cast<int>(shader.stage),
+                logRawFormat(LogCategory::Shader, "winemetalgl: internal stage %d failed to link:\n%s\n",
+                             static_cast<int>(shader.stage),
                              shader.source.c_str());
     return result;
 }
@@ -4224,7 +4226,8 @@ static LinkResult linkImplCore(const LinkInput& input, const CaptureCode* captur
                 stage.mslNoRaster = finishFp64Msl(msl.compile());
                 addDefaultBorderMacros(stage.mslNoRaster);
                 if (const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS"); v && v[0] == '1')
-                    std::fprintf(stderr, "winemetalgl: MSL vertex stage without rasterization:\n%s\n", stage.mslNoRaster.c_str());
+                    logRawFormat(LogCategory::Shader, "winemetalgl: MSL vertex stage without rasterization:\n%s\n",
+                                 stage.mslNoRaster.c_str());
                 instanceIdFromZero(stage.mslNoRaster);
                 continue;
             }
@@ -4252,7 +4255,7 @@ static LinkResult linkImplCore(const LinkInput& input, const CaptureCode* captur
                 const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS");
                 return v && v[0] == '1';
             }();
-            if (dump) std::fprintf(stderr, "winemetalgl: MSL stage %d:\n%s\n", s, stage.msl.c_str());
+            if (dump) logRawFormat(LogCategory::Shader, "winemetalgl: MSL stage %d:\n%s\n", s, stage.msl.c_str());
             stage.entryPoint = msl.get_cleansed_entry_point_name("main", model);
             stage.writesPointSize = stage.msl.find("[[point_size]]") != std::string::npos;
         } catch (const std::exception& error) {
@@ -4342,7 +4345,8 @@ bool useVertexCapture(const LinkInput& input, const LinkResult& layout, LinkResu
     if (!captured.ok) {
         result.log += "error: internal error building vertex output capture:\n" + captured.log;
         if (const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS"); v && v[0] == '1')
-            std::fprintf(stderr, "winemetalgl: capture declarations:\n%s\ncapture epilogue:\n%s\n", code.declarations.c_str(),
+            logRawFormat(LogCategory::Shader, "winemetalgl: capture declarations:\n%s\ncapture epilogue:\n%s\n",
+                         code.declarations.c_str(),
                          code.epilogue.c_str());
         return false;
     }
@@ -4419,7 +4423,8 @@ bool buildGeometryEmulation(const LinkInput& input, const GeometryShaderInfo& in
         const char* v = std::getenv("WINEMETALGL_DUMP_SHADERS");
         return v && v[0] == '1';
     }();
-    if (dump) std::fprintf(stderr, "winemetalgl: geometry kernel GLSL:\n%s\npass-through GLSL:\n%s\n", sources.compute.c_str(),
+    if (dump) logRawFormat(LogCategory::Shader, "winemetalgl: geometry kernel GLSL:\n%s\npass-through GLSL:\n%s\n",
+                           sources.compute.c_str(),
                            sources.passthrough.c_str());
     return true;
 }
@@ -4452,7 +4457,8 @@ bool buildTessellationEmulation(const LinkInput& input, const TessellationLink& 
         e.vertexWords = control.vertexWords;
         e.patchWords = control.patchWords;
         e.patchesPerGroup = control.patchesPerGroup;
-        if (dump) std::fprintf(stderr, "winemetalgl: tessellation control kernel GLSL:\n%s\n", control.kernel.c_str());
+        if (dump) logRawFormat(LogCategory::Shader, "winemetalgl: tessellation control kernel GLSL:\n%s\n",
+                               control.kernel.c_str());
         LinkInput kernelInput;
         kernelInput.shaders = {{Stage::Compute, control.kernel}};
         kernelInput.internal = true;
@@ -4472,7 +4478,8 @@ bool buildTessellationEmulation(const LinkInput& input, const TessellationLink& 
         result.log += log;
         return false;
     }
-    if (dump) std::fprintf(stderr, "winemetalgl: tessellation evaluation vertex GLSL:\n%s\n", vertex.c_str());
+    if (dump) logRawFormat(LogCategory::Shader, "winemetalgl: tessellation evaluation vertex GLSL:\n%s\n",
+                           vertex.c_str());
     LinkInput evaluationInput;
     // A separable program's outputs have locations hashed from their names:
     // the evaluation stage declares them without and is hashed the same way

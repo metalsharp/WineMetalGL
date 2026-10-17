@@ -308,7 +308,8 @@ void uploadRegion(Context& ctx, Texture& tex, int face, int level, int x, int y,
             unpackPixels(src, format, type, w, h, d, ps, *image.format, image.pending.data());
             return;
         }
-        logOnce(LogLevel::Warn, "inconsistent-level", "texture %u level %d does not fit its mip chain; contents dropped",
+        logOnce(LogLevel::Warn, LogCategory::Texture, "inconsistent-level",
+                "texture %u level %d does not fit its mip chain; contents dropped",
                 tex.name, level);
         return;
     }
@@ -1873,7 +1874,8 @@ void clearMultisample(Context& ctx, Texture& tex, const FormatInfo& info, const 
                 desc.rasterSampleCount = target.samples;
                 NSError* error = nil;
                 pipeline = [Device::get().mtl() newRenderPipelineStateWithDescriptor:desc error:&error];
-                if (!pipeline) WMGL_ERR("multisample clear pipeline: %s", error.localizedDescription.UTF8String);
+                if (!pipeline) WMGL_ERR(Pipeline, "multisample clear pipeline: %s",
+                                        error.localizedDescription.UTF8String);
                 pipelines[key] = pipeline;
             }
             const int which = (info.depthBits ? 1 : 0) | (info.stencilBits ? 2 : 0);
@@ -2136,7 +2138,7 @@ void decodeCompressedSlice(Context& ctx, Texture& tex, Storage storage, NSUInteg
         NSError* error = nil;
         id<MTLFunction> function = [Device::get().utilityLibrary() newFunctionWithName:@"wmgl_decode_texels"];
         id<MTLComputePipelineState> state = function ? [Device::get().mtl() newComputePipelineStateWithFunction:function error:&error] : nil;
-        if (!state) WMGL_ERR("texel decode pipeline failed: %s", error.localizedDescription.UTF8String);
+        if (!state) WMGL_ERR(Pipeline, "texel decode pipeline failed: %s", error.localizedDescription.UTF8String);
         return state;
     }();
     if (!pipeline || width <= 0 || height <= 0) return;

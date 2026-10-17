@@ -32,7 +32,8 @@ GLint RenderMode(Context& ctx, GLenum mode) {
         return 0;
     }
     if (mode != GL_RENDER)
-        logOnce(LogLevel::Warn, "glRenderMode", "glRenderMode(0x%04x): selection and feedback records are not produced", mode);
+        logOnce(LogLevel::Warn, LogCategory::Api, "glRenderMode",
+                "glRenderMode(0x%04x): selection and feedback records are not produced", mode);
     ctx.state.fixed.renderMode = mode;
     ctx.state.fixed.nameStack.clear();
     return 0;

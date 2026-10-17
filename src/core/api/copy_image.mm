@@ -135,7 +135,8 @@ void CopyImageSubData(Context& ctx, GLuint srcName, GLenum srcTarget, GLint srcL
         // of the source in the destination's format (same texel size).
         source = [src.mtl newTextureViewWithPixelFormat:dst.mtl.pixelFormat];
         if (!source) {
-            logOnce(LogLevel::Warn, "copy-image-ms-view", "multisample CopyImageSubData between these formats is not supported");
+            logOnce(LogLevel::Warn, LogCategory::Api, "copy-image-ms-view",
+                    "multisample CopyImageSubData between these formats is not supported");
             return;
         }
     }

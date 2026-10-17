@@ -4,13 +4,39 @@
 
 #include "wmgl_pe.h"
 
-BOOL wmgl_debug;
+int wmgl_log_max;
 
 static HINSTANCE module;
 static unixlib_handle_t unixlib;
 static NTSTATUS (WINAPI *unix_call_dispatcher)( unixlib_handle_t, unsigned int, void * );
 static DWORD tls_index = TLS_OUT_OF_INDEXES;
 static char *wgl_extensions;
+/* Messages go to winemetalgl.so once it answers (init_pixel_formats). */
+static BOOL log_ready;
+
+void wmgl_log( int level, const char *format, ... )
+{
+    static const char *const names[] = {"err", "warn", "info", "trace"};
+    struct wmgl_log_params params;
+    char text[2048];
+    size_t len;
+    va_list args;
+
+    if (level > wmgl_log_max || level < 0 || level > 3) return;
+    va_start( args, format );
+    vsnprintf( text, sizeof(text), format, args );
+    va_end( args );
+    if (log_ready)
+    {
+        params.level = level;
+        params.text = (UINT64)(ULONG_PTR)text;
+        /* Not wmgl_unix_call: batched GL calls keep their batch. */
+        unix_call_dispatcher( unixlib, unix_wmgl_log, &params );
+        return;
+    }
+    len = strlen( text );
+    fprintf( stderr, "winemetalgl:%s: %s%s", names[level], text, len && text[len - 1] == '\n' ? "" : "\n" );
+}
 
 /* GL calls batched on this thread (wmgl_batch), run by one unix call. */
 #define BATCH_BYTES 16384
@@ -146,8 +172,30 @@ static BOOL init_pixel_formats(void)
     struct wmgl_init_params init = {0};
     struct wmgl_pixel_formats_params params = {0};
     struct wmgl_pixel_format *formats;
+    const char *(CDECL *wine_version)(void);
+    HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+    /* Long paths (a deep Steam library) do not fit MAX_PATH: UTF-8 of up to 1023 characters. */
+    static WCHAR path[1024];
+    static char program[3 * 1024];
+    DWORD len;
 
-    if (wmgl_unix_call( unix_wmgl_init, &init ) || !init.ok || !init.format_count) return FALSE;
+    /* For the log: the program, and Wine's build (its version, and whose). */
+    const DWORD size = sizeof(path) / sizeof(path[0]);
+    if ((len = GetModuleFileNameW( NULL, path, size )) && len < size &&
+        WideCharToMultiByte( CP_UTF8, 0, path, -1, program, sizeof(program), NULL, NULL ))
+        init.program = (UINT64)(ULONG_PTR)program;
+    if ((*(FARPROC *)&wine_version = GetProcAddress( ntdll, "wine_get_build_id" )) ||
+        (*(FARPROC *)&wine_version = GetProcAddress( ntdll, "wine_get_version" )))
+        init.host_version = (UINT64)(ULONG_PTR)wine_version();
+    if (wmgl_unix_call( unix_wmgl_init, &init )) return FALSE;
+    wmgl_log_max = init.log_level;
+    log_ready = TRUE;
+    WMGL_INFO( "winemetalgl.dll (%d-bit) in %s\n", (int)sizeof(void *) * 8, program );
+    if (!init.ok || !init.format_count)
+    {
+        WMGL_ERR( "the WineMetalGL core reported no pixel formats\n" );
+        return FALSE;
+    }
     if (!(formats = calloc( init.format_count, sizeof(*formats) ))) return FALSE;
     params.formats = (UINT64)(ULONG_PTR)formats;
     params.max = init.format_count;
@@ -167,17 +215,17 @@ BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, LPVOID reserved )
     {
     case DLL_PROCESS_ATTACH:
         module = instance;
-        wmgl_debug = getenv( "WINEMETALGL_WINE_DEBUG" ) != NULL;
+        wmgl_log_max = getenv( "WINEMETALGL_WINE_DEBUG" ) ? 3 : 0;
         if (getenv( "WINEMETALGL_BATCH" ) && !strcmp( getenv( "WINEMETALGL_BATCH" ), "0" )) batching = FALSE;
         if ((tls_index = TlsAlloc()) == TLS_OUT_OF_INDEXES) return FALSE;
         if (!init_unix_calls( instance ))
         {
-            fprintf( stderr, "winemetalgl: winemetalgl.so is not loaded (is winemetalgl.dll installed as a builtin?)\n" );
+            WMGL_ERR( "winemetalgl.so is not loaded (is winemetalgl.dll installed as a builtin?)\n" );
             return FALSE;
         }
         if (!init_pixel_formats())
         {
-            fprintf( stderr, "winemetalgl: the WineMetalGL core did not start (libwinemetalgl.dylib)\n" );
+            WMGL_ERR( "the WineMetalGL core did not start (libwinemetalgl.dylib)\n" );
             return FALSE;
         }
         break;
@@ -342,8 +390,9 @@ static BOOL CALLBACK watch_child_windows( INIT_ONCE *once, void *param, void **c
     /* In context: called in the thread that changes the window, which may
      * not be one that pumps messages. */
     if (!SetWinEventHook( EVENT_OBJECT_CREATE, EVENT_OBJECT_PARENTCHANGE, module, child_window_event,
-                          GetCurrentProcessId(), 0, WINEVENT_INCONTEXT ) && wmgl_debug)
-        fprintf( stderr, "winemetalgl: no hook for child windows (%lu)\n", GetLastError() );
+                          GetCurrentProcessId(), 0, WINEVENT_INCONTEXT ))
+        WMGL_WARN( "no hook for child windows (%lu): a window's child windows may be hidden under GL\n",
+                  GetLastError() );
     return TRUE;
 }
 

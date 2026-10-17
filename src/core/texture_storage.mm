@@ -168,7 +168,7 @@ bool ensureViewStorage(Context& ctx, Texture& tex) {
                                                            levels:NSMakeRange(tex.viewMinLevel, tex.viewNumLevels)
                                                            slices:NSMakeRange(threeD ? 0 : tex.viewMinLayer, threeD ? 1 : tex.viewNumLayers)];
     if (!view) {
-        WMGL_ERR("texture view creation failed (%s)", storageName(base.format->storage));
+        WMGL_ERR(Texture, "texture view creation failed (%s)", storageName(base.format->storage));
         return false;
     }
     tex.mtl = view;
@@ -274,7 +274,7 @@ bool ensureTextureStorage(Context& ctx, Texture& tex) {
     (void)cube;
     id<MTLTexture> texture = [Device::get().mtl() newTextureWithDescriptor:desc];
     if (!texture) {
-        WMGL_ERR("texture allocation failed (%dx%dx%d %s)", w0, h0, d0, storageName(format->storage));
+        WMGL_ERR(Texture, "texture allocation failed (%dx%dx%d %s)", w0, h0, d0, storageName(format->storage));
         return false;
     }
     if (format->storedAlphaIsOne) initStorage(ctx, texture, MTLClearColorMake(0, 0, 0, 1));
@@ -349,7 +349,7 @@ id<MTLTexture> rgb32BufferView(Context& ctx, Texture& tex, Buffer* buffer) {
         NSError* error = nil;
         id<MTLFunction> function = [Device::get().utilityLibrary() newFunctionWithName:@"wmgl_expand_rgb32"];
         id<MTLComputePipelineState> state = function ? [Device::get().mtl() newComputePipelineStateWithFunction:function error:&error] : nil;
-        if (!state) WMGL_ERR("rgb32 expansion pipeline failed: %s", error.localizedDescription.UTF8String);
+        if (!state) WMGL_ERR(Pipeline, "rgb32 expansion pipeline failed: %s", error.localizedDescription.UTF8String);
         return state;
     }();
     if (!pipeline) return nil;

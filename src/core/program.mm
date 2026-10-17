@@ -136,11 +136,12 @@ id<MTLFunction> compileFunctionUncached(const std::string& msl, const std::strin
                                                                options:options
                                                                  error:&error];
     if (!library) {
-        WMGL_ERR("MSL compile failed for stage %d: %s\n%s", stage, error.localizedDescription.UTF8String, msl.c_str());
+        WMGL_ERR(Shader, "MSL compile failed for stage %d: %s\n%s", stage, error.localizedDescription.UTF8String,
+                 msl.c_str());
         return nil;
     }
     id<MTLFunction> function = [library newFunctionWithName:[NSString stringWithUTF8String:entryPoint.c_str()]];
-    if (!function) WMGL_ERR("entry point %s missing", entryPoint.c_str());
+    if (!function) WMGL_ERR(Shader, "entry point %s missing", entryPoint.c_str());
     return function;
 }
 
@@ -398,9 +399,9 @@ id<MTLComputePipelineState> computePipelineFor(const shader::StageOutput& output
                                                                                             options:MTLPipelineOptionNone
                                                                                          reflection:nil
                                                                                               error:&error];
-    if (!state) WMGL_ERR("compute pipeline creation failed: %s", error.localizedDescription.UTF8String);
+    if (!state) WMGL_ERR(Pipeline, "compute pipeline creation failed: %s", error.localizedDescription.UTF8String);
     else if (threads && state.maxTotalThreadsPerThreadgroup < threads)
-        WMGL_ERR("compute pipeline fits %lu threads per group, the program needs %lu",
+        WMGL_ERR(Pipeline, "compute pipeline fits %lu threads per group, the program needs %lu",
                  static_cast<unsigned long>(state.maxTotalThreadsPerThreadgroup), static_cast<unsigned long>(threads));
     return state;
 }
@@ -796,7 +797,7 @@ std::shared_ptr<LinkedProgram> pipelineExecutable(ProgramPipeline& pp) {
         auto assembled = std::make_shared<shader::PipelineLinkResult>(shader::linkPipeline(stages));
         out->pipelineLink = assembled;
         if (!assembled->ok) {
-            WMGL_WARN("program pipeline stages cannot be assembled:\n%s", assembled->log.c_str());
+            WMGL_WARN(Shader, "program pipeline stages cannot be assembled:\n%s", assembled->log.c_str());
         } else {
             const shader::LinkResult& a = assembled->link;
             auto inner = std::make_shared<LinkedProgram>();

@@ -143,9 +143,10 @@ Program* arbDrawProgram(Context& ctx, GLenum mode) {
         ArbLinked linked;
         linked.program = linkInternalProgram(vs, fs, "ff_tex", log, bindings);
         if (!linked.program) {
-            WMGL_ERR("ARB program failed to link:\n%s\n--- vertex\n%s--- fragment\n%s", log.c_str(), vs.c_str(), fs.c_str());
+            WMGL_ERR(Shader, "ARB program failed to link:\n%s\n--- vertex\n%s--- fragment\n%s", log.c_str(), vs.c_str(),
+                     fs.c_str());
         } else {
-            WMGL_TRACE("ARB program %zu built", cache.size() + 1);
+            WMGL_TRACE(Shader, "ARB program %zu built", cache.size() + 1);
             Program& p = *linked.program;
             for (int i = 0; i < 2; ++i) {
                 const arb::Parsed* parsed = i == 0 ? vp : fp;

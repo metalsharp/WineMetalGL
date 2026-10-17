@@ -855,10 +855,11 @@ Program* fixedFunctionProgram(Context& ctx, GLenum mode) {
     std::string log;
     RefPtr<Program> program = linkInternalProgram(vs, fs, "ff_tex", log);
     if (!program) {
-        WMGL_ERR("fixed-function program failed to link:\n%s\n--- vertex\n%s--- fragment\n%s", log.c_str(), vs.c_str(),
+        WMGL_ERR(Shader, "fixed-function program failed to link:\n%s\n--- vertex\n%s--- fragment\n%s", log.c_str(),
+                 vs.c_str(),
                  fs.c_str());
     } else {
-        WMGL_TRACE("fixed-function program %zu built", cache.size() + 1);
+        WMGL_TRACE(Shader, "fixed-function program %zu built", cache.size() + 1);
     }
     Program* raw = program.get();
     cache.emplace(bytes, std::move(program));  // failures are cached too (logged once)

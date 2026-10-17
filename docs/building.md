@@ -124,7 +124,10 @@ no `opengl32=native` override, and the program got Wine's own OpenGL.
 | Variable | Effect |
 |---|---|
 | `WINEDLLOVERRIDES=opengl32=b` | Use Wine's own OpenGL instead of WineMetalGL (how reference frames are recorded) |
-| `WINEMETALGL_LOG=1..3` | Log warnings, information or traces (errors are always logged). Warnings include each GL error the first time a command raises it, with the call's arguments |
+| `WINEMETALGL_LOG=1..3` | Log warnings, information or traces, everywhere or per category (`shader:3,gpu:2`); see [Logging](logging.md). Errors go to stderr and warnings to a log file in `~/Library/Logs/WineMetalGL` by default. Warnings include each GL error the first time a command raises it, with the call's arguments |
+| `WINEMETALGL_LOG_FILE=<path>` | Write the log file there (a directory, or a file where `%p` is the process ID); `0` writes none |
+| `WINEMETALGL_LOG_MAX_MB=<n>` | Stop the log file at `n` MiB (default 64) |
+| `WINEMETALGL_CRASH_HANDLER=0` | Do not write crash reports (they go to the log file, with the recent history, when WineMetalGL's code faults or the process aborts) |
 | `WINEMETALGL_TRACE=1` | Log every GL call |
 | `WINEMETALGL_STATS=1` | Log per-frame statistics: frame and GL time, draws, passes and why they ended, command buffers, pipeline compiles, CPU conversions, readbacks, indirect draw commands read by the GPU or (after a wait) the CPU, and why the CPU reads them (each reason described once per program), and the memory the Metal device has allocated (growing while a scene stands still means GPU resources are retained); every 60 frames, the costliest commands |
 | `WINEMETALGL_BATCH=0` | Make every GL call its own unix call (by default the module batches calls that return nothing and take values, and runs them before the next other call) |
@@ -136,5 +139,5 @@ no `opengl32=native` override, and the program got Wine's own OpenGL.
 | `WINEMETALGL_PREWARM=0` | Compile a program's Metal functions at its first draw instead of in the background after it links |
 | `WINEMETALGL_SAFE_MATH=1` | Compile shaders with Metal's safe math instead of relaxed math (relaxed allows optimizations such as reassociation that can change results slightly, and keeps infinities and NaN; safe allows none) |
 | `WINEMETALGL_METALFX=0`, `=<factor>` | Turn off, or set the factor of, MetalFX spatial upscaling of window back buffers. Unset, WineMetalGL follows DXMT's setting: off when `DXMT_METALFX_SPATIAL_SWAPCHAIN=0`, else `d3d11.metalSpatialUpscaleFactor` from `DXMT_CONFIG`, `DXMT_CONFIG_FILE` or the Wine installation's `etc/dxmt.conf` (2 when only `DXMT_METALFX_SPATIAL_SWAPCHAIN=1` is set). Factors above 1 (at most 4) present a back buffer through the MetalFX spatial scaler into a drawable that much larger, on GPUs MetalFX supports |
-| `WINEMETALGL_WINE_DEBUG=1` | Log what the Wine module does (contexts, surfaces, windows) |
+| `WINEMETALGL_WINE_DEBUG=1` | Log what the Wine module does (contexts, surfaces, windows): `WINEMETALGL_LOG=wine:3,pe:3` |
 | `WINEMETALGL_VENDOR`, `WINEMETALGL_RENDERER` | Replace the `GL_VENDOR` and `GL_RENDERER` strings, for games that refuse unknown vendors |

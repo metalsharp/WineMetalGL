@@ -26,7 +26,7 @@
 #include "wmgl_pe.h"
 
 #define TRACE(...) do { } while (0)
-#define FIXME(...) WMGL_TRACE(__VA_ARGS__)
+#define FIXME(...) WMGL_INFO(__VA_ARGS__)
 #define WARN(...) WMGL_TRACE(__VA_ARGS__)
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))

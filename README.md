@@ -92,6 +92,8 @@ OpenGL 1.0 to 2.1 are implemented by WineMetalGL itself, as its compatibility pr
   module, installing them into a Wine 11.x, and checking that a program uses
   them.
 - [Performance](docs/performance.md): frame times against Apple's OpenGL.
+- [Logging](docs/logging.md): log levels and categories, the log file, and
+  crash reports.
 
 Also: the [game corpus](docs/games.md) results, [releasing](docs/release.md), and the [design decisions](docs/decisions/).
 

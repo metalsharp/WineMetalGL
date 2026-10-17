@@ -94,9 +94,7 @@ static struct macdrv_functions_t *winemac_functions(void)
 
 static void trace( const char *what, const struct wmgl_placement *placement )
 {
-    static int enabled = -1;
-    if (enabled < 0) enabled = getenv( "WINEMETALGL_WINE_DEBUG" ) != NULL;
-    if (enabled) fprintf( stderr, "winemetalgl: window %#llx: %s\n", (unsigned long long)placement->hwnd, what );
+    if (wmgl_log_max >= 3) wmgl_log( 3, "window %#llx: %s", (unsigned long long)placement->hwnd, what );
 }
 
 void *wmgl_window_default_device( void )

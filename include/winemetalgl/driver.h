@@ -106,6 +106,17 @@ void wmgl_set_buffer_memory(void *(*allocate)(size_t size), void (*release)(void
 void wmgl_stats_enable(int enable);
 void wmgl_stats_reset(void);
 int wmgl_stats_counter(const char *name, unsigned long long *value);
+/* Logging (src/core/util/log.h), so that the Wine module's messages share
+ * the core's levels, log file and crash history. wmgl_log_set_host names the
+ * program (the Windows executable's path) and the host (Wine's version) for
+ * the banner and the log file's name; call it before wmgl_initialize.
+ * wmgl_log_level returns the highest level (0 error .. 3 trace, -1 none) that
+ * a category ("wine", "pe", ...; unknown names are "wine") keeps, so callers
+ * can skip building messages; wmgl_log_write logs one message (a trailing
+ * newline is dropped). Optional: cores before 3.3.0 do not export them. */
+void wmgl_log_set_host(const char *program, const char *host_version);
+int wmgl_log_level(const char *category);
+void wmgl_log_write(int level, const char *category, const char *text);
 
 #ifdef __cplusplus
 }

@@ -17,7 +17,7 @@ Device& Device::get() {
 Device::Device() {
     device_ = MTLCreateSystemDefaultDevice();
     if (!device_) {
-        WMGL_ERR("no Metal device");
+        WMGL_ERR(Gpu, "no Metal device");
         return;
     }
     std::strncpy(name_, device_.name.UTF8String, sizeof(name_) - 1);
@@ -45,7 +45,7 @@ Device::Device() {
         caps_.sampleCountSupported[samples] = [device_ supportsTextureSampleCount:samples];
         if (caps_.sampleCountSupported[samples]) caps_.maxSamples = samples;
     }
-    WMGL_INFO("device %s: bc=%d mesh=%d fbfetch=%d lodBias=%d offsets16=%d maxSamples=%u", name_, caps_.bcTextures,
+    WMGL_INFO(Gpu, "device %s: bc=%d mesh=%d fbfetch=%d lodBias=%d offsets16=%d maxSamples=%u", name_, caps_.bcTextures,
               caps_.meshShaders, caps_.framebufferFetch, caps_.samplerLodBias, caps_.drawOffsets16, caps_.maxSamples);
 }
 
@@ -59,7 +59,8 @@ id<MTLLibrary> Device::utilityLibrary() {
         utility_ = [device_ newLibraryWithSource:[NSString stringWithUTF8String:kUtilityShaderSource]
                                          options:options
                                            error:&error];
-        if (!utility_) WMGL_ERR("utility shaders failed to compile: %s", error.localizedDescription.UTF8String);
+        if (!utility_) WMGL_ERR(Pipeline, "utility shaders failed to compile: %s",
+                                error.localizedDescription.UTF8String);
     }
     return utility_;
 }

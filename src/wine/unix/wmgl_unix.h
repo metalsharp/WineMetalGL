@@ -67,8 +67,19 @@ struct wmgl_debug_target
 struct wmgl_debug_target *wmgl_current_debug_target( void );
 void wmgl_set_debug_callback( UINT64 callback, UINT64 user, BOOL amd );
 
-#define WMGL_ERR(...) fprintf( stderr, "winemetalgl: " __VA_ARGS__ )
-extern BOOL wmgl_trace;
-#define WMGL_TRACE(...) do { if (wmgl_trace) fprintf( stderr, "winemetalgl: " __VA_ARGS__ ); } while (0)
+/* Logging (unix_log.c): into the core's log once it is loaded (category
+ * "wine"), to stderr before. Levels: 0 error, 1 warning, 2 info, 3 trace;
+ * wmgl_log_max is the highest the log keeps, so the macros skip building
+ * messages it would drop. */
+extern int wmgl_log_max;
+void wmgl_log( int level, const char *format, ... ) __attribute__((format(printf, 2, 3)));
+/* Binds the log to the core (NULL: none) and names the program and host. */
+void wmgl_log_start( void *core, const char *program, const char *host_version );
+/* The highest level the PE side's messages ("pe") are kept at. */
+int wmgl_pe_log_level( void );
+#define WMGL_ERR(...) wmgl_log( 0, __VA_ARGS__ )
+#define WMGL_WARN(...) do { if (wmgl_log_max >= 1) wmgl_log( 1, __VA_ARGS__ ); } while (0)
+#define WMGL_INFO(...) do { if (wmgl_log_max >= 2) wmgl_log( 2, __VA_ARGS__ ); } while (0)
+#define WMGL_TRACE(...) do { if (wmgl_log_max >= 3) wmgl_log( 3, __VA_ARGS__ ); } while (0)
 
 #endif

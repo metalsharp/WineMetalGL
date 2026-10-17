@@ -116,7 +116,7 @@ Program* blitProgram(Context& ctx, Blit kind) {
     if (it != cache.end()) return it->second.get();
     std::string log;
     RefPtr<Program> program = compat::linkInternalProgram(kBlitVertex, fragmentSource(kind), "wmgl_tex", log);
-    if (!program) WMGL_ERR("pixel rectangle program failed to link:\n%s", log.c_str());
+    if (!program) WMGL_ERR(Shader, "pixel rectangle program failed to link:\n%s", log.c_str());
     Program* raw = program.get();
     cache.emplace(key, std::move(program));
     return raw;
@@ -353,7 +353,8 @@ void PixelTransferf(Context& ctx, GLenum pname, GLfloat param) {
     const bool scale = pname == GL_RED_SCALE || pname == GL_GREEN_SCALE || pname == GL_BLUE_SCALE ||
                        pname == GL_ALPHA_SCALE || pname == GL_DEPTH_SCALE;
     if (param != (scale ? 1.0f : 0.0f))
-        logOnce(LogLevel::Warn, "glPixelTransfer", "glPixelTransfer(0x%04x, %g) is ignored", pname, static_cast<double>(param));
+        logOnce(LogLevel::Warn, LogCategory::Api, "glPixelTransfer", "glPixelTransfer(0x%04x, %g) is ignored", pname,
+                static_cast<double>(param));
 }
 void PixelTransferi(Context& ctx, GLenum pname, GLint param) { PixelTransferf(ctx, pname, static_cast<GLfloat>(param)); }
 
@@ -398,7 +399,8 @@ void DrawPixels(Context& ctx, GLsizei width, GLsizei height, GLenum format, GLen
         internal = GL_DEPTH_COMPONENT32F;
         break;
     case GL_STENCIL_INDEX: case GL_DEPTH_STENCIL: case GL_COLOR_INDEX:
-        logOnce(LogLevel::Warn, "glDrawPixels", "glDrawPixels with format 0x%04x is not supported", format);
+        logOnce(LogLevel::Warn, LogCategory::Api, "glDrawPixels", "glDrawPixels with format 0x%04x is not supported",
+                format);
         return;
     default: break;
     }
@@ -456,7 +458,7 @@ void CopyPixels(Context& ctx, GLint x, GLint y, GLsizei width, GLsizei height, G
     const FixedState::RasterPos& r = ctx.state.fixed.rasterPos;
     if (!r.valid || !width || !height) return;
     if (type == GL_STENCIL || type == GL_DEPTH_STENCIL) {
-        logOnce(LogLevel::Warn, "glCopyPixels", "glCopyPixels of stencil is not supported");
+        logOnce(LogLevel::Warn, LogCategory::Api, "glCopyPixels", "glCopyPixels of stencil is not supported");
         return;
     }
     const bool depth = type == GL_DEPTH;

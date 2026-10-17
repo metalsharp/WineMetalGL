@@ -26,7 +26,7 @@
 #define TRACE(...) do { } while (0)
 #define FIXME(...) WMGL_TRACE(__VA_ARGS__)
 #define WARN(...) WMGL_TRACE(__VA_ARGS__)
-#define ERR(...) WMGL_TRACE(__VA_ARGS__)
+#define ERR(...) WMGL_WARN(__VA_ARGS__)
 
 #define GL_CCW 0x0901
 #define GL_LINE_LOOP 0x0002
@@ -120,7 +120,7 @@ static BOOL wglUseFontBitmaps_common( HDC hdc, DWORD first, DWORD count, DWORD l
              if (!ret) break;
          }
 
-         if (wmgl_debug)
+         if (wmgl_log_max >= 3)
          {
              unsigned int bitmask;
              unsigned char *bitmap_ = bitmap;

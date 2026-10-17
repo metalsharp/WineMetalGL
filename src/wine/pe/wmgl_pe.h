@@ -122,7 +122,14 @@ void WINAPI glBitmap( GLsizei width, GLsizei height, GLfloat xorig, GLfloat yori
                       const GLubyte *bitmap );
 void WINAPI glPixelStorei( GLenum pname, GLint param );
 
-#define WMGL_TRACE(...) do { if (wmgl_debug) { fprintf( stderr, "winemetalgl: " __VA_ARGS__ ); } } while (0)
-extern BOOL wmgl_debug;
+/* Logging (winemetalgl.c): through winemetalgl.so into the core's log
+ * (category "pe"), to stderr before the unix side is up. Levels: 0 error,
+ * 1 warning, 2 info, 3 trace; wmgl_log_max is the highest the log keeps. */
+extern int wmgl_log_max;
+void wmgl_log( int level, const char *format, ... ) __attribute__((format(printf, 2, 3)));
+#define WMGL_ERR(...) wmgl_log( 0, __VA_ARGS__ )
+#define WMGL_WARN(...) do { if (wmgl_log_max >= 1) wmgl_log( 1, __VA_ARGS__ ); } while (0)
+#define WMGL_INFO(...) do { if (wmgl_log_max >= 2) wmgl_log( 2, __VA_ARGS__ ); } while (0)
+#define WMGL_TRACE(...) do { if (wmgl_log_max >= 3) wmgl_log( 3, __VA_ARGS__ ); } while (0)
 
 #endif

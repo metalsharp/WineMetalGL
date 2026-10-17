@@ -91,10 +91,20 @@ struct wmgl_place_window_params
 
 struct wmgl_init_params
 {
+    UINT64 program;         /* the program's path (client string), for the log */
+    UINT64 host_version;    /* Wine's version (client string, or 0), for the log */
     UINT format_count;      /* out: pixel formats */
     UINT onscreen_count;    /* out: of which drawable to windows (the first ones) */
     INT core_major, core_minor;
+    INT log_level;          /* out: the highest level the PE side's messages are kept at (-1: none) */
     BOOL ok;
+};
+
+/* log: a message of the PE side, into the core's log (category "pe"). */
+struct wmgl_log_params
+{
+    UINT level;      /* 0 error, 1 warning, 2 info, 3 trace */
+    UINT64 text;     /* client string */
 };
 
 struct wmgl_pixel_formats_params
