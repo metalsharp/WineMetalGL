@@ -56,7 +56,7 @@ jobs:
           test "$minos" = 15.0
 
       - name: Upload x86_64 core
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winemetalgl-x86_64-macos15
           path: build/release/libwinemetalgl.dylib
@@ -121,7 +121,7 @@ jobs:
           done
 
       - name: Upload the module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winemetalgl-wine-module
           path: |
@@ -175,7 +175,7 @@ jobs:
 
       - name: Keep the disk image when it fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winemetalgl-settings-dmg
           path: ${{ runner.temp }}/WineMetalGL-Settings.dmg

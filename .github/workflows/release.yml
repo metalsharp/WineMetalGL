@@ -190,7 +190,7 @@ jobs:
         run: tar -czf "$RUNNER_TEMP/staged.tar.gz" -C "$RUNNER_TEMP/out" "winemetalgl-$VERSION-x86_64" "winemetalgl-$VERSION-arm64-core"
 
       - name: Upload the staged releases
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: staged
           path: ${{ runner.temp }}/staged.tar.gz
