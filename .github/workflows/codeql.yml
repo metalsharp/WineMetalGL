@@ -27,7 +27,7 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The vendored glslang and SPIRV-Cross are built before CodeQL starts
       # tracing, so only WineMetalGL's own C, C++ and Objective-C++ is analysed.

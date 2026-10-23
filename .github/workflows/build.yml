@@ -21,7 +21,7 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check toolchain
         run: |
@@ -69,7 +69,7 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configure for the build machine
         run: cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DWMGL_HOST_ONLY=ON
@@ -92,7 +92,7 @@ jobs:
       WINE_SHA256: c07a6857933c1fc60dff5448d79f39c92481c1e9db5aa628db9d0358446e0701
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch llvm-mingw and the Wine 11.0 headers
         run: |
@@ -136,7 +136,7 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build, sign ad hoc and make the disk image
         run: |

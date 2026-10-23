@@ -27,7 +27,7 @@ jobs:
       release: ${{ steps.version.outputs.release }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Read the version and look for its tag
         id: version
@@ -62,7 +62,7 @@ jobs:
       WINE_SHA256: c07a6857933c1fc60dff5448d79f39c92481c1e9db5aa628db9d0358446e0701
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch llvm-mingw and the Wine 11.0 headers
         run: |
@@ -212,7 +212,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch the staged releases
         uses: actions/download-artifact@v4
