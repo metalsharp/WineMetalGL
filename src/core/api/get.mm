@@ -19,6 +19,25 @@ namespace wmgl::api {
 
 namespace limits = wmgl::limits;
 
+// Set for 32-bit (WoW64) programs, whose buffer storage the Wine module
+// places below 4 GB (api/buffer.mm).
+extern void* (*g_bufferAllocate)(size_t);
+
+namespace {
+
+// GL_NVX_gpu_memory_info / GL_ATI_meminfo memory, in KiB: Metal's
+// recommended working set stands in for dedicated memory. A 32-bit program
+// reaches 4 GB in all, its GL buffers included, so it is told at most
+// 2047 MiB, which in bytes still fits the signed 32-bit integers such
+// programs keep it in. On a 512 GB Mac the working set is several hundred
+// GB; City of Heroes then failed a 2.2 GB allocation of its own (#94).
+int64_t reportedMemoryKiB(uint64_t bytes) {
+    const int64_t kib = static_cast<int64_t>(bytes / 1024);
+    return g_bufferAllocate ? std::min<int64_t>(kib, 2047 * 1024) : kib;
+}
+
+}  // namespace
+
 bool implementationReadFormat(Context& ctx, GLenum& format, GLenum& type) {
     if (CheckFramebufferStatus(ctx, GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
     uint32_t level, slice;
@@ -698,12 +717,14 @@ bool getState(Context& ctx, GLenum pname, Value& out) {
         out = ints({s.drawFramebuffer ? s.drawFramebuffer->drawBuffers[i] : GL_NONE});
         return true;
     }
-    // GL_NVX_gpu_memory_info / GL_ATI_meminfo: Metal's recommended working
-    // set stands in for dedicated memory (values in KiB).
+    // GL_NVX_gpu_memory_info / GL_ATI_meminfo (reportedMemoryKiB).
+    const auto freeMemory = [] {
+        const uint64_t workingSet = Device::get().caps().workingSetBytes;
+        return reportedMemoryKiB(workingSet - std::min<uint64_t>(workingSet, Device::get().mtl().currentAllocatedSize));
+    };
     if (pname >= GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX && pname <= GL_GPU_MEMORY_INFO_EVICTED_MEMORY_NVX) {
-        const int64_t total = static_cast<int64_t>(Device::get().caps().workingSetBytes / 1024);
-        const int64_t used = static_cast<int64_t>(Device::get().mtl().currentAllocatedSize / 1024);
-        const int64_t free = std::max<int64_t>(0, total - used);
+        const int64_t total = reportedMemoryKiB(Device::get().caps().workingSetBytes);
+        const int64_t free = freeMemory();
         switch (pname) {
         case GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX: case GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX: out = ints({total}); break;
         case GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX: out = ints({free}); break;
@@ -712,8 +733,7 @@ bool getState(Context& ctx, GLenum pname, Value& out) {
         return true;
     }
     if (pname == GL_VBO_FREE_MEMORY_ATI || pname == GL_TEXTURE_FREE_MEMORY_ATI || pname == GL_RENDERBUFFER_FREE_MEMORY_ATI) {
-        const int64_t total = static_cast<int64_t>(Device::get().caps().workingSetBytes / 1024);
-        const int64_t free = std::max<int64_t>(0, total - static_cast<int64_t>(Device::get().mtl().currentAllocatedSize / 1024));
+        const int64_t free = freeMemory();
         out = ints({free, free, 0, 0});  // total free, largest block, auxiliary free, largest auxiliary block
         return true;
     }
