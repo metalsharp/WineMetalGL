@@ -325,6 +325,8 @@ UpgradeResult upgradeLegacyGlsl(Stage stage, const std::string& source, const Up
         {"texture3DGradARB", "textureGrad"}, {"textureCubeGradARB", "textureGrad"},
     };
     for (const auto& [from, to] : kTextureFunctions) rename[from] = to;
+    static const std::set<std::string> kGenericTextureFunctions = {"texture", "textureProj", "textureLod",
+                                                                   "textureProjLod", "textureGrad"};
     // shadow*() returned vec4 in GLSL 1.x; texture() on shadow samplers
     // returns float: the call becomes vec4(texture(...)). (Inline, not a
     // helper function: several shader objects of a stage may use them.)
@@ -452,6 +454,21 @@ UpgradeResult upgradeLegacyGlsl(Stage stage, const std::string& source, const Up
             i = end;
             const std::string previous = previousWord;
             previousWord = word;
+            // The generic functions the texture renames call are ordinary
+            // names in GLSL 1.10-1.20: a variable named `texture` would hide
+            // the function (Another Brick in the Mall's
+            // "uniform sampler2D texture;" read with texture2D(texture, ...),
+            // issue #100). Names not called become escaped user names
+            // (kEscapePrefix, which the program interface strips again).
+            // Macro bodies keep them: "#define TEX texture" names the function.
+            if (!inDefine && kGenericTextureFunctions.count(word)) {
+                size_t next = i;
+                while (next < n && std::isspace(static_cast<unsigned char>(source[next]))) ++next;
+                if (next >= n || source[next] != '(') {
+                    out += kEscapePrefix + word;
+                    continue;
+                }
+            }
             auto it = rename.find(word);
             if (it != rename.end()) {
                 out += it->second;
