@@ -26,6 +26,7 @@ void wmgl_x87_attach(void)
 
 #else /* __aarch64__ */
 
+#include <ctype.h>
 #include <dlfcn.h>
 #include <libgen.h>
 #include <libkern/OSCacheControl.h>
@@ -60,21 +61,43 @@ typedef struct
 
 /* 32-bit games whose x87 math holds them far below their frame rate
  * without the sidecar: id Tech 4's (Quake 4 runs at 60 fps only with it,
- * as does Doom 3: BFG Edition, issue #25). */
-static const char *const x87_games[] = { "Quake4.exe", "Doom3.exe", "Doom3BFG.exe" };
+ * as does Doom 3: BFG Edition, issue #25), and Another Brick in the Mall
+ * (about 1 fps in a map without it, issue #100). A program name too common
+ * to stand alone ("launch.exe") comes with its folder, as Steam names it. */
+static const char *const x87_games[] =
+{
+    "Quake4.exe", "Doom3.exe", "Doom3BFG.exe",
+    "Another Brick in the Mall\\launch.exe",
+};
+
+/* Whether the path `program` ends in `game`, whole components from a
+ * separator on, either separator matching either. */
+static BOOL program_is( const char *program, const char *game )
+{
+    size_t length = strlen( program ), suffix = strlen( game ), i;
+    const char *tail;
+
+    if (length < suffix) return FALSE;
+    tail = program + length - suffix;
+    if (tail > program && tail[-1] != '\\' && tail[-1] != '/') return FALSE;
+    for (i = 0; i < suffix; i++)
+    {
+        BOOL separators = (tail[i] == '\\' || tail[i] == '/') && (game[i] == '\\' || game[i] == '/');
+        if (!separators && tolower( (unsigned char)tail[i] ) != tolower( (unsigned char)game[i] )) return FALSE;
+    }
+    return TRUE;
+}
 
 static BOOL x87_wanted(void)
 {
-    const char *enabled = getenv( "WINEMETALGL_X87" ), *program = wmgl_program(), *name = program;
-    const char *p;
+    const char *enabled = getenv( "WINEMETALGL_X87" ), *program = wmgl_program();
     unsigned int i;
 
     if (enabled) return !strcmp( enabled, "1" );
-    for (p = program; *p; p++) if (*p == '\\' || *p == '/') name = p + 1;
     for (i = 0; i < ARRAY_SIZE(x87_games); i++)
-        if (!strcasecmp( name, x87_games[i] ))
+        if (program_is( program, x87_games[i] ))
         {
-            WMGL_INFO( "x87: on for %s (WINEMETALGL_X87=0 turns it off)\n", name );
+            WMGL_INFO( "x87: on for %s (WINEMETALGL_X87=0 turns it off)\n", program );
             return TRUE;
         }
     return FALSE;
