@@ -166,9 +166,10 @@ Applications.
   download.
 - **UpscaleGL**: Off, Quality, Balanced or Performance (`WINEMETALGL_UPSCALE`).
 - **x87 Acceleration**: on (`WINEMETALGL_X87=1`) or off (`=0`). Until it
-  is switched, it is on only for the games known to need it (Quake 4, Doom 3
-  and Doom 3: BFG Edition: `Quake4.exe`, `Doom3.exe`, `Doom3BFG.exe`), and
-  off for the others.
+  is switched, it is on only for the games known to need it (Quake 4, Doom 3,
+  Doom 3: BFG Edition and Another Brick in the Mall: `Quake4.exe`,
+  `Doom3.exe`, `Doom3BFG.exe`, and `launch.exe` in an
+  `Another Brick in the Mall` folder), and off for the others.
 - **Logging**: everything (`WINEMETALGL_LOG=2`) or nothing, and a button that
   opens `~/Library/Logs/WineMetalGL`. Until it is switched, WineMetalGL logs
   warnings, as without the app.

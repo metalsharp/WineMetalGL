@@ -125,6 +125,34 @@ TEST(shader_legacy_glsl_110) {
     CHECK(findAttrib(r, "pos") != nullptr);
 }
 
+// A legacy sampler named after a GLSL 1.30 texture function, read with
+// texture2D (Another Brick in the Mall's v3f-t2f-c4f.frag, issue #100): the
+// upgrade's texture() calls still reach the function, and the program
+// reports the uniform by its own name.
+TEST(shader_legacy_sampler_named_texture) {
+    LinkInput in;
+    in.shaders.push_back({Stage::Vertex, "void main() { gl_TexCoord[0] = gl_MultiTexCoord0; gl_FrontColor = gl_Color;\n"
+                                         "    gl_Position = ftransform(); }\n"});
+    in.shaders.push_back({Stage::Fragment,
+                          "uniform sampler2D texture;\nuniform sampler2D textureLod;\n"
+                          "void main() {\n"
+                          "    float a = texture2D(texture, gl_TexCoord[0].xy).r;\n"
+                          "    float b = texture2DLod(textureLod, gl_TexCoord[0].xy, 0.0).r;\n"
+                          "    gl_FragColor = vec4(gl_Color.rgb, gl_Color.a * a * b);\n"
+                          "}\n"});
+    LinkResult r = link(in);
+    if (!r.ok) std::fprintf(stderr, "%s\n", r.log.c_str());
+    CHECK(r.ok);
+    CHECK(findUniform(r, "texture") != nullptr);
+    CHECK(findUniform(r, "textureLod") != nullptr);
+    // texture() itself, called (GLSL 1.30) or named by a macro, stays the function.
+    CompileResult called = compile(Stage::Fragment, "#version 130\nuniform sampler2D t; in vec2 uv;\n"
+                                                    "#define TEX texture\n"
+                                                    "void main() { gl_FragColor = texture (t, uv) + TEX(t, uv); }\n");
+    if (!called.ok) std::fprintf(stderr, "%s\n", called.log.c_str());
+    CHECK(called.ok);
+}
+
 TEST(shader_legacy_macros) {
     // Built-ins and legacy functions inside #define bodies are rewritten too.
     LinkInput in;
