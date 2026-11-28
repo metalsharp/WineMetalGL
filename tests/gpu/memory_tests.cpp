@@ -2,6 +2,7 @@
 // game that streams textures, vertex arrays and buffers every frame (issue
 // #16) must not grow the Metal device's allocations, nor the host memory a
 // 32-bit application's buffers live in.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -162,6 +163,41 @@ GPU_TEST_VERSION(gpu_memory_streamed_objects_are_freed, 46) {
     if (grew >= 256ll << 20) std::fprintf(stderr, "  device allocations grew %.1f MiB over 1000 frames\n", static_cast<double>(grew) / 1048576.0);
     CHECK(grew < 256ll << 20);
     CHECK_GL();
+}
+
+TEST(gpu_memory_info_fits_32_bit_programs) {
+    // A 32-bit program (buffer storage in host memory, as the Wine module
+    // places it for them) is told at most 2047 MiB of GPU memory, which it
+    // can count in bytes in a signed 32-bit integer (City of Heroes, #94);
+    // 64-bit programs get Metal's working set.
+    constexpr GLint kCap = 2047 * 1024;
+    GLint wide = 0;
+    {
+        gpu::Fixture fixture(64, 64, false, 46);
+        CHECK(fixture.ok);
+        if (fixture.ok) glGetIntegerv(GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX, &wide);
+    }
+    wmgl_set_buffer_memory(hostAllocate, hostRelease);
+    {
+        gpu::Fixture fixture(64, 64, false, 46);
+        CHECK(fixture.ok);
+        if (fixture.ok) {
+            GLint dedicated = 0, total = 0, available = 0, ati[4] = {}, vbo[4] = {};
+            glGetIntegerv(GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX, &dedicated);
+            glGetIntegerv(GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX, &total);
+            glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &available);
+            glGetIntegerv(GL_TEXTURE_FREE_MEMORY_ATI, ati);
+            glGetIntegerv(GL_VBO_FREE_MEMORY_ATI, vbo);
+            CHECK_EQ(dedicated, std::min(wide, kCap));
+            CHECK_EQ(total, dedicated);
+            CHECK(available > 0 && available <= dedicated);
+            CHECK(ati[0] > 0 && ati[0] <= kCap && ati[1] == ati[0]);
+            CHECK(vbo[0] > 0 && vbo[0] <= kCap);
+            CHECK_GL();
+        }
+    }
+    wmgl_set_buffer_memory(nullptr, nullptr);
+    if (wide <= kCap) std::fprintf(stderr, "  this GPU's working set (%d KiB) is under the cap; the cap is not exercised\n", wide);
 }
 
 TEST(gpu_memory_streamed_buffers_with_host_memory_are_freed) {
